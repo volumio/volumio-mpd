@@ -1,0 +1,17 @@
+Description: Protect /usr when running under systemd
+Author: Florian Schlichting <fsfs@debian.org> 
+Bug: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=771634
+Forwarded: http://mailman.blarg.de/pipermail/mpd-devel/2015-June/000363.html
+
+--- a/systemd/mpd.service.in
++++ b/systemd/mpd.service.in
+@@ -10,6 +10,9 @@
+ LimitRTPRIO=50
+ LimitRTTIME=infinity
+ 
++# disallow writing to /usr, /bin, /sbin, ...
++ProtectSystem=yes
++
+ [Install]
+ WantedBy=multi-user.target
+ Also=mpd.socket

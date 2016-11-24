@@ -1,0 +1,13 @@
+Description: also disable mpd.socket when disabling mpd.service
+ e.g. when running 'update-rc.d mpd disable'
+Author: Clément B. <cb+debianbugreport@rthelemy.eu>
+Bug: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=769951
+Forwarded: http://mailman.blarg.de/pipermail/mpd-devel/2015-June/000363.html
+
+--- a/systemd/mpd.service.in
++++ b/systemd/mpd.service.in
+@@ -12,3 +12,4 @@
+ 
+ [Install]
+ WantedBy=multi-user.target
++Also=mpd.socket

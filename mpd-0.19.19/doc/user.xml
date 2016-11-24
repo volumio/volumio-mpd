@@ -1,0 +1,3324 @@
+<?xml version='1.0' encoding="utf-8"?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+                      "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+
+<book>
+  <title>The Music Player Daemon - User's Manual</title>
+
+  <chapter id="intro">
+    <title>Introduction</title>
+
+    <para>
+      This document is work in progress.  Most of it may be incomplete
+      yet.  Please help!
+    </para>
+
+    <para>
+      <application>MPD</application> (Music Player Daemon) is, as the
+      name suggests, a server software allowing you to remotely play
+      your music, handle playlists, deliver music (HTTP streams with
+      various sub-protocols) and organize playlists.
+    </para>
+
+    <para>
+      It has been written with minimal resource usage and stability in
+      mind!  Infact, it runs fine on a Pentium 75, allowing you to use
+      your cheap old PC to create a stereo system!
+    </para>
+
+    <para>
+      <application>MPD</application> supports also gapless playback,
+      buffered audio output, and crossfading!
+    </para>
+
+    <para>
+      The separate client and server design allows users to choose a
+      user interface that best suites their tastes independently of
+      the underlying daemon, which actually plays music!
+    </para>
+  </chapter>
+
+  <chapter id="install">
+    <title>Installation</title>
+
+    <para>
+      We recommend that you use the software installation routines of
+      your distribution to install <application>MPD</application>.
+      Most operating systems have a <application>MPD</application>
+      package, which is very easy to install.
+    </para>
+
+    <section id="install_debian">
+      <title>Installing on Debian/Ubuntu</title>
+
+      <para>
+        Install the package <application>MPD</application> via APT:
+      </para>
+
+      <programlisting>apt-get install mpd</programlisting>
+
+      <para>
+        When installed this way, <application>MPD</application> by
+        default looks for music in
+        <filename>/var/lib/mpd/music/</filename>; this may not be
+        correct. Look at your <filename>/etc/mpd.conf</filename>
+        file...
+      </para>
+    </section>
+
+    <section id="install_source">
+      <title>Compiling from source</title>
+
+      <para>
+        Download the source tarball from <ulink
+        url="http://www.musicpd.org/download.html">the
+        <application>MPD</application> home page</ulink> and unpack
+        it:
+      </para>
+
+      <programlisting>tar xf mpd-version.tar.xz
+cd mpd-version</programlisting>
+
+      <para>
+        Make sure that all the required libraries and build tools are
+        installed.  The <filename>INSTALL</filename> file has a list.
+      </para>
+
+      <para>
+        For example, the following installs a fairly complete list of
+        build dependencies on Debian Wheezy:
+      </para>
+
+      <programlisting>
+apt-get install g++ \
+  libmad0-dev libmpg123-dev libid3tag0-dev \
+  libflac-dev libvorbis-dev libopus-dev \
+  libadplug-dev libaudiofile-dev libsndfile1-dev libfaad-dev \
+  libfluidsynth-dev libgme-dev libmikmod2-dev libmodplug-dev \
+  libmpcdec-dev libwavpack-dev libwildmidi-dev \
+  libsidplay2-dev libsidutils-dev libresid-builder-dev \
+  libavcodec-dev libavformat-dev \
+  libmp3lame-dev \
+  libsamplerate0-dev libsoxr-dev \
+  libbz2-dev libcdio-paranoia-dev libiso9660-dev libmms-dev \
+  libzzip-dev \
+  libcurl4-gnutls-dev libyajl-dev libexpat-dev \
+  libasound2-dev libao-dev libjack-jackd2-dev libopenal-dev \
+  libpulse-dev libroar-dev libshout3-dev \
+  libmpdclient-dev \
+  libnfs-dev libsmbclient-dev \
+  libupnp-dev \
+  libavahi-client-dev \
+  libsqlite3-dev \
+  libsystemd-daemon-dev libwrap0-dev \
+  libcppunit-dev xmlto \
+  libboost-dev \
+  libglib2.0-dev libicu-dev
+      </programlisting>
+
+      <para>
+        Now configure the source tree:
+      </para>
+
+      <programlisting>./configure</programlisting>
+
+      <para>
+        The <parameter>--help</parameter> argument shows a list of
+        compile-time options.  When everything is ready and
+        configured, compile:
+      </para>
+
+      <programlisting>make</programlisting>
+
+      <para>
+        And install:
+      </para>
+
+      <programlisting>make install</programlisting>
+    </section>
+
+    <section id="systemd_socket">
+      <title><filename>systemd</filename> socket activation</title>
+
+      <para>
+        Using <filename>systemd</filename>, you can launch
+        <application>MPD</application> on demand when the first client
+        attempts to connect.
+      </para>
+
+      <para>
+        <application>MPD</application> comes with two
+        <application>systemd</application> unit files: a "service"
+        unit and a "socket" unit.  These will only be installed when
+        <application>MPD</application> was configured with
+        <parameter>--with-systemdsystemunitdir=/lib/systemd</parameter>.
+      </para>
+
+      <para>
+        To enable socket activation, type:
+      </para>
+
+      <programlisting>systemctl enable mpd.socket
+systemctl start mpd.socket</programlisting>
+
+      <para>
+        In this configuration, <application>MPD</application> will
+        ignore the <varname>bind_to_address</varname> and
+        <varname>port</varname> settings.
+      </para>
+    </section>
+  </chapter>
+
+  <chapter id="config">
+    <title>Configuration</title>
+
+    <section id="config_music_directory">
+      <title>Configuring the music directory</title>
+
+      <para>
+        When you play local files, you should organize them within a
+        directory called the "music directory".  This is configured in
+        <application>MPD</application> with the
+        <varname>music_directory</varname> setting.
+      </para>
+
+      <para>
+        By default, <application>MPD</application> follows symbolic
+        links in the music directory.  This behavior can be switched
+        off: <varname>follow_outside_symlinks</varname> controls
+        whether <application>MPD</application> follows links pointing
+        to files outside of the music directory, and
+        <varname>follow_inside_symlinks</varname> lets you disable
+        symlinks to files inside the music directory.
+      </para>
+
+      <para>
+        Instead of using local files, you can use <link
+        linkend="storage_plugins">storage plugins</link> to access
+        files on a remote file server.  For example, to use music from
+        the SMB/CIFS server "myfileserver" on the share called
+        "Music", configure the music directory
+        "<parameter>smb://myfileserver/Music</parameter>".  For a
+        recipe, read the <link linkend="satellite">Satellite
+        MPD</link> section.
+      </para>
+    </section>
+
+    <section id="config_database_plugins">
+      <title>Configuring database plugins</title>
+
+      <para>
+        If a music directory is configured, one database plugin is
+        used.  To configure this plugin, add a
+        <varname>database</varname> block to
+        <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>database {
+    plugin "simple"
+    path "/var/lib/mpd/db"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>database</varname>
+        options valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>plugin</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>
+        More information can be found in the <link
+        linkend="database_plugins">database plugin reference</link>.
+      </para>
+    </section>
+
+    <section id="config_neighbor_plugins">
+      <title>Configuring neighbor plugins</title>
+
+      <para>
+        All neighbor plugins are disabled by default to avoid unwanted
+        overhead.  To enable (and configure) a plugin, add a
+        <varname>neighbor</varname> block to
+        <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>neighbors {
+    plugin "smbclient"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>neighbor</varname>
+        options valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>plugin</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>
+        More information can be found in the <link
+        linkend="neighbor_plugins">neighbor plugin reference</link>.
+      </para>
+    </section>
+
+    <section id="config_input_plugins">
+      <title>Configuring input plugins</title>
+
+      <para>
+        To configure an input plugin, add a <varname>input</varname>
+        block to <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>input {
+    plugin "curl"
+    proxy "proxy.local"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>input</varname> options
+        valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>plugin</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>enabled</varname>
+                <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                Allows you to disable a input plugin without
+                recompiling.  By default, all plugins are enabled.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>
+        More information can be found in the <link
+        linkend="input_plugins">input plugin reference</link>.
+      </para>
+    </section>
+
+    <section id="config_decoder_plugins">
+      <title>Configuring decoder plugins</title>
+
+      <para>
+        Most decoder plugins do not need any special configuration.
+        To configure a decoder, add a <varname>decoder</varname> block
+        to <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>decoder {
+    plugin "wildmidi"
+    config_file "/etc/timidity/timidity.cfg"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>decoder</varname>
+        options valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>plugin</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>enabled</varname>
+                <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                Allows you to disable a decoder plugin without
+                recompiling.  By default, all plugins are enabled.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>
+        More information can be found in the <link
+        linkend="decoder_plugins">decoder plugin reference</link>.
+      </para>
+    </section>
+
+    <section id="config_encoder_plugins">
+      <title>Configuring encoder plugins</title>
+
+      <para>
+        Encoders are used by some of the output plugins (such as <link
+        linkend="shout_output"><varname>shout</varname></link>).  The
+        encoder settings are included in the
+        <varname>audio_output</varname> section.  More information can
+        be found in the <link linkend="encoder_plugins">encoder plugin
+        reference</link>.
+      </para>
+    </section>
+
+    <section id="config_audio_outputs">
+      <title>Configuring audio outputs</title>
+
+      <para>
+        Audio outputs are devices which actually play the audio chunks
+        produced by <application>MPD</application>.  You can configure
+        any number of audio output devices, but there must be at least
+        one.  If none is configured, <application>MPD</application>
+        attempts to auto-detect.  Usually, this works quite well with
+        ALSA, OSS and on Mac OS X.
+      </para>
+
+      <para>
+        To configure an audio output manually, add an
+        <varname>audio_output</varname> block to
+        <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>audio_output {
+    type "alsa"
+    name "my ALSA device"
+    device "hw:0"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>audio_output</varname>
+        options valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>type</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>name</varname>
+              </entry>
+              <entry>
+                The name of the audio output.  It is visible to the
+                client.  Some plugins also use it internally, e.g. as
+                a name registered in the PULSE server.
+              </entry>
+            </row>
+            <row id="ao_format">
+              <entry>
+                <varname>format</varname>
+              </entry>
+              <entry>
+                <para>
+                  Always open the audio output with the specified audio
+                  format (samplerate:bits:channels), regardless of the
+                  format of the input file.  This is optional for most
+                  plugins.
+                </para>
+                <para>
+                  Any of the three attributes may be an asterisk to
+                  specify that this attribute should not be enforced,
+                  example: <parameter>48000:16:*</parameter>.
+                  <parameter>*:*:*</parameter> is equal to not having
+                  a <varname>format</varname> specification.
+                </para>
+                <para>
+                  The following values are valid for
+                  <varname>bits</varname>: <varname>8</varname>
+                  (signed 8 bit integer samples),
+                  <varname>16</varname>, <varname>24</varname> (signed
+                  24 bit integer samples padded to 32 bit),
+                  <varname>32</varname> (signed 32 bit integer
+                  samples), <varname>f</varname> (32 bit floating
+                  point, -1.0 to 1.0).
+                </para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>enabled</varname>
+                  <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                Specifies whether this audio output is enabled when
+                <application>MPD</application> is started.  By
+                default, all audio outputs are enabled.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>tags</varname>
+                <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                If set to <parameter>no</parameter>, then
+                <application>MPD</application> will not send tags to
+                this output.  This is only useful for output plugins
+                that can receive tags, for example the <link
+                linkend="httpd_output"><varname>httpd</varname></link>
+                output plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>always_on</varname>
+                  <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                If set to <parameter>yes</parameter>, then
+                <application>MPD</application> attempts to keep this
+                audio output always open.  This may be useful for
+                streaming servers, when you don't want to disconnect
+                all listeners even when playback is accidentally
+                stopped.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>mixer_type</varname>
+                <parameter>hardware|software|none</parameter>
+              </entry>
+              <entry>
+                Specifies which mixer should be used for this audio
+                output: the hardware mixer (available for <link
+                linkend="alsa_output">ALSA</link>, <link
+                linkend="oss_output">OSS</link> and <link
+                linkend="pulse_output">PulseAudio</link>), the
+                software mixer or no mixer
+                (<parameter>none</parameter>).  By default, the
+                hardware mixer is used for devices which support it,
+                and none for the others.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>replay_gain_handler</varname>
+                <parameter>software|mixer|none</parameter>
+              </entry>
+              <entry>
+                Specifies how replay gain is applied.  The default is
+                <parameter>software</parameter>, which uses an
+                internal software volume control.
+                <parameter>mixer</parameter> uses the configured
+                (hardware) mixer control.  <parameter>none</parameter>
+                disables replay gain on this audio output.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+
+    <section id="config_filters">
+      <title>Configuring filters</title>
+
+      <para>
+        Filters are plugins which modify an audio stream.
+      </para>
+
+      <para>
+        To configure a filter, add a <varname>filter</varname> block
+        to <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>filter {
+    plugin "volume"
+    name "software volume"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the <varname>filter</varname>
+        options valid for all plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>plugin</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>name</varname>
+              </entry>
+              <entry>
+                The name of the filter.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+
+    <section id="config_playlist_plugins">
+      <title>Configuring playlist plugins</title>
+
+      <para>
+        Playlist plugins are used to load remote playlists.  This is
+        not related to <application>MPD</application>'s playlist
+        directory.
+      </para>
+
+      <para>
+        To configure a playlist plugin, add a
+        <varname>playlist_plugin</varname> block to
+        <filename>mpd.conf</filename>:
+      </para>
+
+      <programlisting>playlist_plugin {
+    name "m3u"
+    enabled "true"
+}
+      </programlisting>
+
+      <para>
+        The following table lists the
+        <varname>playlist_plugin</varname> options valid for all
+        plugins:
+      </para>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>
+                Name
+              </entry>
+              <entry>
+                Description
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>name</varname>
+              </entry>
+              <entry>
+                The name of the plugin.
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <varname>enabled</varname>
+                <parameter>yes|no</parameter>
+              </entry>
+              <entry>
+                Allows you to disable a input plugin without
+                recompiling.  By default, all plugins are enabled.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>
+        More information can be found in the <link
+        linkend="playlist_plugins">playlist plugin reference</link>.
+      </para>
+    </section>
+
+    <section id="config_audio_format">
+      <title>Audio Format Settings</title>
+
+      <section id="config_global_audio_format">
+        <title>Global Audio Format</title>
+
+        <para>
+          The setting <varname>audio_output_format</varname> forces
+          <application>MPD</application> to use one audio format for
+          all outputs.  Doing that is usually not a good idea.  The
+          values are the same as in <link
+          linkend="ao_format"><varname>format</varname> in the <link
+          linkend="config_audio_outputs"><varname>audio_output</varname></link>
+          section</link>.
+        </para>
+      </section>
+
+      <section>
+        <title>Resampler</title>
+
+        <para>
+          Sometimes, music needs to be resampled before it can be
+          played; for example, CDs use a sample rate of 44,100 Hz
+          while many cheap audio chips can only handle 48,000 Hz.
+          Resampling reduces the quality and consumes a lot of CPU.
+          There are different options, some of them optimized for high
+          quality and others for low CPU usage, but you can't have
+          both at the same time.  Often, the resampler is the
+          component that is responsible for most of
+          <application>MPD</application>'s CPU usage.  Since
+          <application>MPD</application> comes with high quality
+          defaults, it may appear that <application>MPD</application>
+          consumes more CPU than other software.
+        </para>
+
+        <para>
+          The following resamplers are available (if enabled at
+          compile time):
+        </para>
+
+        <itemizedlist>
+          <listitem>
+            <para>
+              <ulink
+              url="http://www.mega-nerd.com/SRC/"><application>libsamplerate</application></ulink>
+              a.k.a. Secret Rabbit Code (SRC).
+            </para>
+          </listitem>
+
+          <listitem>
+            <para>
+              <ulink
+              url="http://sourceforge.net/projects/soxr/"><application>libsoxr</application></ulink>,
+              the SoX Resampler library
+            </para>
+          </listitem>
+
+          <listitem>
+            <para>
+              internal: low CPU usage, but very poor quality.  This is
+              the fallback if <application>MPD</application> was
+              compiled without an external resampler.
+            </para>
+          </listitem>
+        </itemizedlist>
+
+        <para>
+          The setting <varname>samplerate_converter</varname> controls
+          how <application>MPD</application> shall resample music.
+          Possible values:
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>
+                  Value
+                </entry>
+                <entry>
+                  Description
+                </entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  "<parameter>internal</parameter>"
+                </entry>
+                <entry>
+                  The internal resampler.  Low CPU usage, but very
+                  poor quality.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>soxr very high</parameter>"
+                </entry>
+                <entry>
+                  Use <application>libsoxr</application> with "Very
+                  High Quality" setting.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>soxr high</parameter>" or
+                  "<parameter>soxr</parameter>"
+                </entry>
+                <entry>
+                  Use <application>libsoxr</application> with "High
+                  Quality" setting.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>soxr medium</parameter>"
+                </entry>
+                <entry>
+                  Use <application>libsoxr</application> with "Medium
+                  Quality" setting.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>soxr low</parameter>"
+                </entry>
+                <entry>
+                  Use <application>libsoxr</application> with "Low
+                  Quality" setting.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>soxr quick</parameter>"
+                </entry>
+                <entry>
+                  Use <application>libsoxr</application> with "Quick"
+                  setting.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>Best Sinc Interpolator</parameter>" or
+                  "<parameter>0</parameter>"
+                </entry>
+                <entry>
+                  <application>libsamplerate</application>: Band
+                  limited sinc interpolation, best quality, 97dB SNR,
+                  96% BW.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>Medium Sinc Interpolator</parameter>" or
+                  "<parameter>1</parameter>"
+                </entry>
+                <entry>
+                  <application>libsamplerate</application>: Band
+                  limited sinc interpolation, medium quality, 97dB
+                  SNR, 90% BW.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>Fastest Sinc Interpolator</parameter>" or
+                  "<parameter>2</parameter>"
+                </entry>
+                <entry>
+                  <application>libsamplerate</application>: Band
+                  limited sinc interpolation, fastest, 97dB SNR, 80%
+                  BW.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>ZOH Sinc Interpolator</parameter>" or
+                  "<parameter>3</parameter>"
+                </entry>
+                <entry>
+                  <application>libsamplerate</application>: Zero order
+                  hold interpolator, very fast, very poor quality with
+                  audible distortions.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  "<parameter>Linear Interpolator</parameter>" or
+                  "<parameter>4</parameter>"
+                </entry>
+                <entry>
+                  <application>libsamplerate</application>: Linear
+                  interpolator, very fast, poor quality.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+    </section>
+
+    <section id="config_other">
+      <title>Other Settings</title>
+
+      <informaltable>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>Setting</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <varname>metadata_to_use</varname>
+                <parameter>TAG1,TAG2,...</parameter>
+              </entry>
+              <entry>
+                Use only the specified tags, and ignore the others.
+                This setting can reduce the database size and
+                <application>MPD</application>'s memory usage by
+                omitting unused tags.  By default, all tags but
+                <varname>comment</varname> are enabled.  The special
+                value "none" disables all tags.
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <section>
+        <title>The State File</title>
+
+        <para>
+          The <emphasis>state file</emphasis> is a file where
+          <application>MPD</application> saves and restores its state
+          (play queue, playback position etc.) to keep it persistent
+          across restarts and reboots.  It is an optional setting.
+        </para>
+
+        <para>
+          <application>MPD</application> will attempt to load the
+          state file during startup, and will save it when shutting
+          down the daemon.  Additionally, the state file is refreshed
+          every two minutes (after each state change).
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>state_file</varname>
+                  <parameter>PATH</parameter>
+                </entry>
+                <entry>
+                  Specify the state file location.  The parent
+                  directory must be writable by the
+                  <application>MPD</application> user
+                  (<parameter>+wx</parameter>).
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>state_file_interval</varname>
+                  <parameter>SECONDS</parameter>
+                </entry>
+                <entry>
+                  Auto-save the state file this number of seconds
+                  after each state change.  Defaults to
+                  <parameter>120</parameter> (2 minutes).
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title>Resource Limitations</title>
+
+        <para>
+          These settings are various limitations to prevent
+          <application>MPD</application> from using too many
+          resources (denial of service).
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+
+              <row>
+                <entry>
+                  <varname>connection_timeout</varname>
+                  <parameter>SECONDS</parameter>
+                </entry>
+                <entry>
+                  If a client does not send any new data in this time
+                  period, the connection is closed.  Clients waiting
+                  in "idle" mode are excluded from this.  Default is
+                  <parameter>60</parameter>.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>max_connections</varname>
+                  <parameter>NUMBER</parameter>
+                </entry>
+                <entry>
+                  This specifies the maximum number of clients that
+                  can be connected to <application>MPD</application>
+                  at the same time.  Default is
+                  <parameter>5</parameter>.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>max_playlist_length</varname>
+                  <parameter>NUMBER</parameter>
+                </entry>
+                <entry>
+                  The maximum number of songs that can be in the
+                  playlist.  Default is <parameter>16384</parameter>.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>max_command_list_size</varname>
+                  <parameter>KBYTES</parameter>
+                </entry>
+                <entry>
+                  The maximum size a command list.  Default is
+                  <parameter>2048</parameter> (2 MiB).
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>max_output_buffer_size</varname>
+                  <parameter>KBYTES</parameter>
+                </entry>
+                <entry>
+                  The maximum size of the output buffer to a client
+                  (maximum response size).  Default is
+                  <parameter>8192</parameter> (8 MiB).
+                </entry>
+              </row>
+
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title>Buffer Settings</title>
+
+        <para>
+          Do not change these unless you know what you are doing.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+
+              <row>
+                <entry>
+                  <varname>audio_buffer_size</varname>
+                  <parameter>KBYTES</parameter>
+                </entry>
+                <entry>
+                  Adjust the size of the internal audio buffer.
+                  Default is <parameter>4096</parameter> (4 MiB).
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>buffer_before_play</varname>
+                  <parameter>PERCENT</parameter>
+                </entry>
+                <entry>
+                  Control the percentage of the buffer which is filled
+                  before beginning to play.  Increasing this reduces
+                  the chance of audio file skipping, at the cost of
+                  increased time prior to audio playback.  Default is
+                  <parameter>10%</parameter>.
+                </entry>
+              </row>
+
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+    </section>
+  </chapter>
+
+  <chapter id="advanced_config">
+    <title>Advanced configuration</title>
+
+    <section id="satellite">
+      <title>Satellite setup</title>
+
+      <para>
+        <application>MPD</application> runs well on weak machines such
+        as the <ulink url="http://www.raspberrypi.org/">Raspberry
+        Pi</ulink>.  However, such hardware tends to not have storage
+        big enough to hold a music collection.  Mounting music from a
+        file server can be very slow, especially when updating the
+        database.
+      </para>
+
+      <para>
+        One approach for optimization is running
+        <application>MPD</application> on the file server, which not
+        only exports raw files, but also provides access to a readily
+        scanned database.  Example configuration:
+      </para>
+
+      <programlisting>music_directory "nfs://fileserver.local/srv/mp3"
+#music_directory "smb://fileserver.local/mp3"
+
+database {
+    plugin "proxy"
+    host "fileserver.local"
+}
+      </programlisting>
+
+      <para>
+        The <link
+        linkend="config_music_directory"><varname>music_directory</varname></link>
+        setting tells <application>MPD</application> to read files
+        from the given NFS server.  It does this by connecting to the
+        server from userspace.  This does not actually mount the file
+        server into the kernel's virtual file system, and thus
+        requires no kernel cooperation and no special privileges.  It
+        does not even require a kernel with NFS support, only the
+        <link linkend="nfs_storage"><filename>nfs</filename></link>
+        storage plugin (using the <filename>libnfs</filename>
+        userspace library).  The same can be done with SMB/CIFS using
+        the <link
+        linkend="smbclient_storage"><filename>smbclient</filename></link>
+        storage plugin (using <filename>libsmbclient</filename>).
+      </para>
+
+      <para>
+        The <link
+        linkend="config_database_plugins"><varname>database</varname></link>
+        setting tells <application>MPD</application> to pass all
+        database queries on to the <application>MPD</application>
+        instance running on the file server (using the <link
+        linkend="proxy_database"><filename>proxy</filename></link>
+        plugin).
+      </para>
+    </section>
+
+    <section id="realtime">
+      <title>Real-Time Scheduling</title>
+
+      <para>
+        On Linux, <application>MPD</application> attempts to configure
+        <ulink
+        url="https://en.wikipedia.org/wiki/Real-time_computing">real-time
+        scheduling</ulink> for some threads that benefit from it.
+      </para>
+
+      <para>
+        This is only possible you allow <application>MPD</application>
+        to do it.  This privilege is controlled by
+        <varname>RLIMIT_RTPRIO</varname>
+        <varname>RLIMIT_RTTIME</varname>.  You can configure this
+        privilege with <command>ulimit</command> before launching
+        <application>MPD</application>:
+      </para>
+
+      <programlisting>ulimit -HS -r 50; mpd</programlisting>
+
+      <para>
+        Or you can use the <command>prlimit</command> program from the
+        <application>util-linux</application> package:
+      </para>
+
+      <programlisting>prlimit --rtprio=50 --rttime=unlimited mpd</programlisting>
+
+      <para>
+        The <application>systemd</application> service file shipped
+        with <application>MPD</application> comes with this setting.
+      </para>
+
+      <para>
+        This works only if the Linux kernel was compiled with
+        <varname>CONFIG_RT_GROUP_SCHED</varname> disabled.  Use the
+        following command to check this option for your current
+        kernel:
+      </para>
+
+      <programlisting>zgrep ^CONFIG_RT_GROUP_SCHED /proc/config.gz</programlisting>
+
+      <note>
+        <para>
+          There is a rumor that real-time scheduling improves audio
+          quality.  That is not true.  All it does is reduce the
+          probability of skipping (audio buffer xruns) when the
+          computer is under heavy load.
+        </para>
+      </note>
+    </section>
+  </chapter>
+
+  <chapter id="use">
+    <title>Using <application>MPD</application></title>
+
+    <section id="client">
+      <title>The client</title>
+
+      <para>
+        After you have installed, configured and started
+        <application>MPD</application>, you choose a client to control
+        the playback.
+      </para>
+
+      <para>
+        The most basic client is <filename>mpc</filename>, which
+        provides a command line interface.  It is useful in shell
+        scripts.  Many people bind specific <filename>mpc</filename>
+        commands to hotkeys.
+      </para>
+
+      <para>
+        The <ulink
+        url="http://www.musicpd.org/clients/"><application>MPD</application>
+        Wiki</ulink> contains an extensive list of clients to choose
+        from.
+      </para>
+    </section>
+
+    <section id="music_directory_and_database">
+      <title>The music directory and the database</title>
+
+      <para>
+        The "music directory" is where you store your music files.
+        <application>MPD</application> stores all relevant meta
+        information about all songs in its "database".  Whenever you
+        add, modify or remove songs in the music directory, you have
+        to update the database, for example with
+        <filename>mpc</filename>:
+      </para>
+
+      <programlisting>mpc update</programlisting>
+
+      <para>
+        Depending on the size of your music collection and the speed
+        of the storage, this can take a while.
+      </para>
+
+      <para>
+        To exclude a file from the update, create a file called
+        <filename>.mpdignore</filename> in its parent directory.  Each
+        line of that file may contain a list of shell wildcards.
+      </para>
+    </section>
+
+    <section id="tags">
+      <title>Metadata</title>
+
+      <para>
+        When scanning or playing a song,
+        <application>MPD</application> parses its metadata.  The
+        following tags are supported:
+      </para>
+
+      <xi:include href="include/tags.xml"
+                  xmlns:xi="http://www.w3.org/2001/XInclude"/>
+    </section>
+
+    <section id="queue">
+      <title>The queue</title>
+
+      <para>
+        The queue (sometimes called "current playlist") is a list of
+        songs to be played by <application>MPD</application>.  To play
+        a song, add it to the queue and start playback.  Most clients
+        offer an interface to edit the queue.
+      </para>
+    </section>
+  </chapter>
+
+  <chapter id="advanced_usage">
+    <title>Advanced usage</title>
+
+    <section id="bit_perfect">
+      <title>Bit-perfect playback</title>
+
+      <para>
+        "Bit-perfect playback" is a phrase used by audiophiles to
+        describe a setup that plays back digital music as-is, without
+        applying any modifications such as resampling, format
+        conversion or software volume.  Naturally, this implies a
+        lossless codec.
+      </para>
+
+      <para>
+        By default, <application>MPD</application> attempts to do
+        bit-perfect playback, unless you tell it not to.  Precondition
+        is a sound chip that supports the audio format of your music
+        files.  If the audio format is not supported,
+        <application>MPD</application> attempts to fall back to the
+        nearest supported audio format, trying to lose as little
+        quality as possible.
+      </para>
+
+      <para>
+        To verify if <application>MPD</application> converts the audio
+        format, enable verbose logging, and watch for these lines:
+      </para>
+
+      <programlisting>decoder: audio_format=44100:24:2, seekable=true
+output: opened plugin=alsa name="An ALSA output" audio_format=44100:16:2
+output: converting from 44100:24:2</programlisting>
+
+      <para>
+        This example shows that a 24 bit file is being played, but the
+        sond chip cannot play 24 bit.  It falls back to 16 bit,
+        discarding 8 bit.
+      </para>
+
+      <para>
+        However, this does not yet prove bit-perfect playback;
+        <application>ALSA</application> may be fooling
+        <application>MPD</application> that the audio format is
+        supported.  To verify the format really being sent to the
+        physical sound chip, try:
+      </para>
+
+      <programlisting>cat /proc/asound/card*/pcm*p/sub*/hw_params
+access: RW_INTERLEAVED
+format: S16_LE
+subformat: STD
+channels: 2
+rate: 44100 (44100/1)
+period_size: 4096
+buffer_size: 16384</programlisting>
+
+      <para>
+        Obey the "format" row, which indicates that the current
+        playback format is 16 bit (signed 16 bit integer, little
+        endian).
+      </para>
+
+      <para>
+        Check list for bit-perfect playback:
+      </para>
+
+      <itemizedlist>
+        <listitem>
+          <para>
+            Use the <link linkend="alsa_output">ALSA</link> output
+            plugin.
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            Disable sound processing inside
+            <application>ALSA</application> by configuring a
+            "hardware" device (<parameter>hw:0,0</parameter> or
+            similar).
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            Don't use software volume (setting <link
+            linkend="config_audio_outputs"><varname>mixer_type</varname></link>).
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            Don't force <application>MPD</application> to use a
+            specific audio format (settings <link
+            linkend="config_audio_outputs"><varname>format</varname></link>,
+            <link
+            linkend="config_global_audio_format"><varname>audio_output_format</varname></link>).
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            Verify that you are really doing bit-perfect playback
+            using <application>MPD</application>'s verbose log and
+            <filename>/proc/asound/card*/pcm*p/sub*/hw_params</filename>.
+            Some DACs can also indicate the audio format.
+          </para>
+        </listitem>
+      </itemizedlist>
+    </section>
+
+    <section id="dsd">
+      <title>Direct Stream Digital (DSD)</title>
+
+      <para>
+        DSD (<ulink
+        url="https://en.wikipedia.org/wiki/Direct_Stream_Digital">Direct
+        Stream Digital</ulink>) is a digital format that stores audio
+        as a sequence of single-bit values at a very high sampling
+        rate.
+      </para>
+
+      <para>
+        <application>MPD</application> understands the file formats
+        <link linkend="dsdiff_decoder"><filename>dff</filename></link>
+        and <link
+        linkend="dsf_decoder"><filename>dsf</filename></link>.  There
+        are three ways to play back DSD:
+      </para>
+
+      <itemizedlist>
+        <listitem>
+          <para>
+            Native DSD playback.  Requires
+            <application>ALSA</application> 1.0.27.1 or later, a sound
+            driver/chip that supports DSD and of course a DAC that
+            supports DSD.
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            DoP (DSD over PCM) playback.  This wraps DSD inside fake
+            24 bit PCM according to the <ulink
+            url="http://dsd-guide.com/dop-open-standard">DoP
+            standard</ulink>.  Requires a DAC that supports DSD.  No
+            support from ALSA and the sound chip required (except for
+            <link linkend="bit_perfect">bit-perfect</link> 24 bit PCM
+            support).
+          </para>
+        </listitem>
+
+        <listitem>
+          <para>
+            Convert DSD to PCM on-the-fly.
+          </para>
+        </listitem>
+      </itemizedlist>
+
+      <para>
+        Native DSD playback is used automatically if available.  DoP
+        is only used if enabled explicitly using the <link
+        linkend="alsa_output"><varname>dop</varname></link> option,
+        because there is no way for <application>MPD</application> to
+        find out whether the DAC supports it.  DSD to PCM conversion
+        is the fallback if DSD cannot be used directly.
+      </para>
+    </section>
+  </chapter>
+
+  <chapter id="plugin_reference">
+    <title>Plugin reference</title>
+
+    <section id="database_plugins">
+      <title>Database plugins</title>
+
+      <section>
+        <title><varname>simple</varname></title>
+
+        <para>
+          The default plugin.  Stores a copy of the database in
+          memory.  A file is used for permanent storage.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>path</varname>
+                </entry>
+                <entry>
+                  The path of the database file.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>cache_directory</varname>
+                </entry>
+                <entry>
+                  The path of the cache directory for additional
+                  storages mounted at runtime.  This setting is
+                  necessary for the <command>mount</command> protocol
+                  command.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>compress</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Compress the database file using
+                  <filename>gzip</filename>?  Enabled by default (if
+                  built with <filename>zlib</filename>).
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="proxy_database">
+        <title><varname>proxy</varname></title>
+
+        <para>
+          Provides access to the database of another
+          <application>MPD</application> instance using
+          <filename>libmpdclient</filename>.  This is useful when you
+          run mount the music directory via NFS/SMB, and the file
+          server already runs a <application>MPD</application>
+          instance.  Only the file server needs to update the
+          database.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>host</varname>
+                </entry>
+                <entry>
+                  The host name of the "master"
+                  <application>MPD</application> instance.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>port</varname>
+                </entry>
+                <entry>
+                  The port number of the "master"
+                  <application>MPD</application> instance.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>upnp</varname></title>
+
+        <para>
+          Provides access to UPnP media servers.
+        </para>
+      </section>
+    </section>
+
+    <section id="storage_plugins">
+      <title>Storage plugins</title>
+
+      <section>
+        <title><varname>local</varname></title>
+
+        <para>
+          The default plugin which gives
+          <application>MPD</application> access to local files.  It is
+          used when <varname>music_directory</varname> refers to a
+          local directory.
+        </para>
+      </section>
+
+      <section id="smbclient_storage">
+        <title><varname>smbclient</varname></title>
+
+        <para>
+          Load music files from a SMB/CIFS server.  It used used when
+          <varname>music_directory</varname> contains a
+          <parameter>smb://</parameter> URI, for example
+          "<parameter>smb://myfileserver/Music</parameter>".
+        </para>
+      </section>
+
+      <section id="nfs_storage">
+        <title><varname>nfs</varname></title>
+
+        <para>
+          Load music files from a NFS server.  It used used when
+          <varname>music_directory</varname> contains a
+          <parameter>nfs://</parameter> URI according to <ulink
+          url="http://tools.ietf.org/html/rfc2224">RFC2224</ulink>,
+          for example "<parameter>nfs://servername/path</parameter>".
+        </para>
+
+        <para>
+          This plugin uses <ulink
+          url="https://github.com/sahlberg/libnfs"><filename>libnfs</filename></ulink>,
+          which supports only NFS version 3.  Since
+          <application>MPD</application> is not allowed to bind to
+          "privileged ports", the NFS server needs to enable the
+          "insecure" setting; example
+          <filename>/etc/exports</filename>:
+        </para>
+
+        <programlisting>/srv/mp3 192.168.1.55(ro,insecure)</programlisting>
+
+        <para>
+          Don't fear: "insecure" does not mean that your NFS server is
+          insecure.  A few decades ago, people thought the concept of
+          "privileged ports" would make network services "secure",
+          which was a fallacy.  The absence of this obsolete
+          "security" measure means little.
+        </para>
+      </section>
+    </section>
+
+    <section id="neighbor_plugins">
+      <title>Neighbor plugins</title>
+
+      <section id="smbclient_neighbor">
+        <title><varname>smbclient</varname></title>
+
+        <para>
+          Provides a list of SMB/CIFS servers on the local network.
+        </para>
+      </section>
+
+      <section id="upnp_neighbor">
+        <title><varname>upnp</varname></title>
+
+        <para>
+          Provides a list of UPnP servers on the local network.
+        </para>
+      </section>
+    </section>
+
+    <section id="input_plugins">
+      <title>Input plugins</title>
+
+      <section>
+        <title><varname>alsa</varname></title>
+
+        <para>
+          Allows <application>MPD</application> on Linux to play audio
+          directly from a soundcard using the scheme
+          <filename>alsa://</filename>. Audio is formatted as 44.1 kHz
+          16-bit stereo (CD format). Examples:
+        </para>
+
+        <para>
+          <filename>mpc add alsa://</filename> plays audio from device hw:0,0
+        </para>
+        <para>
+          <filename>mpc add alsa://hw:1,0</filename> plays audio from device
+          hw:1,0
+        </para>
+      </section>
+
+      <section>
+        <title><varname>cdio_paranoia</varname></title>
+
+        <para>
+          Plays audio CDs.  The URI has the form:
+          "<filename>cdda://[DEVICE][/TRACK]</filename>".  The
+          simplest form <filename>cdda://</filename> plays the whole
+          disc in the default drive.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>default_byte_order</varname>
+                <parameter>little_endian|big_endian</parameter>
+                </entry>
+                <entry>
+                  If the CD drive does not specify a byte order,
+                  <application>MPD</application> assumes it is the
+                  CPU's native byte order.  This setting allows
+                  overriding this.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>curl</varname></title>
+
+        <para>
+          Opens remote files or streams over HTTP.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>proxy</varname>
+                </entry>
+                <entry>
+                  Sets the address of the HTTP proxy server.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>proxy_user</varname>,
+                  <varname>proxy_password</varname>
+                </entry>
+                <entry>
+                  Configures proxy authentication.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>verify_peer</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Verify the peer's SSL certificate?  <ulink
+                  url="http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYPEER.html">More
+                  information</ulink>.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>verify_host</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Verify the certificate's name against host?  <ulink
+                  url="http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYHOST.html">More
+                  information</ulink>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>file</varname></title>
+
+        <para>
+          Opens local files.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>mms</varname></title>
+
+        <para>
+          Plays streams with the MMS protocol.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>nfs</varname></title>
+
+        <para>
+          Allows <application>MPD</application> to access files on
+          NFSv3 servers without actually mounting them (i.e. in
+          userspace, without help from the kernel's VFS layer).  All
+          URIs with the <filename>nfs://</filename> scheme are used
+          according to <ulink
+          url="http://tools.ietf.org/html/rfc2224">RFC2224</ulink>.
+          Example:
+        </para>
+
+        <para>
+          <filename>mpc add nfs://servername/path/filename.ogg</filename>
+        </para>
+
+        <para>
+          Note that this usually requires enabling the "insecure" flag
+          in the server's <filename>/etc/exports</filename> file,
+          because <application>MPD</application> cannot bind to
+          so-called "privileged" ports.  Don't fear: this will not
+          make your file server insecure; the flag was named in a time
+          long ago when privileged ports were thought to be meaningful
+          for security.  By today's standards, NFSv3 is not secure at
+          all, and if you believe it is, you're already doomed.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>smbclient</varname></title>
+
+        <para>
+          Allows <application>MPD</application> to access files on
+          SMB/CIFS servers (e.g. Samba or Microsoft Windows).  All
+          URIs with the <filename>smb://</filename> scheme are used.
+          Example:
+        </para>
+
+        <para>
+          <filename>mpc add smb://servername/sharename/filename.ogg</filename>
+        </para>
+      </section>
+    </section>
+
+    <section id="decoder_plugins">
+      <title>Decoder plugins</title>
+
+      <section id="dsdiff_decoder">
+        <title><varname>dsdiff</varname></title>
+
+        <para>
+          Decodes DFF files containing DSDIFF data (e.g. SACD rips).
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>lsbitfirst</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Decode the least significant bit first.  Default is
+                  <parameter>no</parameter>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="dsf_decoder">
+        <title><varname>dsf</varname></title>
+
+        <para>
+          Decodes DSF files containing DSDIFF data (e.g. SACD rips).
+        </para>
+
+      </section>
+
+      <section>
+        <title><varname>fluidsynth</varname></title>
+
+        <para>
+          MIDI decoder based on <ulink
+          url="http://www.fluidsynth.org/"><application>FluidSynth</application></ulink>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>sample_rate</varname>
+                </entry>
+                <entry>
+                  The sample rate that shall be synthesized by the
+                  plugin.  Defaults to 48000.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>soundfont</varname>
+                </entry>
+                <entry>
+                  The absolute path of the soundfont file.  Defaults
+                  to
+                  <filename>/usr/share/sounds/sf2/FluidR3_GM.sf2</filename>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>mikmod</varname></title>
+
+        <para>
+          Module player based on <ulink
+          url="http://mikmod.sourceforge.net/"><application>MikMod</application></ulink>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>loop</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Allow backward loops in modules.  Default is
+		  <parameter>no</parameter>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>sample_rate</varname>
+                </entry>
+                <entry>
+                  Sets the sample rate generated by
+                  <filename>libmikmod</filename>.  Default is 44100.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>modplug</varname></title>
+
+        <para>
+          Module player based on <application>MODPlug</application>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>loop_count</varname>
+                </entry>
+                <entry>
+                  Number of times to loop the module if it uses backward loops.
+                  Default is <parameter>0</parameter> which prevents looping.
+                  <parameter>-1</parameter> loops forever.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>wildmidi</varname></title>
+
+        <para>
+          MIDI decoder based on <ulink
+          url="http://www.mindwerks.net/projects/wildmidi/"><application>libwildmidi</application></ulink>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>config_file</varname>
+                </entry>
+                <entry>
+                  The absolute path of the timidity config file.  Defaults
+                  to
+                  <filename>/etc/timidity/timidity.cfg</filename>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+    </section>
+
+    <section id="encoder_plugins">
+      <title>Encoder plugins</title>
+
+      <section>
+        <title><varname>flac</varname></title>
+
+        <para>
+          Encodes into <ulink
+          url="https://xiph.org/flac/">FLAC</ulink> (lossless).
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>compression</varname>
+                </entry>
+                <entry>
+                  Sets the <filename>libFLAC</filename> compression
+                  level.  The levels range from 0 (fastest, least
+                  compression) to 8 (slowest, most compression).
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>lame</varname></title>
+
+        <para>
+          Encodes into MP3 using the <ulink
+          url="http://lame.sourceforge.net/"><application>LAME</application></ulink>
+          library.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>quality</varname>
+                </entry>
+                <entry>
+                  Sets the quality for VBR.  0 is the highest quality,
+                  9 is the lowest quality.  Cannot be used with
+                  <varname>bitrate</varname>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>bitrate</varname>
+                </entry>
+                <entry>
+                  Sets the bit rate in kilobit per second.  Cannot be
+                  used with <varname>quality</varname>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>null</varname></title>
+
+        <para>
+          Does not encode anything, passes the input PCM data as-is.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>shine</varname></title>
+
+        <para>
+          Encodes into MP3 using the <ulink
+          url="https://github.com/savonet/shine"><application>Shine</application></ulink>
+          library.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>bitrate</varname>
+                </entry>
+                <entry>
+                  Sets the bit rate in kilobit per second.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>twolame</varname></title>
+
+        <para>
+          Encodes into MP2 using the <ulink
+          url="http://www.twolame.org/"><application>TwoLAME</application></ulink>
+          library.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>quality</varname>
+                </entry>
+                <entry>
+                  Sets the quality for VBR.  0 is the highest quality,
+                  9 is the lowest quality.  Cannot be used with
+                  <varname>bitrate</varname>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>bitrate</varname>
+                </entry>
+                <entry>
+                  Sets the bit rate in kilobit per second.  Cannot be
+                  used with <varname>quality</varname>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="vorbis_encoder">
+        <title><varname>vorbis</varname></title>
+
+        <para>
+          Encodes into <ulink url="http://www.vorbis.com/">Ogg
+          Vorbis</ulink>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>quality</varname>
+                </entry>
+                <entry>
+                  Sets the quality for VBR.  -1 is the lowest quality,
+                  10 is the highest quality.  Cannot be used with
+                  <varname>bitrate</varname>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>bitrate</varname>
+                </entry>
+                <entry>
+                  Sets the bit rate in kilobit per second.  Cannot be
+                  used with <varname>quality</varname>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>wave</varname></title>
+
+        <para>
+          Encodes into WAV (lossless).
+        </para>
+      </section>
+    </section>
+
+    <section id="output_plugins">
+      <title>Output plugins</title>
+
+      <section id="alsa_output">
+        <title><varname>alsa</varname></title>
+
+        <para>
+          The <ulink
+          url="http://www.alsa-project.org/"><application>Advanced
+          Linux Sound Architecture</application>
+          (<application>ALSA</application>)</ulink> plugin uses
+          <filename>libasound</filename>.  It is recommended if you
+          are using Linux.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>device</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Sets the device which should be used.  This can be
+                  any valid ALSA device name.  The default value is
+                  "default", which makes
+                  <filename>libasound</filename> choose a device.  It
+                  is recommended to use a "hw" or "plughw" device,
+                  because otherwise, <filename>libasound</filename>
+                  automatically enables "dmix", which has major
+                  disadvantages (fixed sample rate, poor resampler,
+                  ...).
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>use_mmap</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>yes</parameter>, then
+                  <filename>libasound</filename> will try to use
+                  memory mapped I/O.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>buffer_time</varname>
+                  <parameter>US</parameter>
+                </entry>
+                <entry>
+                  Sets the device's buffer time in microseconds.
+                  Don't change unless you know what you're doing.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>period_time</varname>
+                  <parameter>US</parameter>
+                </entry>
+                <entry>
+                  Sets the device's period time in microseconds.
+                  Don't change unless you really know what you're
+                  doing.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>auto_resample</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>no</parameter>, then
+                  <filename>libasound</filename> will not attempt to
+                  resample, handing the responsibility over to
+                  <application>MPD</application>.  It is recommended
+                  to let <application>MPD</application> resample (with
+                  <application>libsamplerate</application>), because
+                  ALSA is quite poor at doing so.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>auto_channels</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>no</parameter>, then
+                  <filename>libasound</filename> will not attempt to
+                  convert between different channel numbers.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>auto_format</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>no</parameter>, then
+                  <filename>libasound</filename> will not attempt to
+                  convert between different sample formats (16 bit, 24
+                  bit, floating point, ...).
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>dop</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>yes</parameter>, then DSD over
+                  PCM according to the <ulink
+                  url="http://dsd-guide.com/dop-open-standard">DoP
+                  standard</ulink> is enabled.  This wraps DSD
+                  samples in fake 24 bit PCM, and is understood by
+                  some DSD capable products, but may be harmful to
+                  other hardware.  Therefore, the default is
+                  <parameter>no</parameter> and you can enable the
+                  option at your own risk.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+
+        <para>
+          The according hardware mixer plugin understands the
+          following settings:
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>mixer_device</varname>
+                  <parameter>DEVICE</parameter>
+                </entry>
+                <entry>
+                  <para>
+                    Sets the ALSA mixer device name, defaulting to
+                    <parameter>default</parameter> which lets ALSA
+                    pick a value.
+                  </para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>mixer_control</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  <para>
+                    Choose a mixer control, defaulting to
+                    <parameter>PCM</parameter>.  Type <command>amixer
+                    scontrols</command> to get a list of available
+                    mixer controls.
+                  </para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>mixer_index</varname>
+                  <parameter>NUMBER</parameter>
+                </entry>
+                <entry>
+                  Choose a mixer control index.  This is necessary if
+                  there is more than one control with the same name.
+                  Defaults to <parameter>0</parameter> (the first
+                  one).
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>ao</varname></title>
+
+        <para>
+          The <varname>ao</varname> plugin uses the portable <ulink
+          url="https://www.xiph.org/ao/"><filename>libao</filename></ulink>
+          library.  Use only if there is no native plugin for your
+          operating system.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>driver</varname>
+                  <parameter>D</parameter>
+                </entry>
+                <entry>
+                  The <filename>libao</filename> driver to use for
+                  audio output.  Possible values depend on what libao
+                  drivers are available.  See <ulink
+                  url="http://www.xiph.org/ao/doc/drivers.html">http://www.xiph.org/ao/doc/drivers.html</ulink>
+                  for information on some commonly used drivers.
+                  Typical values for Linux include "oss" and "alsa09".
+                  The default is "default", which causes libao to
+                  select an appropriate plugin.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>options</varname>
+                  <parameter>O</parameter>
+                </entry>
+                <entry>
+                  Options to pass to the selected
+                  <filename>libao</filename> driver.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>write_size</varname>
+                  <parameter>O</parameter>
+                </entry>
+                <entry>
+                  This specifies how many bytes to write to the audio
+                  device at once.  This parameter is to work around a
+                  bug in older versions of libao on sound cards with
+                  very small buffers.  The default is 1024.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>fifo</varname></title>
+
+        <para>
+          The <varname>fifo</varname> plugin writes raw PCM data to a
+          FIFO (First In, First Out) file.  The data can be read by
+          another program.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>path</varname>
+                  <parameter>P</parameter>
+                </entry>
+                <entry>
+                  This specifies the path of the FIFO to write to.
+                  Must be an absolute path.  If the path does not
+                  exist, it will be created when
+                  <application>MPD</application> is started, and
+                  removed when <application>MPD</application> is
+                  stopped.  The FIFO will be created with the same
+                  user and group as <application>MPD</application> is
+                  running as.  Default permissions can be modified by
+                  using the builtin shell command
+                  <filename>umask</filename>.  If a FIFO already
+                  exists at the specified path it will be reused, and
+                  will not be removed when
+                  <application>MPD</application> is stopped.  You can
+                  use the "mkfifo" command to create this, and then
+                  you may modify the permissions to your liking.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>jack</varname></title>
+
+        <para>
+          The <varname>jack</varname> plugin connects to a <ulink
+          url="http://jackaudio.org/"><application>JACK</application></ulink>
+          server.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>client_name</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  The name of the <application>JACK</application>
+                  client.  Defaults to "Music Player Daemon".
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>server_name</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Optional name of the <application>JACK</application>
+                  server.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>autostart</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>yes</parameter>, then
+                  <filename>libjack</filename> will automatically
+                  launch the <application>JACK</application> daemon.
+                  Disabled by default.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>source_ports</varname>
+                  <parameter>A,B</parameter>
+                </entry>
+                <entry>
+                  The names of the <application>JACK</application>
+                  source ports to be created.  By default, the ports
+                  "left" and "right" are created.  To use more ports,
+                  you have to tweak this option.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>destination_ports</varname>
+                  <parameter>A,B</parameter>
+                </entry>
+                <entry>
+                  The names of the <application>JACK</application>
+                  destination ports to connect to.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>ringbuffer_size</varname>
+                  <parameter>NBYTES</parameter>
+                </entry>
+                <entry>
+                  Sets the size of the ring buffer for each channel.
+                  Do not configure this value unless you know what
+                  you're doing.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="httpd_output">
+        <title><varname>httpd</varname></title>
+
+        <para>
+          The <varname>httpd</varname> plugin creates a HTTP server,
+          similar to <ulink
+          url="http://www.shoutcast.com/"><application>ShoutCast</application></ulink>
+          / <ulink
+          url="http://icecast.org/"><application>IceCast</application></ulink>.
+          HTTP streaming clients like
+          <application>mplayer</application>, <application>VLC</application>,
+          and <application>mpv</application> can connect to it.
+        </para>
+
+        <para>
+          It is highly recommended to configure a fixed
+          <varname>format</varname>, because a stream cannot switch
+          its audio format on-the-fly when the song changes.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>port</varname>
+                  <parameter>P</parameter>
+                </entry>
+                <entry>
+                  Binds the HTTP server to the specified port.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>bind_to_address</varname>
+                  <parameter>ADDR</parameter>
+                </entry>
+                <entry>
+                  Binds the HTTP server to the specified address (IPv4 or
+                  IPv6). Multiple addresses in parallel are not supported.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>encoder</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Chooses an encoder plugin.  A list of encoder
+                  plugins can be found in the <link
+                  linkend="encoder_plugins">encoder plugin
+                  reference</link>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>max_clients</varname>
+                  <parameter>MC</parameter>
+                </entry>
+                <entry>
+                  Sets a limit, number of concurrent clients. When set
+                  to 0 no limit will apply.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>null</varname></title>
+
+        <para>
+          The <varname>null</varname> plugin does nothing.  It
+          discards everything sent to it.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>sync</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  If set to <parameter>no</parameter>, then the timer
+                  is disabled - the device will accept PCM chunks at
+                  arbitrary rate (useful for benchmarking).  The
+                  default behaviour is to play in real time.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="oss_output">
+        <title><varname>oss</varname></title>
+
+        <para>
+          The "Open Sound System" plugin is supported on most Unix
+          platforms.
+        </para>
+
+        <para>
+          On Linux, <application>OSS</application> has been superseded
+          by <application>ALSA</application>.  Use the <link
+          linkend="alsa_output"><application>ALSA</application> output
+          plugin</link> instead of this one on Linux.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>device</varname>
+                  <parameter>PATH</parameter>
+                </entry>
+                <entry>
+                  Sets the path of the PCM device.  If not specified,
+                  then <application>MPD</application> will attempt to
+                  open <filename>/dev/sound/dsp</filename> and
+                  <filename>/dev/dsp</filename>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+
+        <para>
+          The according hardware mixer plugin understands the
+          following settings:
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>mixer_device</varname>
+                  <parameter>DEVICE</parameter>
+                </entry>
+                <entry>
+                  <para>
+                    Sets the OSS mixer device path, defaulting to
+                    <filename>/dev/mixer</filename>.
+                  </para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>mixer_control</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  <para>
+                    Choose a mixer control, defaulting to
+                    <parameter>PCM</parameter>.
+                  </para>
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>openal</varname></title>
+
+        <para>
+          The "OpenAL" plugin uses <ulink
+          url="http://kcat.strangesoft.net/openal.html"><filename>libopenal</filename></ulink>.
+          It is supported on many platforms.  Use only if there is no
+          native plugin for your operating system.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>device</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Sets the device which should be used.  This can be
+                  any valid OpenAL device name. If not specified, then
+                  <filename>libopenal</filename> will choose a default device.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>osx</varname></title>
+
+        <para>
+          The "Mac OS X" plugin uses Apple's CoreAudio API.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>pipe</varname></title>
+
+        <para>
+          The <varname>pipe</varname> plugin starts a program and
+          writes raw PCM data into its standard input.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>command</varname>
+                  <parameter>CMD</parameter>
+                </entry>
+                <entry>
+                  This command is invoked with the shell.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="pulse_output">
+        <title><varname>pulse</varname></title>
+
+        <para>
+          The <varname>pulse</varname> plugin connects to a <ulink
+          url="http://www.freedesktop.org/wiki/Software/PulseAudio/"><application>PulseAudio</application></ulink>
+          server.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>server</varname>
+                  <parameter>HOSTNAME</parameter>
+                </entry>
+                <entry>
+                  Sets the host name of the
+                  <application>PulseAudio</application> server.  By
+                  default, <application>MPD</application> connects to
+                  the local <application>PulseAudio</application>
+                  server.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>sink</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Specifies the name of the
+                  <application>PulseAudio</application> sink
+                  <application>MPD</application> should play on.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>roar</varname></title>
+
+        <para>
+          The <varname>roar</varname> plugin connects to a <ulink
+          url="http://roaraudio.keep-cool.org/">RoarAudio</ulink>
+          server.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>server</varname>
+                  <parameter>HOSTNAME</parameter>
+                </entry>
+                <entry>
+                  The host name of the RoarAudio server.  If not
+                  specified, then <application>MPD</application> will
+                  connect to the default locations.
+                </entry>
+              </row>
+
+              <row>
+                <entry>
+                  <varname>role</varname>
+                  <parameter>ROLE</parameter>
+                </entry>
+                <entry>
+                  The "role" that <application>MPD</application>
+                  registers itself as in the RoarAudio server.  The
+                  default is "music".
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>recorder</varname></title>
+
+        <para>
+          The <varname>recorder</varname> plugin writes the audio
+          played by <application>MPD</application> to a file.  This
+          may be useful for recording radio streams.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>path</varname>
+                  <parameter>P</parameter>
+                </entry>
+                <entry>
+                  Write to this file.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>encoder</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Chooses an encoder plugin.  A list of encoder
+                  plugins can be found in the <link
+                  linkend="encoder_plugins">encoder plugin
+                  reference</link>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section id="shout_output">
+        <title><varname>shout</varname></title>
+
+        <para>
+          The <varname>shout</varname> plugin connects to a <ulink
+          url="http://www.shoutcast.com/"><application>ShoutCast</application></ulink>
+          or <ulink
+          url="http://icecast.org/"><application>IceCast</application></ulink>
+          server.  It forwards tags to this server.
+        </para>
+
+        <para>
+          You must set a <varname>format</varname>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>host</varname>
+                  <parameter>HOSTNAME</parameter>
+                </entry>
+                <entry>
+                  Sets the host name of the <ulink
+                  url="http://www.shoutcast.com/"><application>ShoutCast</application></ulink>
+                  / <ulink
+                  url="http://icecast.org/"><application>IceCast</application></ulink>
+                  server.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>port</varname>
+                  <parameter>PORTNUMBER</parameter>
+                </entry>
+                <entry>
+                  Connect to this port number on the specified host.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>timeout</varname>
+                  <parameter>SECONDS</parameter>
+                </entry>
+                <entry>
+                  Set the timeout for the shout connection in seconds.
+                  Defaults to 2 seconds.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>protocol</varname>
+                  <parameter>icecast2|icecast1|shoutcast</parameter>
+                </entry>
+                <entry>
+                  Specifies the protocol that wil be used to connect
+                  to the server.  The default is
+                  "<parameter>icecast2</parameter>".
+
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>mount</varname>
+                  <parameter>URI</parameter>
+                </entry>
+                <entry>
+                  Mounts the <application>MPD</application> stream in
+                  the specified URI.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>user</varname>
+                  <parameter>USERNAME</parameter>
+                </entry>
+                <entry>
+                  Sets the user name for submitting the stream to the
+                  server.  Default is "source".
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>password</varname>
+                  <parameter>PWD</parameter>
+                </entry>
+                <entry>
+                  Sets the password for submitting the stream to the
+                  server.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>name</varname>
+                  <parameter>NAME</parameter>
+                </entry>
+                <entry>
+                  Sets the name of the stream.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>genre</varname>
+                  <parameter>GENRE</parameter>
+                </entry>
+                <entry>
+                  Sets the genre of the stream (optional).
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>description</varname>
+                  <parameter>DESCRIPTION</parameter>
+                </entry>
+                <entry>
+                  Sets a short description of the stream (optional).
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>url</varname>
+                  <parameter>URL</parameter>
+                </entry>
+                <entry>
+                  Sets a URL associated with the stream (optional).
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>public</varname>
+                  <parameter>yes|no</parameter>
+                </entry>
+                <entry>
+                  Specifies whether the stream should be "public".
+                  Default is <parameter>no</parameter>.
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <varname>encoder</varname>
+                  <parameter>PLUGIN</parameter>
+                </entry>
+                <entry>
+                  Chooses an encoder plugin.  Default is <link
+                  linkend="vorbis_encoder"><parameter>vorbis</parameter></link>.
+                  A list of encoder plugins can be found in the <link
+                  linkend="encoder_plugins">encoder plugin
+                  reference</link>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+
+      <section>
+        <title><varname>solaris</varname></title>
+
+        <para>
+          The "Solaris" plugin runs only on SUN Solaris, and plays via
+          <filename>/dev/audio</filename>.
+        </para>
+
+        <informaltable>
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry>Setting</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <varname>device</varname>
+                  <parameter>PATH</parameter>
+                </entry>
+                <entry>
+                  Sets the path of the audio device, defaults to
+                  <filename>/dev/audio</filename>.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+    </section>
+
+    <section id="playlist_plugins">
+      <title>Playlist plugins</title>
+
+      <section>
+        <title><varname>embcue</varname></title>
+
+        <para>
+          Reads CUE sheets from the "CUESHEET" tag of song files.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>m3u</varname></title>
+
+        <para>
+          Reads <filename>.m3u</filename> playlist files.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>extm3u</varname></title>
+
+        <para>
+          Reads extended <filename>.m3u</filename> playlist files.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>pls</varname></title>
+
+        <para>
+          Reads <filename>.pls</filename> playlist files.
+        </para>
+      </section>
+
+      <section>
+        <title><varname>xspf</varname></title>
+
+        <para>
+          Reads <ulink url="http://www.xspf.org/">XSPF</ulink>
+          playlist files.
+        </para>
+      </section>
+    </section>
+  </chapter>
+</book>
