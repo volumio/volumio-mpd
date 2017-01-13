@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,8 @@
 #define MPD_OUTPUT_PLUGIN_HXX
 
 #include "Compiler.h"
+
+#include <chrono>
 
 #include <stddef.h>
 
@@ -97,9 +99,9 @@ struct AudioOutputPlugin {
 	 * instead of doing a sleep inside the plugin, because this
 	 * allows MPD to listen to commands meanwhile.
 	 *
-	 * @return the number of milliseconds to wait
+	 * @return the duration to wait
 	 */
-	unsigned (*delay)(AudioOutput *data);
+	std::chrono::steady_clock::duration (*delay)(AudioOutput *data);
 
 	/**
 	 * Display metadata for the next chunk.  Optional method,
@@ -179,7 +181,7 @@ void
 ao_plugin_close(AudioOutput *ao);
 
 gcc_pure
-unsigned
+std::chrono::steady_clock::duration
 ao_plugin_delay(AudioOutput *ao);
 
 void

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,9 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_OUTPUT_CONTROL_HXX
-#define MPD_OUTPUT_CONTROL_HXX
+#include "config.h"
+#include "ExpatParser.hxx"
+#include "input/InputStream.hxx"
 
-struct AudioOutput;
+void
+ExpatParser::Parse(InputStream &is)
+{
+	assert(is.IsReady());
 
-#endif
+	while (true) {
+		char buffer[4096];
+		size_t nbytes = is.LockRead(buffer, sizeof(buffer));
+		if (nbytes == 0)
+			break;
+
+		Parse(buffer, nbytes, false);
+	}
+
+	Parse("", 0, true);
+}

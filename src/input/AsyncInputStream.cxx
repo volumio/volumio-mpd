@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -240,7 +240,7 @@ AsyncInputStream::AppendToBuffer(const void *data, size_t append_size)
 void
 AsyncInputStream::DeferredResume()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	try {
 		Resume();
@@ -253,7 +253,7 @@ AsyncInputStream::DeferredResume()
 void
 AsyncInputStream::DeferredSeek()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	if (seek_state != SeekState::SCHEDULED)
 		return;
 

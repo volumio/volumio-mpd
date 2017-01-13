@@ -1,4 +1,16 @@
-ver 0.20 (not yet released)
+ver 0.20.1 (2017/01/09)
+* input
+  - curl: fix crash bug
+  - curl: fix freeze bug
+* decoder
+  - wavpack: fix crash bug
+* storage
+  - curl: new storage plugin for WebDAV (work in progress)
+* mixer
+  - alsa: normalize displayed volume according to human perception
+* fix crash with volume_normalization enabled
+
+ver 0.20 (2017/01/04)
 * protocol
   - "commands" returns playlist commands only if playlist_directory configured
   - "search"/"find" have a "window" parameter
@@ -7,6 +19,8 @@ ver 0.20 (not yet released)
   - drop the "file:///" prefix for absolute file paths
   - add range parameter to command "plchanges" and "plchangesposid"
   - send verbose error message to client
+* input
+  - curl: fix memory leak
 * tags
   - ape, ogg: drop support for non-standard tag "album artist"
     affected filetypes: vorbis, flac, opus & all files with ape2 tags
@@ -50,7 +64,9 @@ ver 0.20 (not yet released)
   - new block "resampler" in configuration file
     replacing the old "samplerate_converter" setting
   - soxr: allow multi-threaded resampling
-* reset song priority on playback
+* player
+  - reset song priority on playback
+  - reduce xruns
 * write database and state file atomically
 * always write UTF-8 to the log file.
 * remove dependency on GLib
@@ -61,6 +77,12 @@ ver 0.20 (not yet released)
   - apply .mpdignore matches to subdirectories
 * switch the code base to C++14
   - GCC 4.9 or clang 3.4 (or newer) recommended
+
+ver 0.19.21 (2016/12/13)
+* decoder
+  - ffmpeg: fix crash bug
+* fix unit test failure after recent "setprio" change
+* systemd: add user unit
 
 ver 0.19.20 (2016/12/09)
 * protocol

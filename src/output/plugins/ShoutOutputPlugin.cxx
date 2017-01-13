@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -63,7 +63,7 @@ struct ShoutOutput final {
 	void Open(AudioFormat &audio_format);
 	void Close();
 
-	unsigned Delay() const;
+	std::chrono::steady_clock::duration Delay() const;
 	void SendTag(const Tag &tag);
 	size_t Play(const void *chunk, size_t size);
 	void Cancel();
@@ -360,14 +360,14 @@ ShoutOutput::Open(AudioFormat &audio_format)
 	}
 }
 
-unsigned
+std::chrono::steady_clock::duration
 ShoutOutput::Delay() const
 {
 	int delay = shout_delay(shout_conn);
 	if (delay < 0)
 		delay = 0;
 
-	return delay;
+	return std::chrono::milliseconds(delay);
 }
 
 size_t

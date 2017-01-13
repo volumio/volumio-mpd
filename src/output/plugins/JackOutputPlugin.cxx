@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -128,10 +128,10 @@ struct JackOutput {
 	 */
 	size_t WriteSamples(const float *src, size_t n_frames);
 
-	unsigned Delay() const {
+	std::chrono::steady_clock::duration Delay() const {
 		return base.pause && pause && !shutdown
-			? 1000
-			: 0;
+			? std::chrono::seconds(1)
+			: std::chrono::steady_clock::duration::zero();
 	}
 
 	size_t Play(const void *chunk, size_t size);

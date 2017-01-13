@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -72,7 +72,7 @@ io_thread_start()
 	assert(io.loop != nullptr);
 	assert(!io.thread.IsDefined());
 
-	const ScopeLock protect(io.mutex);
+	const std::lock_guard<Mutex> protect(io.mutex);
 	io.thread.Start(io_thread_func, nullptr);
 }
 

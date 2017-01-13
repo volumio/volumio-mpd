@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -88,7 +88,7 @@ need_chunks(DecoderControl &dc)
 static DecoderCommand
 LockNeedChunks(DecoderControl &dc)
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return need_chunks(dc);
 }
 
@@ -130,7 +130,7 @@ DecoderBridge::FlushChunk()
 	else
 		dc.pipe->Push(chunk);
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	if (dc.client_is_waiting)
 		dc.client_cond.signal();
 }
@@ -193,7 +193,7 @@ DecoderBridge::GetVirtualCommand()
 DecoderCommand
 DecoderBridge::LockGetVirtualCommand()
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return GetVirtualCommand();
 }
 
@@ -258,7 +258,7 @@ DecoderBridge::Ready(const AudioFormat audio_format,
 		    seekable ? "true" : "false");
 
 	{
-		const ScopeLock protect(dc.mutex);
+		const std::lock_guard<Mutex> protect(dc.mutex);
 		dc.SetReady(audio_format, seekable, duration);
 	}
 
@@ -287,7 +287,7 @@ DecoderBridge::GetCommand()
 void
 DecoderBridge::CommandFinished()
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	assert(dc.command != DecoderCommand::NONE || initial_seek_running);
 	assert(dc.command != DecoderCommand::SEEK ||
@@ -376,7 +376,7 @@ DecoderBridge::OpenUri(const char *uri)
 
 	auto is = InputStream::Open(uri, mutex, cond);
 
-	const ScopeLock lock(mutex);
+	const std::lock_guard<Mutex> lock(mutex);
 	while (true) {
 		is->Update();
 		if (is->IsReady())
@@ -399,7 +399,7 @@ try {
 	if (length == 0)
 		return 0;
 
-	ScopeLock lock(is.mutex);
+	std::lock_guard<Mutex> lock(is.mutex);
 
 	while (true) {
 		if (CheckCancelRead())

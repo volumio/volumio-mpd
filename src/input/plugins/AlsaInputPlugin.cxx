@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -136,7 +136,7 @@ private:
 		InvalidateSockets();
 	}
 
-	virtual int PrepareSockets() override;
+	virtual std::chrono::steady_clock::duration PrepareSockets() override;
 	virtual void DispatchSockets() override;
 };
 
@@ -165,18 +165,18 @@ AlsaInputStream::Create(const char *uri, Mutex &mutex, Cond &cond)
 				   handle, frame_size);
 }
 
-int
+std::chrono::steady_clock::duration
 AlsaInputStream::PrepareSockets()
 {
 	if (IsPaused()) {
 		ClearSocketList();
-		return -1;
+		return std::chrono::steady_clock::duration(-1);
 	}
 
 	int count = snd_pcm_poll_descriptors_count(capture_handle);
 	if (count < 0) {
 		ClearSocketList();
-		return -1;
+		return std::chrono::steady_clock::duration(-1);
 	}
 
 	struct pollfd *pfds = pfd_buffer.Get(count);
@@ -186,13 +186,13 @@ AlsaInputStream::PrepareSockets()
 		count = 0;
 
 	ReplaceSocketList(pfds, count);
-	return -1;
+	return std::chrono::steady_clock::duration(-1);
 }
 
 void
 AlsaInputStream::DispatchSockets()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto w = PrepareWriteBuffer();
 	const snd_pcm_uframes_t w_frames = w.size / frame_size;

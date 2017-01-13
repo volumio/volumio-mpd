@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -68,10 +68,8 @@ FfmpegOpenInput(AVIOContext *pb,
 	context->pb = pb;
 
 	int err = avformat_open_input(&context, filename, fmt, nullptr);
-	if (err < 0) {
-		avformat_free_context(context);
+	if (err < 0)
 		throw MakeFfmpegError(err, "avformat_open_input() failed");
-	}
 
 	return context;
 }

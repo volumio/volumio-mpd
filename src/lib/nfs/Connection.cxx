@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,7 +33,8 @@ extern "C" {
 
 #include <poll.h> /* for POLLIN, POLLOUT */
 
-static constexpr unsigned NFS_MOUNT_TIMEOUT = 60;
+static constexpr std::chrono::steady_clock::duration NFS_MOUNT_TIMEOUT =
+	std::chrono::minutes(1);
 
 inline void
 NfsConnection::CancellableCallback::Stat(nfs_context *ctx,
@@ -541,7 +542,7 @@ NfsConnection::MountInternal()
 	postponed_mount_error = std::exception_ptr();
 	mount_finished = false;
 
-	TimeoutMonitor::ScheduleSeconds(NFS_MOUNT_TIMEOUT);
+	TimeoutMonitor::Schedule(NFS_MOUNT_TIMEOUT);
 
 #ifndef NDEBUG
 	in_service = false;
