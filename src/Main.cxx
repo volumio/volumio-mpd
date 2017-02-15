@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,6 @@
 #include "config/ConfigDefaults.hxx"
 #include "config/ConfigOption.hxx"
 #include "config/ConfigError.hxx"
-#include "Stats.hxx"
 #include "util/RuntimeError.hxx"
 
 #ifdef ENABLE_DAEMON
@@ -204,7 +203,11 @@ glue_db_init_and_load(void)
 				   "because the database does not need it");
 	}
 
-	instance->database->Open();
+	try {
+		instance->database->Open();
+	} catch (...) {
+		std::throw_with_nested(std::runtime_error("Failed to open database plugin"));
+	}
 
 	if (!instance->database->IsPlugin(simple_db_plugin))
 		return true;
@@ -258,7 +261,7 @@ glue_state_file_init()
 #endif
 	}
 
-	const unsigned interval =
+	const auto interval =
 		config_get_unsigned(ConfigOption::STATE_FILE_INTERVAL,
 				    StateFile::DEFAULT_INTERVAL);
 
@@ -442,7 +445,6 @@ try {
 	glue_daemonize_init(&options);
 #endif
 
-	stats_global_init();
 	TagLoadConfig();
 
 	log_init(options.verbose, options.log_stderr);
@@ -520,6 +522,8 @@ try {
 	instance->partition->outputs.Configure(instance->event_loop,
 					       config.replay_gain,
 					       instance->partition->pc);
+	instance->partition->UpdateEffectiveReplayGainMode();
+
 	client_manager_init();
 	input_stream_global_init();
 	playlist_list_global_init();

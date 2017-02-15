@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,11 @@ extern "C" {
 #include <assert.h>
 #include <string.h>
 
+/**
+ * Muxer options to be passed to avformat_open_input().
+ */
+static AVDictionary *avformat_options = nullptr;
+
 static AVFormatContext *
 FfmpegOpenInput(AVIOContext *pb,
 		const char *filename,
@@ -67,20 +72,40 @@ FfmpegOpenInput(AVIOContext *pb,
 
 	context->pb = pb;
 
-	int err = avformat_open_input(&context, filename, fmt, nullptr);
-	if (err < 0) {
-		avformat_free_context(context);
+	AVDictionary *options = nullptr;
+	AtScopeExit(&options) { av_dict_free(&options); };
+	av_dict_copy(&options, avformat_options, 0);
+
+	int err = avformat_open_input(&context, filename, fmt, &options);
+	if (err < 0)
 		throw MakeFfmpegError(err, "avformat_open_input() failed");
-	}
 
 	return context;
 }
 
 static bool
-ffmpeg_init(gcc_unused const ConfigBlock &block)
+ffmpeg_init(const ConfigBlock &block)
 {
 	FfmpegInit();
+
+	static constexpr const char *option_names[] = {
+		"probesize",
+		"analyzeduration",
+	};
+
+	for (const char *name : option_names) {
+		const char *value = block.GetBlockValue(name);
+		if (value != nullptr)
+			av_dict_set(&avformat_options, name, value, 0);
+	}
+
 	return true;
+}
+
+static void
+ffmpeg_finish()
+{
+	av_dict_free(&avformat_options);
 }
 
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 25, 0) /* FFmpeg 3.1 */
@@ -969,7 +994,7 @@ static const char *const ffmpeg_mime_types[] = {
 const struct DecoderPlugin ffmpeg_decoder_plugin = {
 	"ffmpeg",
 	ffmpeg_init,
-	nullptr,
+	ffmpeg_finish,
 	ffmpeg_decode,
 	nullptr,
 	nullptr,
