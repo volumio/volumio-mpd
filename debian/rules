@@ -146,9 +146,6 @@ override_dh_auto_build:
 	/usr/bin/xmlto --stringparam chunker.output.encoding=utf-8 html-nochunks $(CURDIR)/doc/user.xml
 	mv user.html user-manual.html
 
-override_dh_strip:
-	# can be dropped after Stretch
-	dh_strip  --ddeb-migration='mpd-dbg (<< 0.19.14-1~)'
 
 override_dh_installchangelogs:
 	dh_installchangelogs NEWS

@@ -1,0 +1,5 @@
+/etc/default/mpd
+/etc/init.d/mpd
+/etc/logrotate.d/mpd
+/etc/mpd.conf
+/etc/xdg/autostart/mpd.desktop

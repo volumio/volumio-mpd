@@ -1,10 +1,10 @@
 AC_PREREQ(2.60)
 
-AC_INIT(mpd, 0.20.4, musicpd-dev-team@lists.sourceforge.net)
+AC_INIT(mpd, 0.20.6, musicpd-dev-team@lists.sourceforge.net)
 
 VERSION_MAJOR=0
 VERSION_MINOR=20
-VERSION_REVISION=4
+VERSION_REVISION=6
 VERSION_EXTRA=0
 
 AC_CONFIG_SRCDIR([src/Main.cxx])
@@ -992,7 +992,7 @@ AM_CONDITIONAL(ENABLE_VORBIS_DECODER, test x$enable_vorbis = xyes || test x$enab
 dnl --------------------------------- sidplay ---------------------------------
 if test x$enable_sidplay != xno; then
 	dnl Check for libsidplayfp first
-	PKG_CHECK_MODULES([SIDPLAY], [libsidplayfp libsidutils],
+	PKG_CHECK_MODULES([SIDPLAY], [libsidplayfp],
 		[found_sidplayfp=yes],
 		[found_sidplayfp=no])
 	found_sidplay=$found_sidplayfp
