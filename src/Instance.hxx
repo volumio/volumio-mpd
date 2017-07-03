@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -117,7 +117,6 @@ struct Instance final
 	 * DatabaseError if this MPD configuration has no database (no
 	 * music_directory was configured).
 	 */
-	gcc_pure
 	const Database &GetDatabaseOrThrow() const;
 #endif
 

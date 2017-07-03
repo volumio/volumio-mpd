@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -66,7 +66,7 @@ struct CrossFadeSettings {
 			   const char *mixramp_start,
 			   const char *mixramp_prev_end,
 			   AudioFormat af, AudioFormat old_format,
-			   unsigned max_chunks) const;
+			   unsigned max_chunks) const noexcept;
 };
 
 #endif

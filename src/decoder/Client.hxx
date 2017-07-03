@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -58,7 +58,7 @@ public:
 	 * command pending
 	 */
 	gcc_pure
-	virtual DecoderCommand GetCommand() = 0;
+	virtual DecoderCommand GetCommand() noexcept = 0;
 
 	/**
 	 * Called by the decoder when it has performed the requested command
@@ -73,7 +73,7 @@ public:
 	 * @return the destination position for the seek in milliseconds
 	 */
 	gcc_pure
-	virtual SongTime GetSeekTime() = 0;
+	virtual SongTime GetSeekTime() noexcept = 0;
 
 	/**
 	 * Call this when you have received the DecoderCommand::SEEK command.
@@ -81,7 +81,7 @@ public:
 	 * @return the destination position for the seek in frames
 	 */
 	gcc_pure
-	virtual uint64_t GetSeekFrame() = 0;
+	virtual uint64_t GetSeekFrame() noexcept = 0;
 
 	/**
 	 * Call this instead of CommandFinished() when seeking has

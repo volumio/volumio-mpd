@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,6 +32,7 @@
 #include "Log.hxx"
 #include "input/InputStream.hxx"
 #include "util/ConstBuffer.hxx"
+#include "util/StringBuffer.hxx"
 
 #include <assert.h>
 #include <string.h>
@@ -53,7 +54,7 @@ DecoderBridge::~DecoderBridge()
 }
 
 bool
-DecoderBridge::CheckCancelRead() const
+DecoderBridge::CheckCancelRead() const noexcept
 {
 	if (error)
 		/* this translates to DecoderCommand::STOP */
@@ -77,7 +78,7 @@ DecoderBridge::CheckCancelRead() const
  * one.
  */
 static DecoderCommand
-need_chunks(DecoderControl &dc)
+need_chunks(DecoderControl &dc) noexcept
 {
 	if (dc.command == DecoderCommand::NONE)
 		dc.Wait();
@@ -86,14 +87,14 @@ need_chunks(DecoderControl &dc)
 }
 
 static DecoderCommand
-LockNeedChunks(DecoderControl &dc)
+LockNeedChunks(DecoderControl &dc) noexcept
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return need_chunks(dc);
 }
 
 MusicChunk *
-DecoderBridge::GetChunk()
+DecoderBridge::GetChunk() noexcept
 {
 	DecoderCommand cmd;
 
@@ -130,7 +131,7 @@ DecoderBridge::FlushChunk()
 	else
 		dc.pipe->Push(chunk);
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	if (dc.client_is_waiting)
 		dc.client_cond.signal();
 }
@@ -176,7 +177,7 @@ DecoderBridge::PrepareInitialSeek()
 }
 
 DecoderCommand
-DecoderBridge::GetVirtualCommand()
+DecoderBridge::GetVirtualCommand() noexcept
 {
 	if (error)
 		/* an error has occurred: stop the decoder plugin */
@@ -191,9 +192,9 @@ DecoderBridge::GetVirtualCommand()
 }
 
 DecoderCommand
-DecoderBridge::LockGetVirtualCommand()
+DecoderBridge::LockGetVirtualCommand() noexcept
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return GetVirtualCommand();
 }
 
@@ -246,26 +247,23 @@ void
 DecoderBridge::Ready(const AudioFormat audio_format,
 		     bool seekable, SignedSongTime duration)
 {
-	struct audio_format_string af_string;
-
 	assert(convert == nullptr);
 	assert(stream_tag == nullptr);
 	assert(decoder_tag == nullptr);
 	assert(!seeking);
 
 	FormatDebug(decoder_domain, "audio_format=%s, seekable=%s",
-		    audio_format_to_string(audio_format, &af_string),
+		    ToString(audio_format).c_str(),
 		    seekable ? "true" : "false");
 
 	{
-		const ScopeLock protect(dc.mutex);
+		const std::lock_guard<Mutex> protect(dc.mutex);
 		dc.SetReady(audio_format, seekable, duration);
 	}
 
 	if (dc.in_audio_format != dc.out_audio_format) {
 		FormatDebug(decoder_domain, "converting to %s",
-			    audio_format_to_string(dc.out_audio_format,
-						   &af_string));
+			    ToString(dc.out_audio_format).c_str());
 
 		convert = new PcmConvert();
 
@@ -279,7 +277,7 @@ DecoderBridge::Ready(const AudioFormat audio_format,
 }
 
 DecoderCommand
-DecoderBridge::GetCommand()
+DecoderBridge::GetCommand() noexcept
 {
 	return LockGetVirtualCommand();
 }
@@ -287,7 +285,7 @@ DecoderBridge::GetCommand()
 void
 DecoderBridge::CommandFinished()
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	assert(dc.command != DecoderCommand::NONE || initial_seek_running);
 	assert(dc.command != DecoderCommand::SEEK ||
@@ -317,6 +315,9 @@ DecoderBridge::CommandFinished()
 
 		dc.pipe->Clear(*dc.buffer);
 
+		if (convert != nullptr)
+			convert->Reset();
+
 		timestamp = dc.seek_time.ToDoubleS();
 	}
 
@@ -325,7 +326,7 @@ DecoderBridge::CommandFinished()
 }
 
 SongTime
-DecoderBridge::GetSeekTime()
+DecoderBridge::GetSeekTime() noexcept
 {
 	assert(dc.pipe != nullptr);
 
@@ -340,7 +341,7 @@ DecoderBridge::GetSeekTime()
 }
 
 uint64_t
-DecoderBridge::GetSeekFrame()
+DecoderBridge::GetSeekFrame() noexcept
 {
 	return GetSeekTime().ToScale<uint64_t>(dc.in_audio_format.sample_rate);
 }
@@ -376,7 +377,7 @@ DecoderBridge::OpenUri(const char *uri)
 
 	auto is = InputStream::Open(uri, mutex, cond);
 
-	const ScopeLock lock(mutex);
+	const std::lock_guard<Mutex> lock(mutex);
 	while (true) {
 		is->Update();
 		if (is->IsReady())
@@ -399,7 +400,7 @@ try {
 	if (length == 0)
 		return 0;
 
-	ScopeLock lock(is.mutex);
+	std::lock_guard<Mutex> lock(is.mutex);
 
 	while (true) {
 		if (CheckCancelRead())

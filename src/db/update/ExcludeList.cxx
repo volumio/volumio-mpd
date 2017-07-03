@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,7 +36,7 @@
 #include <string.h>
 
 bool
-ExcludeList::LoadFile(Path path_fs)
+ExcludeList::LoadFile(Path path_fs) noexcept
 try {
 #ifdef HAVE_CLASS_GLOB
 	TextFile file(path_fs);
@@ -67,7 +67,7 @@ try {
 }
 
 bool
-ExcludeList::Check(Path name_fs) const
+ExcludeList::Check(Path name_fs) const noexcept
 {
 	assert(!name_fs.IsNull());
 

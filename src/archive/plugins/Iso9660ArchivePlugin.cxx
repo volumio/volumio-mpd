@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -162,7 +162,7 @@ public:
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 };
 
@@ -213,7 +213,7 @@ Iso9660InputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-Iso9660InputStream::IsEOF()
+Iso9660InputStream::IsEOF() noexcept
 {
 	return offset == size;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -81,7 +81,7 @@ public:
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	gcc_pure gcc_nonnull_all
+	gcc_nonnull_all
 	AllocatedString<char> ToUTF8(const char *s) const;
 
 	/**
@@ -89,7 +89,7 @@ public:
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	gcc_pure gcc_nonnull_all
+	gcc_nonnull_all
 	AllocatedString<char> FromUTF8(const char *s) const;
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,12 +43,12 @@ class UpnpNeighborExplorer final
 		Server(const Server &) = delete;
 
 		gcc_pure
-		bool operator==(const Server &other) const {
+		bool operator==(const Server &other) const noexcept {
 			return name == other.name;
 		}
 
 		gcc_pure
-		NeighborInfo Export() const {
+		NeighborInfo Export() const noexcept {
 			return { "smb://" + name + "/", comment };
 		}
 	};

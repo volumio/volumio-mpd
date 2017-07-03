@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,13 @@
 #include "db/LightDirectory.hxx"
 #include "db/Interface.hxx"
 #include "fs/Traits.hxx"
+
+#ifdef _LIBCPP_VERSION
+/* workaround for "error: incomplete type 'PlaylistInfo' used in type
+   trait expression" with libc++ version 3900 (from Android NDK
+   r13b) */
+#include "db/PlaylistInfo.hxx"
+#endif
 
 #include <string>
 

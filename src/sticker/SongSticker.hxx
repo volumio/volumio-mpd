@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,6 @@
 #define MPD_SONG_STICKER_HXX
 
 #include "Match.hxx"
-#include "Compiler.h"
 
 #include <string>
 
@@ -34,7 +33,6 @@ class Database;
  *
  * Throws #SqliteError on error.
  */
-gcc_pure
 std::string
 sticker_song_get_value(const LightSong &song, const char *name);
 

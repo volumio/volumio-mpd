@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
 
 #include "config.h"
 #include "ExpatParser.hxx"
-#include "input/InputStream.hxx"
 #include "util/ASCII.hxx"
 
 #include <string.h>
@@ -31,26 +30,9 @@ ExpatParser::Parse(const char *data, size_t length, bool is_final)
 		throw ExpatError(parser);
 }
 
-void
-ExpatParser::Parse(InputStream &is)
-{
-	assert(is.IsReady());
-
-	while (true) {
-		char buffer[4096];
-		size_t nbytes = is.LockRead(buffer, sizeof(buffer));
-		if (nbytes == 0)
-			break;
-
-		Parse(buffer, nbytes, false);
-	}
-
-	Parse("", 0, true);
-}
-
 const char *
 ExpatParser::GetAttribute(const XML_Char **atts,
-			  const char *name)
+			  const char *name) noexcept
 {
 	for (unsigned i = 0; atts[i] != nullptr; i += 2)
 		if (strcmp(atts[i], name) == 0)
@@ -61,7 +43,7 @@ ExpatParser::GetAttribute(const XML_Char **atts,
 
 const char *
 ExpatParser::GetAttributeCase(const XML_Char **atts,
-			      const char *name)
+			      const char *name) noexcept
 {
 	for (unsigned i = 0; atts[i] != nullptr; i += 2)
 		if (StringEqualsCaseASCII(atts[i], name))

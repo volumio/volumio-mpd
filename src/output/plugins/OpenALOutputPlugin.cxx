@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -58,13 +58,13 @@ class OpenALOutput {
 	void Close();
 
 	gcc_pure
-	unsigned Delay() const {
+	std::chrono::steady_clock::duration Delay() const noexcept {
 		return filled < NUM_BUFFERS || HasProcessed()
-			? 0
+			? std::chrono::steady_clock::duration::zero()
 			/* we don't know exactly how long we must wait
 			   for the next buffer to finish, so this is a
 			   random guess: */
-			: 50;
+			: std::chrono::milliseconds(50);
 	}
 
 	size_t Play(const void *chunk, size_t size);
@@ -73,19 +73,19 @@ class OpenALOutput {
 
 private:
 	gcc_pure
-	ALint GetSourceI(ALenum param) const {
+	ALint GetSourceI(ALenum param) const noexcept {
 		ALint value;
 		alGetSourcei(source, param, &value);
 		return value;
 	}
 
 	gcc_pure
-	bool HasProcessed() const {
+	bool HasProcessed() const noexcept {
 		return GetSourceI(AL_BUFFERS_PROCESSED) > 0;
 	}
 
 	gcc_pure
-	bool IsPlaying() const {
+	bool IsPlaying() const noexcept {
 		return GetSourceI(AL_SOURCE_STATE) == AL_PLAYING;
 	}
 

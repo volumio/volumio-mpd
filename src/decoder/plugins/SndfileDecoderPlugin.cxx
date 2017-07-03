@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -148,7 +148,7 @@ sndfile_duration(const SF_INFO &info)
 
 gcc_pure
 static SampleFormat
-sndfile_sample_format(const SF_INFO &info)
+sndfile_sample_format(const SF_INFO &info) noexcept
 {
 	switch (info.format & SF_FORMAT_SUBMASK) {
 	case SF_FORMAT_PCM_S8:

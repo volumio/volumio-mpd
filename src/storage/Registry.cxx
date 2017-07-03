@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include "plugins/LocalStorage.hxx"
 #include "plugins/SmbclientStorage.hxx"
 #include "plugins/NfsStorage.hxx"
+#include "plugins/CurlStorage.hxx"
 
 #include <assert.h>
 #include <string.h>
@@ -35,11 +36,14 @@ const StoragePlugin *const storage_plugins[] = {
 #ifdef ENABLE_NFS
 	&nfs_storage_plugin,
 #endif
+#ifdef ENABLE_WEBDAV
+	&curl_storage_plugin,
+#endif
 	nullptr
 };
 
 const StoragePlugin *
-GetStoragePluginByName(const char *name)
+GetStoragePluginByName(const char *name) noexcept
 {
 	for (auto i = storage_plugins; *i != nullptr; ++i) {
 		const StoragePlugin &plugin = **i;

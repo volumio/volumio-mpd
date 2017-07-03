@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -59,14 +59,14 @@ mapper_init(AllocatedPath &&_playlist_dir)
 }
 
 void
-mapper_finish()
+mapper_finish() noexcept
 {
 }
 
 #ifdef ENABLE_DATABASE
 
 AllocatedPath
-map_uri_fs(const char *uri)
+map_uri_fs(const char *uri) noexcept
 {
 	assert(uri != nullptr);
 	assert(*uri != '/');
@@ -86,7 +86,7 @@ map_uri_fs(const char *uri)
 }
 
 std::string
-map_fs_to_utf8(Path path_fs)
+map_fs_to_utf8(Path path_fs) noexcept
 {
 	if (path_fs.IsAbsolute()) {
 		if (instance->storage == nullptr)
@@ -109,13 +109,13 @@ map_fs_to_utf8(Path path_fs)
 #endif
 
 const AllocatedPath &
-map_spl_path()
+map_spl_path() noexcept
 {
 	return playlist_dir_fs;
 }
 
 AllocatedPath
-map_spl_utf8_to_fs(const char *name)
+map_spl_utf8_to_fs(const char *name) noexcept
 {
 	if (playlist_dir_fs.IsNull())
 		return AllocatedPath::Null();

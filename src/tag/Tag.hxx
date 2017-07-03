@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -133,14 +133,14 @@ struct Tag {
 	 * nullptr if none is present in this tag object.
 	 */
 	gcc_pure
-	const char *GetValue(TagType type) const;
+	const char *GetValue(TagType type) const noexcept;
 
 	/**
 	 * Checks whether the tag contains one or more items with
 	 * the specified type.
 	 */
 	gcc_pure
-	bool HasType(TagType type) const;
+	bool HasType(TagType type) const noexcept;
 
 	class const_iterator {
 		friend struct Tag;
@@ -202,7 +202,7 @@ struct Tag {
  */
 gcc_pure
 TagType
-tag_name_parse(const char *name);
+tag_name_parse(const char *name) noexcept;
 
 /**
  * Parse the string, and convert it into a #TagType.  Returns
@@ -212,6 +212,6 @@ tag_name_parse(const char *name);
  */
 gcc_pure
 TagType
-tag_name_parse_i(const char *name);
+tag_name_parse_i(const char *name) noexcept;
 
 #endif

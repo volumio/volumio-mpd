@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,7 @@ HttpdClient::Close()
 void
 HttpdClient::LockClose()
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::lock_guard<Mutex> protect(httpd.mutex);
 	Close();
 }
 
@@ -260,7 +260,7 @@ HttpdClient::TryWritePageN(const Page &page, size_t position, ssize_t n)
 }
 
 ssize_t
-HttpdClient::GetBytesTillMetaData() const
+HttpdClient::GetBytesTillMetaData() const noexcept
 {
 	if (metadata_requested &&
 	    current_page->size - current_position > metaint - metadata_fill)
@@ -272,7 +272,7 @@ HttpdClient::GetBytesTillMetaData() const
 inline bool
 HttpdClient::TryWrite()
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::lock_guard<Mutex> protect(httpd.mutex);
 
 	assert(state == RESPONSE);
 

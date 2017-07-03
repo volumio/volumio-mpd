@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -42,17 +42,17 @@ static int last_hardware_volume = -1;
 static PeriodClock hardware_volume_clock;
 
 void
-InvalidateHardwareVolume()
+InvalidateHardwareVolume() noexcept
 {
 	/* flush the hardware volume cache */
 	last_hardware_volume = -1;
 }
 
 int
-volume_level_get(const MultipleOutputs &outputs)
+volume_level_get(const MultipleOutputs &outputs) noexcept
 {
 	if (last_hardware_volume >= 0 &&
-	    !hardware_volume_clock.CheckUpdate(1000))
+	    !hardware_volume_clock.CheckUpdate(std::chrono::seconds(1)))
 		/* throttle access to hardware mixers */
 		return last_hardware_volume;
 
@@ -118,7 +118,7 @@ save_sw_volume_state(BufferedOutputStream &os)
 }
 
 unsigned
-sw_volume_state_get_hash(void)
+sw_volume_state_get_hash() noexcept
 {
 	return volume_software_set;
 }

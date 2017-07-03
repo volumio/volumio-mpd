@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -248,7 +248,7 @@ try {
 /* we don't look at "." / ".." nor files with newlines in their name */
 gcc_pure
 static bool
-skip_path(const char *name_utf8)
+skip_path(const char *name_utf8) noexcept
 {
 	return strchr(name_utf8, '\n') != nullptr;
 }
@@ -256,7 +256,7 @@ skip_path(const char *name_utf8)
 gcc_pure
 bool
 UpdateWalk::SkipSymlink(const Directory *directory,
-			const char *utf8_name) const
+			const char *utf8_name) const noexcept
 {
 #ifndef WIN32
 	const auto path_fs = storage.MapChildFS(directory->GetPath(),

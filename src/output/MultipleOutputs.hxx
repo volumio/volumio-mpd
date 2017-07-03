@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,8 +39,8 @@ class MusicBuffer;
 class MusicPipe;
 class EventLoop;
 class MixerListener;
+class AudioOutputClient;
 struct MusicChunk;
-struct PlayerControl;
 struct AudioOutput;
 struct ReplayGainConfig;
 
@@ -78,14 +78,14 @@ public:
 
 	void Configure(EventLoop &event_loop,
 		       const ReplayGainConfig &replay_gain_config,
-		       PlayerControl &pc);
+		       AudioOutputClient &client);
 
 	/**
 	 * Returns the total number of audio output devices, including
 	 * those which are disabled right now.
 	 */
 	gcc_pure
-	unsigned Size() const {
+	unsigned Size() const noexcept {
 		return outputs.size();
 	}
 
@@ -109,7 +109,7 @@ public:
 	 * Returns nullptr if the name does not exist.
 	 */
 	gcc_pure
-	AudioOutput *FindByName(const char *name) const;
+	AudioOutput *FindByName(const char *name) const noexcept;
 
 	/**
 	 * Checks the "enabled" flag of all audio outputs, and if one has
@@ -160,16 +160,6 @@ public:
 	unsigned Check();
 
 	/**
-	 * Checks if the size of the #MusicPipe is below the #threshold.  If
-	 * not, it attempts to synchronize with all output threads, and waits
-	 * until another #MusicChunk is finished.
-	 *
-	 * @param threshold the maximum number of chunks in the pipe
-	 * @return true if there are less than #threshold chunks in the pipe
-	 */
-	bool Wait(PlayerControl &pc, unsigned threshold);
-
-	/**
 	 * Puts all audio outputs into pause mode.  Most implementations will
 	 * simply close it then.
 	 */
@@ -196,7 +186,7 @@ public:
 	 * finished yet.
 	 */
 	gcc_pure
-	SignedSongTime GetElapsedTime() const {
+	SignedSongTime GetElapsedTime() const noexcept {
 		return elapsed_time;
 	}
 
@@ -205,7 +195,7 @@ public:
 	 * 0..100).  Returns -1 if no mixer can be queried.
 	 */
 	gcc_pure
-	int GetVolume() const;
+	int GetVolume() const noexcept;
 
 	/**
 	 * Sets the volume on all available mixers.
@@ -213,7 +203,7 @@ public:
 	 * @param volume the volume (range 0..100)
 	 * @return true on success, false on failure
 	 */
-	bool SetVolume(unsigned volume);
+	bool SetVolume(unsigned volume) noexcept;
 
 	/**
 	 * Similar to GetVolume(), but gets the volume only for
@@ -221,7 +211,7 @@ public:
 	 * function fails if no software mixer is configured.
 	 */
 	gcc_pure
-	int GetSoftwareVolume() const;
+	int GetSoftwareVolume() const noexcept;
 
 	/**
 	 * Similar to SetVolume(), but sets the volume only for
@@ -229,7 +219,7 @@ public:
 	 * function cannot fail, because the underlying software
 	 * mixers cannot fail either.
 	 */
-	void SetSoftwareVolume(unsigned volume);
+	void SetSoftwareVolume(unsigned volume) noexcept;
 
 private:
 	/**
@@ -237,9 +227,9 @@ private:
 	 * command.
 	 */
 	gcc_pure
-	bool AllFinished() const;
+	bool AllFinished() const noexcept;
 
-	void WaitAll();
+	void WaitAll() noexcept;
 
 	/**
 	 * Signals all audio outputs which are open.
@@ -247,24 +237,17 @@ private:
 	void AllowPlay();
 
 	/**
-	 * Resets the "reopen" flag on all audio devices.  MPD should
-	 * immediately retry to open the device instead of waiting for
-	 * the timeout when the user wants to start playback.
-	 */
-	void ResetReopen();
-
-	/**
 	 * Opens all output devices which are enabled, but closed.
 	 *
 	 * @return true if there is at least open output device which
 	 * is open
 	 */
-	bool Update();
+	bool Update(bool force);
 
 	/**
 	 * Has this chunk been consumed by all audio outputs?
 	 */
-	bool IsChunkConsumed(const MusicChunk *chunk) const;
+	bool IsChunkConsumed(const MusicChunk *chunk) const noexcept;
 
 	/**
 	 * There's only one chunk left in the pipe (#pipe), and all

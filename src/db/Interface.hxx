@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -106,7 +106,6 @@ public:
 				     TagType tag_type, tag_mask_t group_mask,
 				     VisitTag visit_tag) const = 0;
 
-	gcc_pure
 	virtual DatabaseStats GetStats(const DatabaseSelection &selection) const = 0;
 
 	/**
@@ -127,7 +126,7 @@ public:
 	 * Returns 0 if that is not not known/available.
 	 */
 	gcc_pure
-	virtual time_t GetUpdateStamp() const = 0;
+	virtual time_t GetUpdateStamp() const noexcept = 0;
 };
 
 #endif

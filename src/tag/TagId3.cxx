@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,7 @@
 #include "TagTable.hxx"
 #include "TagBuilder.hxx"
 #include "util/Alloc.hxx"
+#include "util/ScopeExit.hxx"
 #include "util/StringUtil.hxx"
 #include "Log.hxx"
 
@@ -56,7 +57,7 @@
 
 gcc_pure
 static id3_utf8_t *
-tag_id3_getstring(const struct id3_frame *frame, unsigned i)
+tag_id3_getstring(const struct id3_frame *frame, unsigned i) noexcept
 {
 	id3_field *field = id3_frame_field(frame, i);
 	if (field == nullptr)
@@ -78,11 +79,9 @@ import_id3_string(const id3_ucs4_t *ucs4)
 	if (gcc_unlikely(utf8 == nullptr))
 		return nullptr;
 
-	id3_utf8_t *utf8_stripped = (id3_utf8_t *)
-		xstrdup(Strip((char *)utf8));
-	free(utf8);
+	AtScopeExit(utf8) { free(utf8); };
 
-	return utf8_stripped;
+	return (id3_utf8_t *)xstrdup(Strip((char *)utf8));
 }
 
 /**
@@ -126,9 +125,10 @@ tag_id3_import_text_frame(const struct id3_frame *frame,
 		if (utf8 == nullptr)
 			continue;
 
+		AtScopeExit(utf8) { free(utf8); };
+
 		tag_handler_invoke_tag(handler, handler_ctx,
 				       type, (const char *)utf8);
-		free(utf8);
 	}
 }
 
@@ -177,8 +177,9 @@ tag_id3_import_comment_frame(const struct id3_frame *frame, TagType type,
 	if (utf8 == nullptr)
 		return;
 
+	AtScopeExit(utf8) { free(utf8); };
+
 	tag_handler_invoke_tag(handler, handler_ctx, type, (const char *)utf8);
-	free(utf8);
 }
 
 /**
@@ -202,7 +203,7 @@ tag_id3_import_comment(struct id3_tag *tag, const char *id, TagType type,
  */
 gcc_pure
 static TagType
-tag_id3_parse_txxx_name(const char *name)
+tag_id3_parse_txxx_name(const char *name) noexcept
 {
 	static constexpr struct tag_table txxx_tags[] = {
 		{ "ALBUMARTISTSORT", TAG_ALBUM_ARTIST_SORT },
@@ -236,22 +237,23 @@ tag_id3_import_musicbrainz(struct id3_tag *id3_tag,
 		if (name == nullptr)
 			continue;
 
+		AtScopeExit(name) { free(name); };
+
 		id3_utf8_t *value = tag_id3_getstring(frame, 2);
 		if (value == nullptr)
 			continue;
+
+		AtScopeExit(value) { free(value); };
 
 		tag_handler_invoke_pair(handler, handler_ctx,
 					(const char *)name,
 					(const char *)value);
 
 		TagType type = tag_id3_parse_txxx_name((const char*)name);
-		free(name);
 
 		if (type != TAG_NUM_OF_ITEM_TYPES)
 			tag_handler_invoke_tag(handler, handler_ctx,
 					       type, (const char*)value);
-
-		free(value);
 	}
 }
 

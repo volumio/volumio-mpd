@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -669,11 +669,13 @@ osx_output_play(AudioOutput *ao, const void *chunk, size_t size)
 	return od->ring_buffer->push((uint8_t *)chunk, size);
 }
 
-static unsigned
-osx_output_delay(AudioOutput *ao)
+static std::chrono::steady_clock::duration
+osx_output_delay(AudioOutput *ao) noexcept
 {
 	OSXOutput *od = (OSXOutput *)ao;
-	return od->ring_buffer->write_available() ? 0 : 25;
+	return od->ring_buffer->write_available()
+		? std::chrono::steady_clock::duration::zero()
+		: std::chrono::milliseconds(25);
 }
 
 const struct AudioOutputPlugin osx_output_plugin = {

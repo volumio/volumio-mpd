@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -92,7 +92,7 @@ playlist::QueuedSongStarted(PlayerControl &pc)
 }
 
 const DetachedSong *
-playlist::GetQueuedSong() const
+playlist::GetQueuedSong() const noexcept
 {
 	return playing && queued >= 0
 		? &queue.GetOrder(queued)
@@ -310,7 +310,7 @@ playlist::SetRandom(PlayerControl &pc, bool status)
 			   playlist is played after that */
 			unsigned current_order =
 				queue.PositionToOrder(current_position);
-			queue.SwapOrders(0, current_order);
+			queue.MoveOrder(current_order, 0);
 			current = 0;
 		} else
 			current = -1;
@@ -323,7 +323,7 @@ playlist::SetRandom(PlayerControl &pc, bool status)
 }
 
 int
-playlist::GetCurrentPosition() const
+playlist::GetCurrentPosition() const noexcept
 {
 	return current >= 0
 		? queue.OrderToPosition(current)
@@ -331,7 +331,7 @@ playlist::GetCurrentPosition() const
 }
 
 int
-playlist::GetNextPosition() const
+playlist::GetNextPosition() const noexcept
 {
 	if (current < 0)
 		return -1;
