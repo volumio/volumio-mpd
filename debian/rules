@@ -82,7 +82,7 @@ ENABLE_OTHER=--with-boost \
 	     --enable-libwrap \
 	     --enable-inotify \
 	     --enable-soxr \
-	     --enable-sqlite \
+	     --disable-sqlite \
 	     --enable-syslog
 
 # Metadata support
@@ -92,15 +92,15 @@ ENABLE_METADATA=--enable-id3
 # Note: ALSA is in WITH_SYSTEMD
 ENABLE_PLAYBACKS=--enable-fifo \
 		 --disable-sndio \
-		 --enable-recorder-output \
+		 --disable-recorder-output \
 		 --disable-haiku \
 		 --enable-httpd-output \
-		 --enable-jack \
+		 --disable-jack \
 		 --enable-ao \
-		 --enable-oss \
+		 --disable-oss \
 		 --enable-openal \
 		 --enable-pipe-output \
-		 --enable-pulse \
+		 --disable-pulse \
 		 --enable-roar \
 		 --enable-shout
 
