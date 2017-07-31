@@ -1,0 +1,3 @@
+debian/mpd.conf			etc
+debian/mpd.desktop              etc/xdg/autostart
+debian/source_mpd.py            usr/share/apport/package-hooks

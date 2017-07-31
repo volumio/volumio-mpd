@@ -1,0 +1,4 @@
+systemd_honor_MPDCONF.patch
+prune-doc-data.patch
+mpd.service.documentation.user.patch
+hurd_pthread.patch
