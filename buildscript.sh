@@ -13,7 +13,7 @@ apt-get -y install libsidplayfp-dev
 ## Edit debian/rules by removing dh_strip override
 
 echo "Creating Package"
-debuild binary
+debuild -i -us -uc -b
 
 echo "Done"
 
