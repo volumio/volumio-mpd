@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -65,7 +65,7 @@ IcuCollateInit()
 }
 
 void
-IcuCollateFinish()
+IcuCollateFinish() noexcept
 {
 	assert(collator != nullptr);
 
@@ -76,7 +76,7 @@ IcuCollateFinish()
 
 gcc_pure
 int
-IcuCollate(const char *a, const char *b)
+IcuCollate(const char *a, const char *b) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */

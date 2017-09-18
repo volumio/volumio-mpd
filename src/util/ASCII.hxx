@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@
  */
 gcc_pure gcc_nonnull_all
 static inline bool
-StringEqualsCaseASCII(const char *a, const char *b)
+StringEqualsCaseASCII(const char *a, const char *b) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */
@@ -56,7 +56,7 @@ StringEqualsCaseASCII(const char *a, const char *b)
 
 gcc_pure gcc_nonnull_all
 static inline bool
-StringEqualsCaseASCII(const char *a, const char *b, size_t n)
+StringEqualsCaseASCII(const char *a, const char *b, size_t n) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */

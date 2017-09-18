@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -96,8 +96,10 @@ public:
 	void Open(AudioFormat &audio_format);
 	void Close();
 
-	unsigned Delay() {
-		return pause && !cancel ? 100 : 0;
+	std::chrono::steady_clock::duration Delay() noexcept {
+		return pause && !cancel
+			? std::chrono::milliseconds(100)
+			: std::chrono::steady_clock::duration::zero();
 	}
 
 	size_t Play(const void *chunk, size_t size);
@@ -317,7 +319,7 @@ SlesOutput::Play(const void *chunk, size_t size)
 		pause = false;
 	}
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	assert(filled < BUFFER_SIZE);
 
@@ -346,7 +348,7 @@ SlesOutput::Play(const void *chunk, size_t size)
 inline void
 SlesOutput::Drain()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	assert(filled < BUFFER_SIZE);
 
@@ -369,7 +371,7 @@ SlesOutput::Cancel()
 		FormatWarning(sles_domain,
 			      "AndroidSimpleBufferQueue.Clear() failed");
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	n_queued = 0;
 	filled = 0;
 }
@@ -396,7 +398,7 @@ SlesOutput::Pause()
 inline void
 SlesOutput::PlayedCallback()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	assert(n_queued > 0);
 	--n_queued;
 	cond.signal();

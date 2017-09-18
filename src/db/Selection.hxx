@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -45,16 +45,16 @@ struct DatabaseSelection {
 			  const SongFilter *_filter=nullptr);
 
 	gcc_pure
-	bool IsEmpty() const;
+	bool IsEmpty() const noexcept;
 
 	/**
 	 * Does this selection contain constraints other than "base"?
 	 */
 	gcc_pure
-	bool HasOtherThanBase() const;
+	bool HasOtherThanBase() const noexcept;
 
 	gcc_pure
-	bool Match(const LightSong &song) const;
+	bool Match(const LightSong &song) const noexcept;
 };
 
 #endif

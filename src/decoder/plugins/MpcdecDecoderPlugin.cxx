@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -206,6 +206,15 @@ mpcdec_decode(DecoderClient &client, InputStream &is)
 
 		if (frame.bits == -1)
 			break;
+
+		if (frame.samples <= 0) {
+			/* empty frame - this has been observed to
+			   happen spuriously after seeking; skip this
+			   obscure frame, and hope libmpcdec
+			   recovers */
+			cmd = client.GetCommand();
+			continue;
+		}
 
 		mpc_uint32_t ret = frame.samples;
 		ret *= info.channels;

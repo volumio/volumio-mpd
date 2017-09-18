@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -168,13 +168,13 @@ struct DecoderPlugin {
 	 * Does the plugin announce the specified file name suffix?
 	 */
 	gcc_pure gcc_nonnull_all
-	bool SupportsSuffix(const char *suffix) const;
+	bool SupportsSuffix(const char *suffix) const noexcept;
 
 	/**
 	 * Does the plugin announce the specified MIME type?
 	 */
 	gcc_pure gcc_nonnull_all
-	bool SupportsMimeType(const char *mime_type) const;
+	bool SupportsMimeType(const char *mime_type) const noexcept;
 };
 
 #endif

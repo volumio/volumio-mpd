@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include "config.h"
 #include "output/Internal.hxx"
 #include "output/OutputPlugin.hxx"
+#include "output/Client.hxx"
 #include "config/Param.hxx"
 #include "config/ConfigGlobal.hxx"
 #include "config/ConfigOption.hxx"
@@ -32,7 +33,7 @@
 #include "ReplayGainConfig.hxx"
 #include "pcm/PcmConvert.hxx"
 #include "filter/FilterRegistry.hxx"
-#include "player/Control.hxx"
+#include "util/StringBuffer.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/ScopeExit.hxx"
 #include "Log.hxx"
@@ -43,28 +44,26 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+class DummyAudioOutputClient final : public AudioOutputClient {
+public:
+	/* virtual methods from AudioOutputClient */
+	void ChunksConsumed() override {
+	}
+
+	void ApplyEnabled() override {
+	}
+};
+
 const FilterPlugin *
-filter_plugin_by_name(gcc_unused const char *name)
+filter_plugin_by_name(gcc_unused const char *name) noexcept
 {
 	assert(false);
 	return NULL;
 }
 
-PlayerControl::PlayerControl(PlayerListener &_listener,
-			     MultipleOutputs &_outputs,
-			     unsigned _buffer_chunks,
-			     unsigned _buffered_before_play,
-			     AudioFormat _configured_audio_format,
-			     const ReplayGainConfig &_replay_gain_config)
-	:listener(_listener), outputs(_outputs),
-	 buffer_chunks(_buffer_chunks),
-	 buffered_before_play(_buffered_before_play),
-	 configured_audio_format(_configured_audio_format),
-	 replay_gain_config(_replay_gain_config) {}
-PlayerControl::~PlayerControl() {}
-
 static AudioOutput *
-load_audio_output(EventLoop &event_loop, const char *name)
+load_audio_output(EventLoop &event_loop, AudioOutputClient &client,
+		  const char *name)
 {
 	const auto *param = config_find_block(ConfigBlockOption::AUDIO_OUTPUT,
 					      "name", name);
@@ -72,15 +71,9 @@ load_audio_output(EventLoop &event_loop, const char *name)
 		throw FormatRuntimeError("No such configured audio output: %s\n",
 					 name);
 
-	static struct PlayerControl dummy_player_control(*(PlayerListener *)nullptr,
-							 *(MultipleOutputs *)nullptr,
-							 32, 4,
-							 AudioFormat::Undefined(),
-							 ReplayGainConfig());
-
 	return audio_output_new(event_loop, ReplayGainConfig(), *param,
 				*(MixerListener *)nullptr,
-				dummy_player_control);
+				client);
 }
 
 static void
@@ -94,9 +87,8 @@ run_output(AudioOutput *ao, AudioFormat audio_format)
 	ao_plugin_open(ao, audio_format);
 	AtScopeExit(ao) { ao_plugin_close(ao); };
 
-	struct audio_format_string af_string;
 	fprintf(stderr, "audio_format=%s\n",
-		audio_format_to_string(audio_format, &af_string));
+		ToString(audio_format).c_str());
 
 	size_t frame_size = audio_format.GetFrameSize();
 
@@ -150,7 +142,8 @@ try {
 
 	/* initialize the audio output */
 
-	AudioOutput *ao = load_audio_output(event_loop, argv[2]);
+	DummyAudioOutputClient client;
+	AudioOutput *ao = load_audio_output(event_loop, client, argv[2]);
 
 	/* parse the audio format */
 

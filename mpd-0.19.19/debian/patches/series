@@ -1,9 +1,0 @@
-systemd_honor_MPDCONF.patch
-also-dis_en_able-socket.patch
-protect_system.patch
-libsystemd.patch
-curl-proxy.patch
-bind-to-address-socket-activation.patch
-prune-doc-data.patch
-mpd.service.documentation.patch
-mpd.service.documentation.user.patch

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,7 +48,7 @@ struct StorageFileInfo {
 	 * Device id and inode number.  0 means unknown / not
 	 * applicable.
 	 */
-	unsigned device, inode;
+	uint64_t device, inode;
 
 	constexpr bool IsRegular() const {
 		return type == Type::REGULAR;

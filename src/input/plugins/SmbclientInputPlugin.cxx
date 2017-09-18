@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -55,7 +55,7 @@ public:
 
 	/* virtual methods from InputStream */
 
-	bool IsEOF() override {
+	bool IsEOF() noexcept override {
 		return offset >= size;
 	}
 
@@ -90,7 +90,7 @@ input_smbclient_open(const char *uri,
 	if (!StringStartsWith(uri, "smb://"))
 		return nullptr;
 
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 
 	SMBCCTX *ctx = smbc_new_context();
 	if (ctx == nullptr)

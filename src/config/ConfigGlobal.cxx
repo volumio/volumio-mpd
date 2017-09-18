@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -75,7 +75,7 @@ void config_global_check(void)
 }
 
 const ConfigParam *
-config_get_param(ConfigOption option)
+config_get_param(ConfigOption option) noexcept
 {
 	auto *param = config_data.params[unsigned(option)];
 	if (param != nullptr)
@@ -84,7 +84,7 @@ config_get_param(ConfigOption option)
 }
 
 const ConfigBlock *
-config_get_block(ConfigBlockOption option)
+config_get_block(ConfigBlockOption option) noexcept
 {
 	ConfigBlock *block = config_data.blocks[unsigned(option)];
 	if (block != nullptr)
@@ -110,7 +110,7 @@ config_find_block(ConfigBlockOption option, const char *key, const char *value)
 }
 
 const char *
-config_get_string(ConfigOption option, const char *default_value)
+config_get_string(ConfigOption option, const char *default_value) noexcept
 {
 	const auto *param = config_get_param(option);
 

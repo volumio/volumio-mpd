@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,7 +30,7 @@ class Response;
 
 gcc_pure
 bool
-neighbor_commands_available(const Instance &instance);
+neighbor_commands_available(const Instance &instance) noexcept;
 
 CommandResult
 handle_listneighbors(Client &client, Request request, Response &response);

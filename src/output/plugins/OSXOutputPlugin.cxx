@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include "config.h"
 #include "OSXOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
+#include "mixer/MixerList.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
@@ -53,6 +54,9 @@ struct OSXOutput {
 	boost::lockfree::spsc_queue<uint8_t> *ring_buffer;
 
 	OSXOutput(const ConfigBlock &block);
+
+	int GetVolume();
+	void SetVolume(unsigned new_volume);
 };
 
 static constexpr Domain osx_output_domain("osx_output");
@@ -101,6 +105,44 @@ OSXOutput::OSXOutput(const ConfigBlock &block)
 	channel_map = block.GetBlockValue("channel_map");
 	hog_device = block.GetBlockValue("hog_device", false);
 	sync_sample_rate = block.GetBlockValue("sync_sample_rate", false);
+}
+
+int
+OSXOutput::GetVolume()
+{
+	AudioUnitParameterValue dvolume;
+	char errormsg[1024];
+
+	OSStatus status = AudioUnitGetParameter(au, kHALOutputParam_Volume,
+			kAudioUnitScope_Global, 0, &dvolume);
+	if (status != noErr) {
+		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
+		throw FormatRuntimeError("unable to get volume: %s", errormsg);
+	}
+
+	/* see the explanation in SetVolume, below */
+	return static_cast<int>(dvolume * dvolume * 100.0);
+}
+
+void
+OSXOutput::SetVolume(unsigned new_volume) {
+	char errormsg[1024];
+
+	/* The scaling below makes shifts in volume greater at the lower end
+	 * of the scale. This mimics the "feel" of physical volume levers. This is
+	 * generally what users of audio software expect.
+	 */
+
+	AudioUnitParameterValue scaled_volume =
+		sqrt(static_cast<AudioUnitParameterValue>(new_volume) / 100.0);
+
+	OSStatus status = AudioUnitSetParameter(au, kHALOutputParam_Volume,
+			kAudioUnitScope_Global, 0, scaled_volume, 0);
+	if (status != noErr) {
+		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
+		throw FormatRuntimeError( "unable to set new volume %u: %s",
+				new_volume, errormsg);
+	}
 }
 
 static AudioOutput *
@@ -669,11 +711,25 @@ osx_output_play(AudioOutput *ao, const void *chunk, size_t size)
 	return od->ring_buffer->push((uint8_t *)chunk, size);
 }
 
-static unsigned
-osx_output_delay(AudioOutput *ao)
+static std::chrono::steady_clock::duration
+osx_output_delay(AudioOutput *ao) noexcept
 {
 	OSXOutput *od = (OSXOutput *)ao;
-	return od->ring_buffer->write_available() ? 0 : 25;
+	return od->ring_buffer->write_available()
+		? std::chrono::steady_clock::duration::zero()
+		: std::chrono::milliseconds(25);
+}
+
+int
+osx_output_get_volume(OSXOutput &output)
+{
+	return output.GetVolume();
+}
+
+void
+osx_output_set_volume(OSXOutput &output, unsigned new_volume)
+{
+	return output.SetVolume(new_volume);
 }
 
 const struct AudioOutputPlugin osx_output_plugin = {
@@ -691,5 +747,6 @@ const struct AudioOutputPlugin osx_output_plugin = {
 	nullptr,
 	nullptr,
 	nullptr,
-	nullptr,
+
+	&osx_mixer_plugin,
 };

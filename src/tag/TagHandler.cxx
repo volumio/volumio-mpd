@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -44,7 +44,7 @@ add_tag_tag(TagType type, const char *value, void *ctx)
 		unsigned n = strtoul(value, &end, 10);
 		if (value != end) {
 			char s[21];
-			if (snprintf(s, 21, "%u", n) >= 0)
+			if (snprintf(s, 21, "%u", n) > 0)
 				tag.AddItem(type, s);
 		}
 	} else

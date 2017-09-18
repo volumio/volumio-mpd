@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,6 @@ nfs_set_base(const char *server, const char *export_name);
  */
 gcc_pure
 const char *
-nfs_check_base(const char *server, const char *path);
+nfs_check_base(const char *server, const char *path) noexcept;
 
 #endif

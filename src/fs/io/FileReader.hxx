@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,7 +46,7 @@ class FileReader final : public Reader {
 #endif
 
 public:
-	FileReader(Path _path);
+	explicit FileReader(Path _path);
 
 #ifdef WIN32
 	FileReader(FileReader &&other)
@@ -86,11 +86,10 @@ public:
 
 	void Close();
 
-	gcc_pure
 	FileInfo GetFileInfo() const;
 
 	gcc_pure
-	uint64_t GetSize() const {
+	uint64_t GetSize() const noexcept {
 #ifdef WIN32
 		LARGE_INTEGER size;
 		return GetFileSizeEx(handle, &size)
@@ -102,7 +101,7 @@ public:
 	}
 
 	gcc_pure
-	uint64_t GetPosition() const {
+	uint64_t GetPosition() const noexcept {
 #ifdef WIN32
 		LARGE_INTEGER zero;
 		zero.QuadPart = 0;

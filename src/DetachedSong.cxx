@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,19 +37,19 @@ DetachedSong::~DetachedSong()
 }
 
 bool
-DetachedSong::IsRemote() const
+DetachedSong::IsRemote() const noexcept
 {
 	return uri_has_scheme(GetRealURI());
 }
 
 bool
-DetachedSong::IsAbsoluteFile() const
+DetachedSong::IsAbsoluteFile() const noexcept
 {
 	return PathTraitsUTF8::IsAbsolute(GetRealURI());
 }
 
 bool
-DetachedSong::IsInDatabase() const
+DetachedSong::IsInDatabase() const noexcept
 {
 	/* here, we use GetURI() and not GetRealURI() because
 	   GetRealURI() is never relative */
@@ -59,7 +59,7 @@ DetachedSong::IsInDatabase() const
 }
 
 SignedSongTime
-DetachedSong::GetDuration() const
+DetachedSong::GetDuration() const noexcept
 {
 	SongTime a = start_time, b = end_time;
 	if (!b.IsPositive()) {

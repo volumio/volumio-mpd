@@ -5,7 +5,7 @@
 <book>
   <title>The Music Player Daemon - Developer's Manual</title>
 
-  <chapter>
+  <chapter id="introduction">
     <title>Introduction</title>
 
     <para>
@@ -21,7 +21,7 @@
     </para>
   </chapter>
 
-  <chapter>
+  <chapter id="code_style">
     <title>Code Style</title>
 
     <itemizedlist>
@@ -40,9 +40,35 @@
 
       <listitem>
         <para>
-          the code should be C++11 compliant, and must compile with
+          comment your code, document your APIs
+        </para>
+      </listitem>
+
+      <listitem>
+        <para>
+          the code should be C++14 compliant, and must compile with
           <application>GCC</application> 4.9 and
           <application>clang</application> 3.4
+        </para>
+      </listitem>
+
+      <listitem>
+        <para>
+          report error conditions with C++ exceptions, preferable
+          derived from <varname>std::runtime_error</varname>
+        </para>
+      </listitem>
+
+      <listitem>
+        <para>
+          all code must be exception-safe
+        </para>
+      </listitem>
+
+      <listitem>
+        <para>
+          classes and functions names use CamelCase; variables are
+          lower-case with words separated by underscore
         </para>
       </listitem>
 
@@ -52,9 +78,9 @@
         </para>
 
         <programlisting lang="C">static inline int
-foo(const char *abc, int xyz)
+Foo(const char *abc, int xyz)
 {
-        if (abc == NULL) {
+        if (abc == nullptr) {
                 LogWarning("Foo happened!");
                 return -1;
         }
@@ -66,25 +92,25 @@ foo(const char *abc, int xyz)
     </itemizedlist>
   </chapter>
 
-  <chapter>
+  <chapter id="hacking">
     <title>Hacking The Source</title>
 
     <para>
       MPD sources are managed in a git repository on <ulink
-      url="http://git.musicpd.org/">git.musicpd.org</ulink>.
+      url="https://github.com/MusicPlayerDaemon/">GitHub</ulink>.
     </para>
 
     <para>
       Always write your code against the latest git:
     </para>
 
-    <programlisting>git clone git://git.musicpd.org/master/mpd.git</programlisting>
+    <programlisting>git clone git://github.com/MusicPlayerDaemon/MPD</programlisting>
 
     <para>
       If you already have a clone, update it:
     </para>
 
-    <programlisting>git pull --rebase git://git.musicpd.org/master/mpd.git master</programlisting>
+    <programlisting>git pull --rebase git://github.com/MusicPlayerDaemon/MPD master</programlisting>
 
     <para>
       You can do without "--rebase", but we recommend that you rebase
@@ -151,7 +177,7 @@ foo(const char *abc, int xyz)
     </section>
   </chapter>
 
-  <chapter>
+  <chapter id="submitting_patches">
     <title>Submitting Patches</title>
 
     <para>
@@ -162,14 +188,11 @@ foo(const char *abc, int xyz)
     </para>
 
     <para>
-      <command>git pull</command> requests are preferred.  Regular
-      contributors can get <ulink
-      url="http://git.musicpd.org/account-policy.html">an account on
-      git.musicpd.org</ulink>, but any public git repository will do.
+      <command>git pull</command> requests are preferred.
     </para>
   </chapter>
 
-  <chapter>
+  <chapter id="tools">
     <title>Development Tools</title>
 
     <section>

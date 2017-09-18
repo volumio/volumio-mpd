@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -119,7 +119,7 @@ struct JackOutput {
 	 * on all channels.
 	 */
 	gcc_pure
-	jack_nframes_t GetAvailable() const;
+	jack_nframes_t GetAvailable() const noexcept;
 
 	void Process(jack_nframes_t nframes);
 
@@ -128,10 +128,10 @@ struct JackOutput {
 	 */
 	size_t WriteSamples(const float *src, size_t n_frames);
 
-	unsigned Delay() const {
+	std::chrono::steady_clock::duration Delay() const noexcept {
 		return base.pause && pause && !shutdown
-			? 1000
-			: 0;
+			? std::chrono::seconds(1)
+			: std::chrono::steady_clock::duration::zero();
 	}
 
 	size_t Play(const void *chunk, size_t size);
@@ -215,7 +215,7 @@ JackOutput::JackOutput(const ConfigBlock &block)
 }
 
 inline jack_nframes_t
-JackOutput::GetAvailable() const
+JackOutput::GetAvailable() const noexcept
 {
 	size_t min = jack_ringbuffer_read_space(ringbuffer[0]);
 

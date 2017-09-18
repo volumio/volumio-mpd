@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,6 @@ struct Tag;
 
 gcc_malloc gcc_nonnull_all
 char *
-FormatTag(const Tag &tag, const char *format);
+FormatTag(const Tag &tag, const char *format) noexcept;
 
 #endif

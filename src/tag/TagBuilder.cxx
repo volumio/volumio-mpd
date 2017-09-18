@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -153,7 +153,7 @@ TagBuilder::CommitNew()
 }
 
 bool
-TagBuilder::HasType(TagType type) const
+TagBuilder::HasType(TagType type) const noexcept
 {
 	for (auto i : items)
 		if (i->type == type)
@@ -237,7 +237,7 @@ TagBuilder::AddEmptyItem(TagType type)
 }
 
 void
-TagBuilder::RemoveAll()
+TagBuilder::RemoveAll() noexcept
 {
 	tag_pool_lock.lock();
 	for (auto i : items)
@@ -248,7 +248,7 @@ TagBuilder::RemoveAll()
 }
 
 void
-TagBuilder::RemoveType(TagType type)
+TagBuilder::RemoveType(TagType type) noexcept
 {
 	const auto begin = items.begin(), end = items.end();
 

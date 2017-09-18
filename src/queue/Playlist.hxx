@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -113,17 +113,17 @@ struct playlist {
 	}
 
 	gcc_pure
-	int GetCurrentPosition() const;
+	int GetCurrentPosition() const noexcept;
 
 	gcc_pure
-	int GetNextPosition() const;
+	int GetNextPosition() const noexcept;
 
 	/**
 	 * Returns the song object which is currently queued.  Returns
 	 * none if there is none (yet?) or if MPD isn't playing.
 	 */
 	gcc_pure
-	const DetachedSong *GetQueuedSong() const;
+	const DetachedSong *GetQueuedSong() const noexcept;
 
 	/**
 	 * This is the "PLAYLIST" event handler.  It is invoked by the
