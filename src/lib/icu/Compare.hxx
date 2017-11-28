@@ -17,30 +17,39 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_UPNP_CALLBACK_HXX
-#define MPD_UPNP_CALLBACK_HXX
+#ifndef MPD_ICU_COMPARE_HXX
+#define MPD_ICU_COMPARE_HXX
 
-#include <upnp/upnp.h>
+#include "check.h"
+#include "Compiler.h"
+#include "util/AllocatedString.hxx"
 
 /**
- * A class that is supposed to be used for libupnp asynchronous
- * callbacks.
+ * This class can compare one string ("needle") with lots of other
+ * strings ("haystacks") efficiently, ignoring case.  With some
+ * configurations, it can prepare a case-folded version of the needle.
  */
-class UpnpCallback {
+class IcuCompare {
+	AllocatedString<> needle;
+
 public:
-	/**
-	 * Pass this value as "cookie" pointer to libupnp asynchronous
-	 * functions.
-	 */
-	void *GetUpnpCookie() {
-		return this;
+	IcuCompare():needle(nullptr) {}
+
+	explicit IcuCompare(const char *needle) noexcept;
+
+	IcuCompare(IcuCompare &&) = default;
+	IcuCompare &operator=(IcuCompare &&) = default;
+
+	gcc_pure
+	operator bool() const noexcept {
+		return !needle.IsNull();
 	}
 
-	static UpnpCallback &FromUpnpCookie(void *cookie) {
-		return *(UpnpCallback *)cookie;
-	}
+	gcc_pure
+	bool operator==(const char *haystack) const noexcept;
 
-	virtual int Invoke(Upnp_EventType et, const void *evp) = 0;
+	gcc_pure
+	bool IsIn(const char *haystack) const noexcept;
 };
 
 #endif

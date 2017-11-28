@@ -729,10 +729,10 @@ am__libdb_plugins_a_SOURCES_DIST = src/PlaylistDatabase.cxx \
 	src/db/plugins/simple/SimpleDatabasePlugin.cxx \
 	src/db/plugins/simple/SimpleDatabasePlugin.hxx \
 	src/db/plugins/ProxyDatabasePlugin.cxx \
-	src/db/plugins/ProxyDatabasePlugin.hxx src/lib/upnp/Init.cxx \
-	src/lib/upnp/Init.hxx src/lib/upnp/ClientInit.cxx \
-	src/lib/upnp/ClientInit.hxx src/lib/upnp/Device.cxx \
-	src/lib/upnp/Device.hxx \
+	src/db/plugins/ProxyDatabasePlugin.hxx src/lib/upnp/Compat.hxx \
+	src/lib/upnp/Init.cxx src/lib/upnp/Init.hxx \
+	src/lib/upnp/ClientInit.cxx src/lib/upnp/ClientInit.hxx \
+	src/lib/upnp/Device.cxx src/lib/upnp/Device.hxx \
 	src/lib/upnp/ContentDirectoryService.cxx \
 	src/lib/upnp/ContentDirectoryService.hxx \
 	src/lib/upnp/Discovery.cxx src/lib/upnp/Discovery.hxx \
@@ -1035,7 +1035,9 @@ am_libfs_a_OBJECTS = src/fs/io/libfs_a-PeekReader.$(OBJEXT) \
 libfs_a_OBJECTS = $(am_libfs_a_OBJECTS)
 libicu_a_AR = $(AR) $(ARFLAGS)
 libicu_a_LIBADD =
-am__libicu_a_SOURCES_DIST = src/lib/icu/Collate.cxx \
+am__libicu_a_SOURCES_DIST = src/lib/icu/CaseFold.cxx \
+	src/lib/icu/CaseFold.hxx src/lib/icu/Compare.cxx \
+	src/lib/icu/Compare.hxx src/lib/icu/Collate.cxx \
 	src/lib/icu/Collate.hxx src/lib/icu/Converter.cxx \
 	src/lib/icu/Converter.hxx src/lib/icu/Util.cxx \
 	src/lib/icu/Util.hxx src/lib/icu/Init.cxx src/lib/icu/Init.hxx \
@@ -1044,7 +1046,9 @@ am__libicu_a_SOURCES_DIST = src/lib/icu/Collate.cxx \
 @HAVE_ICU_TRUE@	src/lib/icu/libicu_a-Init.$(OBJEXT)
 @HAVE_WINDOWS_TRUE@am__objects_37 =  \
 @HAVE_WINDOWS_TRUE@	src/lib/icu/libicu_a-Win32.$(OBJEXT)
-am_libicu_a_OBJECTS = src/lib/icu/libicu_a-Collate.$(OBJEXT) \
+am_libicu_a_OBJECTS = src/lib/icu/libicu_a-CaseFold.$(OBJEXT) \
+	src/lib/icu/libicu_a-Compare.$(OBJEXT) \
+	src/lib/icu/libicu_a-Collate.$(OBJEXT) \
 	src/lib/icu/libicu_a-Converter.$(OBJEXT) $(am__objects_36) \
 	$(am__objects_37)
 libicu_a_OBJECTS = $(am_libicu_a_OBJECTS)
@@ -1510,9 +1514,10 @@ am__libneighbor_a_SOURCES_DIST = src/neighbor/Registry.cxx \
 	src/lib/smbclient/Init.hxx \
 	src/neighbor/plugins/SmbclientNeighborPlugin.cxx \
 	src/neighbor/plugins/SmbclientNeighborPlugin.hxx \
-	src/lib/upnp/Init.cxx src/lib/upnp/Init.hxx \
-	src/lib/upnp/ClientInit.cxx src/lib/upnp/ClientInit.hxx \
-	src/lib/upnp/Device.cxx src/lib/upnp/Device.hxx \
+	src/lib/upnp/Compat.hxx src/lib/upnp/Init.cxx \
+	src/lib/upnp/Init.hxx src/lib/upnp/ClientInit.cxx \
+	src/lib/upnp/ClientInit.hxx src/lib/upnp/Device.cxx \
+	src/lib/upnp/Device.hxx \
 	src/lib/upnp/ContentDirectoryService.cxx \
 	src/lib/upnp/ContentDirectoryService.hxx \
 	src/lib/upnp/Discovery.cxx src/lib/upnp/Discovery.hxx \
@@ -3389,6 +3394,7 @@ CURL_SOURCES = \
 	src/lib/curl/Slist.hxx
 
 UPNP_SOURCES = \
+	src/lib/upnp/Compat.hxx \
 	src/lib/upnp/Init.cxx src/lib/upnp/Init.hxx \
 	src/lib/upnp/ClientInit.cxx src/lib/upnp/ClientInit.hxx \
 	src/lib/upnp/Device.cxx src/lib/upnp/Device.hxx \
@@ -3554,7 +3560,9 @@ libevent_a_SOURCES = \
 
 
 # UTF-8 library
-libicu_a_SOURCES = src/lib/icu/Collate.cxx src/lib/icu/Collate.hxx \
+libicu_a_SOURCES = src/lib/icu/CaseFold.cxx src/lib/icu/CaseFold.hxx \
+	src/lib/icu/Compare.cxx src/lib/icu/Compare.hxx \
+	src/lib/icu/Collate.cxx src/lib/icu/Collate.hxx \
 	src/lib/icu/Converter.cxx src/lib/icu/Converter.hxx \
 	$(am__append_8) $(am__append_9)
 libicu_a_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -5317,6 +5325,10 @@ src/lib/icu/$(am__dirstamp):
 src/lib/icu/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) src/lib/icu/$(DEPDIR)
 	@: > src/lib/icu/$(DEPDIR)/$(am__dirstamp)
+src/lib/icu/libicu_a-CaseFold.$(OBJEXT): src/lib/icu/$(am__dirstamp) \
+	src/lib/icu/$(DEPDIR)/$(am__dirstamp)
+src/lib/icu/libicu_a-Compare.$(OBJEXT): src/lib/icu/$(am__dirstamp) \
+	src/lib/icu/$(DEPDIR)/$(am__dirstamp)
 src/lib/icu/libicu_a-Collate.$(OBJEXT): src/lib/icu/$(am__dirstamp) \
 	src/lib/icu/$(DEPDIR)/$(am__dirstamp)
 src/lib/icu/libicu_a-Converter.$(OBJEXT): src/lib/icu/$(am__dirstamp) \
@@ -7403,7 +7415,9 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/ffmpeg/$(DEPDIR)/libffmpeg_a-Init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/ffmpeg/$(DEPDIR)/libffmpeg_a-LogCallback.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/ffmpeg/$(DEPDIR)/libffmpeg_a-LogError.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-Collate.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-Compare.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-Converter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-Init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/lib/icu/$(DEPDIR)/libicu_a-Util.Po@am__quote@
@@ -8996,6 +9010,34 @@ src/fs/io/libfs_a-GzipOutputStream.obj: src/fs/io/GzipOutputStream.cxx
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='src/fs/io/GzipOutputStream.cxx' object='src/fs/io/libfs_a-GzipOutputStream.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libfs_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o src/fs/io/libfs_a-GzipOutputStream.obj `if test -f 'src/fs/io/GzipOutputStream.cxx'; then $(CYGPATH_W) 'src/fs/io/GzipOutputStream.cxx'; else $(CYGPATH_W) '$(srcdir)/src/fs/io/GzipOutputStream.cxx'; fi`
+
+src/lib/icu/libicu_a-CaseFold.o: src/lib/icu/CaseFold.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT src/lib/icu/libicu_a-CaseFold.o -MD -MP -MF src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Tpo -c -o src/lib/icu/libicu_a-CaseFold.o `test -f 'src/lib/icu/CaseFold.cxx' || echo '$(srcdir)/'`src/lib/icu/CaseFold.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Tpo src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='src/lib/icu/CaseFold.cxx' object='src/lib/icu/libicu_a-CaseFold.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o src/lib/icu/libicu_a-CaseFold.o `test -f 'src/lib/icu/CaseFold.cxx' || echo '$(srcdir)/'`src/lib/icu/CaseFold.cxx
+
+src/lib/icu/libicu_a-CaseFold.obj: src/lib/icu/CaseFold.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT src/lib/icu/libicu_a-CaseFold.obj -MD -MP -MF src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Tpo -c -o src/lib/icu/libicu_a-CaseFold.obj `if test -f 'src/lib/icu/CaseFold.cxx'; then $(CYGPATH_W) 'src/lib/icu/CaseFold.cxx'; else $(CYGPATH_W) '$(srcdir)/src/lib/icu/CaseFold.cxx'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Tpo src/lib/icu/$(DEPDIR)/libicu_a-CaseFold.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='src/lib/icu/CaseFold.cxx' object='src/lib/icu/libicu_a-CaseFold.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o src/lib/icu/libicu_a-CaseFold.obj `if test -f 'src/lib/icu/CaseFold.cxx'; then $(CYGPATH_W) 'src/lib/icu/CaseFold.cxx'; else $(CYGPATH_W) '$(srcdir)/src/lib/icu/CaseFold.cxx'; fi`
+
+src/lib/icu/libicu_a-Compare.o: src/lib/icu/Compare.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT src/lib/icu/libicu_a-Compare.o -MD -MP -MF src/lib/icu/$(DEPDIR)/libicu_a-Compare.Tpo -c -o src/lib/icu/libicu_a-Compare.o `test -f 'src/lib/icu/Compare.cxx' || echo '$(srcdir)/'`src/lib/icu/Compare.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) src/lib/icu/$(DEPDIR)/libicu_a-Compare.Tpo src/lib/icu/$(DEPDIR)/libicu_a-Compare.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='src/lib/icu/Compare.cxx' object='src/lib/icu/libicu_a-Compare.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o src/lib/icu/libicu_a-Compare.o `test -f 'src/lib/icu/Compare.cxx' || echo '$(srcdir)/'`src/lib/icu/Compare.cxx
+
+src/lib/icu/libicu_a-Compare.obj: src/lib/icu/Compare.cxx
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT src/lib/icu/libicu_a-Compare.obj -MD -MP -MF src/lib/icu/$(DEPDIR)/libicu_a-Compare.Tpo -c -o src/lib/icu/libicu_a-Compare.obj `if test -f 'src/lib/icu/Compare.cxx'; then $(CYGPATH_W) 'src/lib/icu/Compare.cxx'; else $(CYGPATH_W) '$(srcdir)/src/lib/icu/Compare.cxx'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) src/lib/icu/$(DEPDIR)/libicu_a-Compare.Tpo src/lib/icu/$(DEPDIR)/libicu_a-Compare.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='src/lib/icu/Compare.cxx' object='src/lib/icu/libicu_a-Compare.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o src/lib/icu/libicu_a-Compare.obj `if test -f 'src/lib/icu/Compare.cxx'; then $(CYGPATH_W) 'src/lib/icu/Compare.cxx'; else $(CYGPATH_W) '$(srcdir)/src/lib/icu/Compare.cxx'; fi`
 
 src/lib/icu/libicu_a-Collate.o: src/lib/icu/Collate.cxx
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libicu_a_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT src/lib/icu/libicu_a-Collate.o -MD -MP -MF src/lib/icu/$(DEPDIR)/libicu_a-Collate.Tpo -c -o src/lib/icu/libicu_a-Collate.o `test -f 'src/lib/icu/Collate.cxx' || echo '$(srcdir)/'`src/lib/icu/Collate.cxx
@@ -15187,9 +15229,9 @@ maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
 	-test -z "$(BUILT_SOURCES)" || rm -f $(BUILT_SOURCES)
-@ENABLE_DOCUMENTATION_FALSE@uninstall-local:
-@ANDROID_FALSE@@ENABLE_DOCUMENTATION_FALSE@@ENABLE_HAIKU_FALSE@clean-local:
 @ENABLE_DOCUMENTATION_FALSE@install-data-local:
+@ANDROID_FALSE@@ENABLE_DOCUMENTATION_FALSE@@ENABLE_HAIKU_FALSE@clean-local:
+@ENABLE_DOCUMENTATION_FALSE@uninstall-local:
 clean: clean-am
 
 clean-am: clean-binPROGRAMS clean-generic clean-local \

@@ -17,30 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_UPNP_CALLBACK_HXX
-#define MPD_UPNP_CALLBACK_HXX
+#ifndef MPD_ICU_CASE_FOLD_HXX
+#define MPD_ICU_CASE_FOLD_HXX
 
-#include <upnp/upnp.h>
+#include "check.h"
 
-/**
- * A class that is supposed to be used for libupnp asynchronous
- * callbacks.
- */
-class UpnpCallback {
-public:
-	/**
-	 * Pass this value as "cookie" pointer to libupnp asynchronous
-	 * functions.
-	 */
-	void *GetUpnpCookie() {
-		return this;
-	}
+#if defined(HAVE_ICU) || defined(_WIN32)
+#define HAVE_ICU_CASE_FOLD
 
-	static UpnpCallback &FromUpnpCookie(void *cookie) {
-		return *(UpnpCallback *)cookie;
-	}
+#include "Compiler.h"
 
-	virtual int Invoke(Upnp_EventType et, const void *evp) = 0;
-};
+template<typename T> class AllocatedString;
+
+gcc_nonnull_all
+AllocatedString<char>
+IcuCaseFold(const char *src) noexcept;
+
+#endif
 
 #endif

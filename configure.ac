@@ -1,10 +1,10 @@
 AC_PREREQ(2.60)
 
-AC_INIT(mpd, 0.20.10, musicpd-dev-team@lists.sourceforge.net)
+AC_INIT(mpd, 0.20.12, musicpd-dev-team@lists.sourceforge.net)
 
 VERSION_MAJOR=0
 VERSION_MINOR=20
-VERSION_REVISION=10
+VERSION_REVISION=12
 VERSION_EXTRA=0
 
 AC_CONFIG_SRCDIR([src/Main.cxx])
@@ -241,6 +241,7 @@ AC_CHECK_FUNCS(getpwnam_r getpwuid_r)
 AC_CHECK_FUNCS(initgroups)
 AC_CHECK_FUNCS(fnmatch)
 AC_CHECK_FUNCS(strndup)
+AC_CHECK_FUNCS(strcasestr)
 
 if test x$host_is_linux = xyes; then
 	MPD_OPTIONAL_FUNC(eventfd, eventfd, USE_EVENTFD)
@@ -1384,6 +1385,11 @@ then
 	AX_APPEND_COMPILE_FLAGS([-Wcast-qual])
 	AX_APPEND_COMPILE_FLAGS([-Wwrite-strings])
 	AX_APPEND_COMPILE_FLAGS([-Wsign-compare])
+
+	dnl This GCC8 warning for C++17 ABI compatibility is of no
+	dnl interest for us, because we're not a shared library.
+	AX_APPEND_COMPILE_FLAGS([-Wno-noexcept-type])
+
 	AC_LANG_POP
 fi
 

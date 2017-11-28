@@ -1,8 +1,12 @@
-mpd (0.20.10) unstable; urgency=medium
+mpd (0.20.12) unstable; urgency=medium
 
-  * Aiff Fix
+  * Drop versions on Build-Dependencies satisfied in oldoldstable
+  * Update to dh compat level 10
+  * Declare compliance with Debian Policy 4.0.0
+  * Drop prune-doc-data.patch, we should have few Debian-specific patches
+  * Upload to unstable
 
- -- Florian Schlichting <fsfs@debian.org>  Mon, 21 Aug 2017 23:16:18 +0200
+ -- Florian Schlichting <fsfs@debian.org>  Mon, 19 Jun 2017 23:16:18 +0200
 
 
 mpd (0.20.9-2) unstable; urgency=medium

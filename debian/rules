@@ -31,10 +31,10 @@ endif
 RUN_TESTS=--enable-test
 
 # Archive support
-ENABLE_ARCHIVES=--disable-bzip2 \
+ENABLE_ARCHIVES=--enable-bzip2 \
 	        --enable-iso9660 \
-		--disable-zlib \
-		--disable-zzip
+		--enable-zlib \
+		--enable-zzip
 
 # Autodiscovery support
 ENABLE_AUTODISCOVERY=--enable-neighbor-plugins \
@@ -54,14 +54,14 @@ ENABLE_STORAGE=--enable-nfs \
 # File format support
 # Note: OggTremor / OggVorbis are in WITH_TREMOR
 ENABLE_FILEFORMATS=--enable-aac \
-		   --disable-adplug \
-		   --disable-sidplay \
+		   --enable-adplug \
+		   --enable-sidplay \
 		   --enable-ffmpeg \
 		   --enable-flac \
-		   --disable-fluidsynth \
+		   --enable-fluidsynth \
 		   --enable-gme \
 		   --enable-sndfile \
-		   --disable-mikmod \
+		   --enable-mikmod \
 		   --enable-modplug \
 		   --enable-mad \
 		   --enable-mpg123 \
@@ -69,7 +69,7 @@ ENABLE_FILEFORMATS=--enable-aac \
 		   --enable-opus \
 		   --enable-audiofile \
 		   --enable-wavpack \
-		   --disable-wildmidi
+		   --enable-wildmidi
 
 # Other features
 ENABLE_OTHER=--with-boost \
@@ -82,7 +82,7 @@ ENABLE_OTHER=--with-boost \
 	     --enable-libwrap \
 	     --enable-inotify \
 	     --enable-soxr \
-	     --enable-sqlite \
+	     --disable-sqlite \
 	     --enable-syslog
 
 # Metadata support
@@ -92,11 +92,11 @@ ENABLE_METADATA=--enable-id3
 # Note: ALSA is in WITH_SYSTEMD
 ENABLE_PLAYBACKS=--enable-fifo \
 		 --disable-sndio \
-		 --enable-recorder-output \
+		 --disable-recorder-output \
 		 --disable-haiku \
 		 --enable-httpd-output \
 		 --disable-jack \
-		 --disable-ao \
+		 --enable-ao \
 		 --disable-oss \
 		 --enable-openal \
 		 --enable-pipe-output \

@@ -243,6 +243,7 @@ CURL_SOURCES = \
 	src/lib/curl/Slist.hxx
 
 UPNP_SOURCES = \
+	src/lib/upnp/Compat.hxx \
 	src/lib/upnp/Init.cxx src/lib/upnp/Init.hxx \
 	src/lib/upnp/ClientInit.cxx src/lib/upnp/ClientInit.hxx \
 	src/lib/upnp/Device.cxx src/lib/upnp/Device.hxx \
@@ -518,6 +519,8 @@ libevent_a_SOURCES = \
 # UTF-8 library
 
 libicu_a_SOURCES = \
+	src/lib/icu/CaseFold.cxx src/lib/icu/CaseFold.hxx \
+	src/lib/icu/Compare.cxx src/lib/icu/Compare.hxx \
 	src/lib/icu/Collate.cxx src/lib/icu/Collate.hxx \
 	src/lib/icu/Converter.cxx src/lib/icu/Converter.hxx
 

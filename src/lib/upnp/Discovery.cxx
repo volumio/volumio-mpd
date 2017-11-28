@@ -153,10 +153,10 @@ UPnPDeviceDirectory::Explore(void *ctx)
 }
 
 inline int
-UPnPDeviceDirectory::OnAlive(Upnp_Discovery *disco)
+UPnPDeviceDirectory::OnAlive(const UpnpDiscovery *disco)
 {
-	if (isMSDevice(disco->DeviceType) ||
-	    isCDService(disco->ServiceType)) {
+	if (isMSDevice(UpnpDiscovery_get_DeviceType_cstr(disco)) ||
+	    isCDService(UpnpDiscovery_get_ServiceType_cstr(disco))) {
 		DiscoveredTask *tp = new DiscoveredTask(disco);
 		if (queue.put(tp))
 			return UPNP_E_FINISH;
@@ -166,12 +166,12 @@ UPnPDeviceDirectory::OnAlive(Upnp_Discovery *disco)
 }
 
 inline int
-UPnPDeviceDirectory::OnByeBye(Upnp_Discovery *disco)
+UPnPDeviceDirectory::OnByeBye(const UpnpDiscovery *disco)
 {
-	if (isMSDevice(disco->DeviceType) ||
-	    isCDService(disco->ServiceType)) {
+	if (isMSDevice(UpnpDiscovery_get_DeviceType_cstr(disco)) ||
+	    isCDService(UpnpDiscovery_get_ServiceType_cstr(disco))) {
 		// Device signals it is going off.
-		LockRemove(disco->DeviceId);
+		LockRemove(UpnpDiscovery_get_DeviceID_cstr(disco));
 	}
 
 	return UPNP_E_SUCCESS;
@@ -182,19 +182,19 @@ UPnPDeviceDirectory::OnByeBye(Upnp_Discovery *disco)
 // Example: ContentDirectories appearing and disappearing from the network
 // We queue a task for our worker thread(s)
 int
-UPnPDeviceDirectory::Invoke(Upnp_EventType et, void *evp)
+UPnPDeviceDirectory::Invoke(Upnp_EventType et, const void *evp)
 {
 	switch (et) {
 	case UPNP_DISCOVERY_SEARCH_RESULT:
 	case UPNP_DISCOVERY_ADVERTISEMENT_ALIVE:
 		{
-			Upnp_Discovery *disco = (Upnp_Discovery *)evp;
+			auto *disco = (const UpnpDiscovery *)evp;
 			return OnAlive(disco);
 		}
 
 	case UPNP_DISCOVERY_ADVERTISEMENT_BYEBYE:
 		{
-			Upnp_Discovery *disco = (Upnp_Discovery *)evp;
+			auto *disco = (const UpnpDiscovery *)evp;
 			return OnByeBye(disco);
 		}
 
