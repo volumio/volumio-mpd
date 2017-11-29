@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -195,7 +195,7 @@ playlist_list_open_stream_mime2(InputStreamPtr &&is, const char *mime)
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
-				is->Rewind();
+				is->LockRewind();
 			} catch (const std::runtime_error &) {
 			}
 
@@ -239,7 +239,7 @@ playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix)
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
-				is->Rewind();
+				is->LockRewind();
 			} catch (const std::runtime_error &) {
 			}
 

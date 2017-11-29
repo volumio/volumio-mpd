@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -52,14 +52,14 @@ static constexpr unsigned opus_output_buffer_frames = opus_sample_rate / 4;
 
 gcc_pure
 static bool
-IsOpusHead(const ogg_packet &packet)
+IsOpusHead(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusHead", 8) == 0;
 }
 
 gcc_pure
 static bool
-IsOpusTags(const ogg_packet &packet)
+IsOpusTags(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusTags", 8) == 0;
 }

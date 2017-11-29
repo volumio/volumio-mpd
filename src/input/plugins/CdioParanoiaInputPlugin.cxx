@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -96,7 +96,7 @@ class CdioParanoiaInputStream final : public InputStream {
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 	void Seek(offset_type offset) override;
 };
@@ -270,7 +270,10 @@ CdioParanoiaInputStream::Seek(offset_type new_offset)
 	lsn_relofs = new_offset / CDIO_CD_FRAMESIZE_RAW;
 	offset = new_offset;
 
-	cdio_paranoia_seek(para, lsn_from + lsn_relofs, SEEK_SET);
+	{
+		const ScopeUnlock unlock(mutex);
+		cdio_paranoia_seek(para, lsn_from + lsn_relofs, SEEK_SET);
+	}
 }
 
 size_t
@@ -292,6 +295,8 @@ CdioParanoiaInputStream::Read(void *ptr, size_t length)
 
 		//current sector was changed ?
 		if (lsn_relofs != buffer_lsn) {
+			const ScopeUnlock unlock(mutex);
+
 			rbuf = cdio_paranoia_read(para, nullptr);
 
 			s_err = cdda_errors(drv);
@@ -340,7 +345,7 @@ CdioParanoiaInputStream::Read(void *ptr, size_t length)
 }
 
 bool
-CdioParanoiaInputStream::IsEOF()
+CdioParanoiaInputStream::IsEOF() noexcept
 {
 	return lsn_from + lsn_relofs > lsn_to;
 }

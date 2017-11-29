@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,8 +23,6 @@
 #include "check.h"
 #include "Compiler.h"
 
-template<typename T> class AllocatedString;
-
 /**
  * Throws #std::runtime_error on error.
  */
@@ -32,14 +30,10 @@ void
 IcuCollateInit();
 
 void
-IcuCollateFinish();
+IcuCollateFinish() noexcept;
 
 gcc_pure gcc_nonnull_all
 int
-IcuCollate(const char *a, const char *b);
-
-gcc_pure gcc_nonnull_all
-AllocatedString<char>
-IcuCaseFold(const char *src);
+IcuCollate(const char *a, const char *b) noexcept;
 
 #endif

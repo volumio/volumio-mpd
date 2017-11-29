@@ -8,18 +8,12 @@ apt-get install -y build-essential automake autoconf libtool pkg-config libcurl4
 apt-get -y remove libupnp6
 apt-get -y install libupnp6
 apt-get build-dep -y mpd
+apt-get -y install libsidplayfp-dev 
 
-echo "Prepare"
-./autogen.sh
+## Edit debian/rules by removing dh_strip override
 
-echo "Configure"
-./configure --disable-pulse --disable-roar --disable-oss --disable-openal --disable-wildmidi --disable-sidplay --disable-sndio --disable-haiku --disable-recorder-output --disable-gme 
-
-echo "Compile"
-make
-
-echo "install"
-sudo make install
+echo "Creating Package"
+debuild -i -us -uc -b
 
 echo "Done"
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -61,7 +61,7 @@ decoder_input_stream_open(DecoderControl &dc, const char *uri)
 	/* wait for the input stream to become ready; its metadata
 	   will be available then */
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	is->Update();
 	while (!is->IsReady()) {
@@ -170,7 +170,8 @@ decoder_file_decode(const DecoderPlugin &plugin,
 
 gcc_pure
 static bool
-decoder_check_plugin_mime(const DecoderPlugin &plugin, const InputStream &is)
+decoder_check_plugin_mime(const DecoderPlugin &plugin,
+			  const InputStream &is) noexcept
 {
 	assert(plugin.stream_decode != nullptr);
 
@@ -181,7 +182,8 @@ decoder_check_plugin_mime(const DecoderPlugin &plugin, const InputStream &is)
 
 gcc_pure
 static bool
-decoder_check_plugin_suffix(const DecoderPlugin &plugin, const char *suffix)
+decoder_check_plugin_suffix(const DecoderPlugin &plugin,
+			    const char *suffix) noexcept
 {
 	assert(plugin.stream_decode != nullptr);
 
@@ -191,7 +193,7 @@ decoder_check_plugin_suffix(const DecoderPlugin &plugin, const char *suffix)
 gcc_pure
 static bool
 decoder_check_plugin(const DecoderPlugin &plugin, const InputStream &is,
-		     const char *suffix)
+		     const char *suffix) noexcept
 {
 	return plugin.stream_decode != nullptr &&
 		(decoder_check_plugin_mime(plugin, is) ||
@@ -235,7 +237,7 @@ decoder_run_stream_fallback(DecoderBridge &bridge, InputStream &is)
 {
 	const struct DecoderPlugin *plugin;
 
-#ifdef HAVE_FFMPEG
+#ifdef ENABLE_FFMPEG
 	plugin = decoder_plugin_from_name("ffmpeg");
 #else
 	plugin = decoder_plugin_from_name("mad");
@@ -264,7 +266,7 @@ static void
 MaybeLoadReplayGain(DecoderBridge &bridge, InputStream &is)
 {
 	{
-		const ScopeLock protect(bridge.dc.mutex);
+		const std::lock_guard<Mutex> protect(bridge.dc.mutex);
 		if (bridge.dc.replay_gain_mode == ReplayGainMode::OFF)
 			/* ReplayGain is disabled */
 			return;
@@ -288,7 +290,7 @@ decoder_run_stream(DecoderBridge &bridge, const char *uri)
 
 	MaybeLoadReplayGain(bridge, *input_stream);
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	bool tried = false;
 	return dc.command == DecoderCommand::STOP ||
@@ -318,10 +320,10 @@ TryDecoderFile(DecoderBridge &bridge, Path path_fs, const char *suffix,
 	DecoderControl &dc = bridge.dc;
 
 	if (plugin.file_decode != nullptr) {
-		const ScopeLock protect(dc.mutex);
+		const std::lock_guard<Mutex> protect(dc.mutex);
 		return decoder_file_decode(plugin, bridge, path_fs);
 	} else if (plugin.stream_decode != nullptr) {
-		const ScopeLock protect(dc.mutex);
+		const std::lock_guard<Mutex> protect(dc.mutex);
 		return decoder_stream_decode(plugin, bridge, input_stream);
 	} else
 		return false;
@@ -344,7 +346,7 @@ TryContainerDecoder(DecoderBridge &bridge, Path path_fs, const char *suffix,
 	bridge.error = nullptr;
 
 	DecoderControl &dc = bridge.dc;
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return decoder_file_decode(plugin, bridge, path_fs);
 }
 
@@ -506,6 +508,7 @@ try {
 	decoder_run_song(dc, song, uri_utf8, path_fs);
 } catch (...) {
 	dc.state = DecoderState::ERROR;
+	dc.command = DecoderCommand::NONE;
 	dc.error = std::current_exception();
 	dc.client_cond.signal();
 }
@@ -517,7 +520,7 @@ decoder_task(void *arg)
 
 	SetThreadName("decoder");
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	do {
 		assert(dc.state == DecoderState::STOP ||

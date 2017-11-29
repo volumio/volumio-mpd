@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -74,7 +74,7 @@ gme_plugin_init(gcc_unused const ConfigBlock &block)
 
 gcc_pure
 static unsigned
-ParseSubtuneName(const char *base)
+ParseSubtuneName(const char *base) noexcept
 {
 	if (memcmp(base, SUBTUNE_PREFIX, sizeof(SUBTUNE_PREFIX) - 1) != 0)
 		return 0;
@@ -293,13 +293,13 @@ gme_container_scan(Path path_fs)
 	TagBuilder tag_builder;
 
 	auto tail = list.before_begin();
-	for (unsigned i = 1; i <= num_songs; ++i) {
+	for (unsigned i = 0; i < num_songs; ++i) {
 		ScanMusicEmu(emu, i,
 			     add_tag_handler, &tag_builder);
 
 		char track_name[64];
 		snprintf(track_name, sizeof(track_name),
-			 SUBTUNE_PREFIX "%03u.%s", i, subtune_suffix);
+			 SUBTUNE_PREFIX "%03u.%s", i+1, subtune_suffix);
 		tail = list.emplace_after(tail, track_name,
 					  tag_builder.Commit());
 	}

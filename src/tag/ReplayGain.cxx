@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -60,7 +60,7 @@ ParseReplayGainTag(ReplayGainInfo &info, const char *name, const char *value)
 		const char *value;
 
 		gcc_pure
-		const char *operator[](const char *n) const {
+		const char *operator[](const char *n) const noexcept {
 			return StringEqualsCaseASCII(name, n)
 				? value
 				: nullptr;
@@ -77,7 +77,7 @@ ParseReplayGainVorbis(ReplayGainInfo &info, const char *entry)
 		const char *entry;
 
 		gcc_pure
-		const char *operator[](const char *n) const {
+		const char *operator[](const char *n) const noexcept {
 			return vorbis_comment_value(entry, n);
 		}
 	};

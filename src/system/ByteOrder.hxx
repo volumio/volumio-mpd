@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Max Kellermann <max@duempel.org>,
+ * Copyright (C) 2011-2015 Max Kellermann <max.kellermann@gmail.com>,
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -46,6 +46,15 @@
 /* compile-time check for MacOS */
 #  include <machine/endian.h>
 #  if BYTE_ORDER == LITTLE_ENDIAN
+#    define IS_LITTLE_ENDIAN true
+#    define IS_BIG_ENDIAN false
+#  else
+#    define IS_LITTLE_ENDIAN false
+#    define IS_BIG_ENDIAN true
+#  endif
+#elif defined(__BYTE_ORDER__)
+/* GCC-specific macros */
+#  if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #    define IS_LITTLE_ENDIAN true
 #    define IS_BIG_ENDIAN false
 #  else

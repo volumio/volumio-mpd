@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #include "tag/Tag.hxx"
 
 SignedSongTime
-LightSong::GetDuration() const
+LightSong::GetDuration() const noexcept
 {
 	SongTime a = start_time, b = end_time;
 	if (!b.IsPositive()) {

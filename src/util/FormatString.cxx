@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,7 +57,7 @@ FormatStringV(const char *fmt, va_list args)
 	const size_t length = strlen(buffer);
 	char *p = new char[length + 1];
 	memcpy(p, buffer, length + 1);
-	return AllocatedString<>::Donate(buffer);
+	return AllocatedString<>::Donate(p);
 #endif
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,8 @@
 
 #include "ConfigOption.hxx"
 #include "Compiler.h"
+
+#include <chrono>
 
 class Path;
 class AllocatedPath;
@@ -46,11 +48,11 @@ ReadConfigFile(Path path);
 
 gcc_pure
 const ConfigParam *
-config_get_param(enum ConfigOption option);
+config_get_param(enum ConfigOption option) noexcept;
 
 gcc_pure
 const ConfigBlock *
-config_get_block(enum ConfigBlockOption option);
+config_get_block(enum ConfigBlockOption option) noexcept;
 
 /**
  * Find a block with a matching attribute.
@@ -59,20 +61,12 @@ config_get_block(enum ConfigBlockOption option);
  * @param key the attribute name
  * @param value the expected attribute value
  */
-gcc_pure
 const ConfigBlock *
 config_find_block(ConfigBlockOption option, const char *key, const char *value);
 
-/* Note on gcc_pure: Some of the functions declared pure are not
-   really pure in strict sense.  They have side effect such that they
-   validate parameter's value and signal an error if it's invalid.
-   However, if the argument was already validated or we don't care
-   about the argument at all, this may be ignored so in the end, we
-   should be fine with calling those functions pure.  */
-
-gcc_pure
 const char *
-config_get_string(enum ConfigOption option, const char *default_value=nullptr);
+config_get_string(enum ConfigOption option,
+		  const char *default_value=nullptr) noexcept;
 
 /**
  * Returns an optional configuration variable which contains an
@@ -84,15 +78,30 @@ config_get_string(enum ConfigOption option, const char *default_value=nullptr);
 AllocatedPath
 config_get_path(enum ConfigOption option);
 
-gcc_pure
 unsigned
 config_get_unsigned(enum ConfigOption option, unsigned default_value);
 
-gcc_pure
+static inline std::chrono::steady_clock::duration
+config_get_unsigned(ConfigOption option,
+		    std::chrono::steady_clock::duration default_value)
+{
+	// TODO: allow unit suffixes
+	auto u = config_get_unsigned(option, default_value.count());
+	return std::chrono::steady_clock::duration(u);
+}
+
 unsigned
 config_get_positive(enum ConfigOption option, unsigned default_value);
 
-gcc_pure
+static inline std::chrono::steady_clock::duration
+config_get_positive(ConfigOption option,
+		    std::chrono::steady_clock::duration default_value)
+{
+	// TODO: allow unit suffixes
+	auto u = config_get_positive(option, default_value.count());
+	return std::chrono::steady_clock::duration(u);
+}
+
 bool config_get_bool(enum ConfigOption option, bool default_value);
 
 #endif

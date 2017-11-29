@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -76,7 +76,7 @@ struct LightSong {
 	SongTime end_time;
 
 	gcc_pure
-	std::string GetURI() const {
+	std::string GetURI() const noexcept {
 		if (directory == nullptr)
 			return std::string(uri);
 
@@ -87,7 +87,7 @@ struct LightSong {
 	}
 
 	gcc_pure
-	SignedSongTime GetDuration() const;
+	SignedSongTime GetDuration() const noexcept;
 };
 
 #endif

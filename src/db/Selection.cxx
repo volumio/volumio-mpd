@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,6 +17,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "config.h"
 #include "Selection.hxx"
 #include "SongFilter.hxx"
 
@@ -34,19 +35,19 @@ DatabaseSelection::DatabaseSelection(const char *_uri, bool _recursive,
 }
 
 bool
-DatabaseSelection::IsEmpty() const
+DatabaseSelection::IsEmpty() const noexcept
 {
 	return uri.empty() && (filter == nullptr || filter->IsEmpty());
 }
 
 bool
-DatabaseSelection::HasOtherThanBase() const
+DatabaseSelection::HasOtherThanBase() const noexcept
 {
 	return filter != nullptr && filter->HasOtherThanBase();
 }
 
 bool
-DatabaseSelection::Match(const LightSong &song) const
+DatabaseSelection::Match(const LightSong &song) const noexcept
 {
 	return filter == nullptr || filter->Match(song);
 }

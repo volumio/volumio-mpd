@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -97,7 +97,7 @@ class RecorderOutput {
 
 private:
 	gcc_pure
-	bool HasDynamicPath() const {
+	bool HasDynamicPath() const noexcept {
 		return !format_path.empty();
 	}
 
@@ -274,7 +274,7 @@ RecorderOutput::ReopenFormat(AllocatedPath &&new_path)
 	assert(path.IsNull());
 	assert(file == nullptr);
 
-	FileOutputStream *new_file = new FileOutputStream(path);
+	FileOutputStream *new_file = new FileOutputStream(new_path);
 
 	AudioFormat new_audio_format = effective_audio_format;
 

@@ -233,7 +233,17 @@ libmpd_a_SOURCES += \
 	src/db/Selection.cxx src/db/Selection.hxx
 endif
 
+CURL_SOURCES = \
+	src/lib/curl/Version.cxx src/lib/curl/Version.hxx \
+	src/lib/curl/Global.cxx src/lib/curl/Global.hxx \
+	src/lib/curl/Request.cxx src/lib/curl/Request.hxx \
+	src/lib/curl/Handler.hxx \
+	src/lib/curl/Easy.hxx \
+	src/lib/curl/Multi.hxx \
+	src/lib/curl/Slist.hxx
+
 UPNP_SOURCES = \
+	src/lib/upnp/Compat.hxx \
 	src/lib/upnp/Init.cxx src/lib/upnp/Init.hxx \
 	src/lib/upnp/ClientInit.cxx src/lib/upnp/ClientInit.hxx \
 	src/lib/upnp/Device.cxx src/lib/upnp/Device.hxx \
@@ -349,7 +359,7 @@ endif
 src/haiku/mpd.rsrc: src/haiku/mpd.rdef
 	$(RC) -o $@ $<
 
-if HAVE_HAIKU
+if ENABLE_HAIKU
 noinst_DATA = src/haiku/mpd.rdef
 
 EXTRA_src_mpd_DEPENDENCIES = src/haiku/mpd.rsrc
@@ -388,6 +398,7 @@ endif
 # Generic utility library
 
 libutil_a_SOURCES = \
+	src/util/Exception.cxx src/util/Exception.hxx \
 	src/util/RuntimeError.hxx \
 	src/util/Macros.hxx \
 	src/util/BindMethod.hxx \
@@ -405,6 +416,7 @@ libutil_a_SOURCES = \
 	src/util/CharUtil.hxx \
 	src/util/NumberParser.hxx \
 	src/util/MimeType.cxx src/util/MimeType.hxx \
+	src/util/StringBuffer.hxx \
 	src/util/StringPointer.hxx \
 	src/util/StringView.cxx src/util/StringView.hxx \
 	src/util/AllocatedString.cxx src/util/AllocatedString.hxx \
@@ -419,6 +431,7 @@ libutil_a_SOURCES = \
 	src/util/FormatString.cxx src/util/FormatString.hxx \
 	src/util/Tokenizer.cxx src/util/Tokenizer.hxx \
 	src/util/TextFile.hxx \
+	src/util/TimeParser.cxx src/util/TimeParser.hxx \
 	src/util/UriUtil.cxx src/util/UriUtil.hxx \
 	src/util/Manual.hxx \
 	src/util/RefCount.hxx \
@@ -456,6 +469,7 @@ libthread_a_SOURCES = \
 # Networking library
 
 libnet_a_SOURCES = \
+	src/net/Features.hxx \
 	src/net/ToString.cxx src/net/ToString.hxx \
 	src/net/Resolver.cxx src/net/Resolver.hxx \
 	src/net/StaticSocketAddress.cxx src/net/StaticSocketAddress.hxx \
@@ -505,6 +519,8 @@ libevent_a_SOURCES = \
 # UTF-8 library
 
 libicu_a_SOURCES = \
+	src/lib/icu/CaseFold.cxx src/lib/icu/CaseFold.hxx \
+	src/lib/icu/Compare.cxx src/lib/icu/Compare.hxx \
 	src/lib/icu/Collate.cxx src/lib/icu/Collate.hxx \
 	src/lib/icu/Converter.cxx src/lib/icu/Converter.hxx
 
@@ -527,6 +543,10 @@ ICU_LDADD = libicu.a $(ICU_LIBS)
 # PCM library
 
 libpcm_a_SOURCES = \
+	src/CheckAudioFormat.cxx src/CheckAudioFormat.hxx \
+	src/AudioFormat.cxx src/AudioFormat.hxx \
+	src/AudioParser.cxx src/AudioParser.hxx \
+	src/pcm/SampleFormat.cxx src/pcm/SampleFormat.hxx \
 	src/pcm/Traits.hxx \
 	src/pcm/Interleave.cxx src/pcm/Interleave.hxx \
 	src/pcm/PcmBuffer.cxx src/pcm/PcmBuffer.hxx \
@@ -563,6 +583,8 @@ PCM_LIBS = \
 
 if ENABLE_DSD
 libpcm_a_SOURCES += \
+	src/pcm/Dsd16.cxx src/pcm/Dsd16.hxx \
+	src/pcm/Dsd32.cxx src/pcm/Dsd32.hxx \
 	src/pcm/PcmDsd.cxx src/pcm/PcmDsd.hxx \
 	src/pcm/dsd2pcm/dsd2pcm.c src/pcm/dsd2pcm/dsd2pcm.h
 endif
@@ -601,7 +623,8 @@ libxiph_a_SOURCES += \
 	src/lib/xiph/OggStreamState.hxx
 endif
 
-XIPH_LIBS = libxiph.a
+XIPH_LIBS = libxiph.a \
+	$(OGG_LIBS)
 
 endif
 
@@ -687,6 +710,8 @@ libstorage_a_CPPFLAGS = $(AM_CPPFLAGS) \
 
 STORAGE_LIBS = \
 	libstorage.a \
+	$(CURL_LIBS) \
+	$(EXPAT_LIBS) \
 	$(NFS_LIBS) \
 	$(SMBCLIENT_LIBS)
 
@@ -700,6 +725,12 @@ if ENABLE_NFS
 libstorage_a_SOURCES += \
 	$(NFS_SOURCES) \
 	src/storage/plugins/NfsStorage.cxx src/storage/plugins/NfsStorage.hxx
+endif
+
+if ENABLE_WEBDAV
+libstorage_a_SOURCES += \
+	src/lib/expat/ExpatParser.cxx \
+	src/storage/plugins/CurlStorage.cxx src/storage/plugins/CurlStorage.hxx
 endif
 
 endif
@@ -849,9 +880,6 @@ ARCHIVE_LIBS =
 endif
 
 libbasic_a_SOURCES = \
-	src/CheckAudioFormat.cxx src/CheckAudioFormat.hxx \
-	src/AudioFormat.cxx src/AudioFormat.hxx \
-	src/AudioParser.cxx src/AudioParser.hxx \
 	src/ReplayGainConfig.hxx \
 	src/ReplayGainMode.cxx src/ReplayGainMode.hxx \
 	src/ReplayGainInfo.cxx src/ReplayGainInfo.hxx
@@ -898,6 +926,7 @@ libtag_a_SOURCES =\
 	src/tag/ReplayGain.cxx src/tag/ReplayGain.hxx \
 	src/tag/MixRamp.cxx src/tag/MixRamp.hxx \
 	src/tag/Generic.cxx src/tag/Generic.hxx \
+	src/tag/Id3MusicBrainz.cxx src/tag/Id3MusicBrainz.hxx \
 	src/tag/ApeLoader.cxx src/tag/ApeLoader.hxx \
 	src/tag/ApeReplayGain.cxx src/tag/ApeReplayGain.hxx \
 	src/tag/ApeTag.cxx src/tag/ApeTag.hxx
@@ -1238,6 +1267,7 @@ libinput_a_SOURCES = \
 	src/input/LocalOpen.cxx src/input/LocalOpen.hxx \
 	src/input/Offset.hxx \
 	src/input/InputStream.cxx src/input/InputStream.hxx \
+	src/input/Ptr.hxx \
 	src/input/InputPlugin.hxx \
 	src/input/Reader.cxx src/input/Reader.hxx \
 	src/input/TextInputStream.cxx src/input/TextInputStream.hxx \
@@ -1276,6 +1306,7 @@ if ENABLE_CURL
 libinput_a_SOURCES += \
 	src/input/IcyInputStream.cxx src/input/IcyInputStream.hxx \
 	src/input/plugins/CurlInputPlugin.cxx src/input/plugins/CurlInputPlugin.hxx \
+	$(CURL_SOURCES) \
 	src/IcyMetaDataParser.cxx src/IcyMetaDataParser.hxx
 endif
 
@@ -1311,9 +1342,11 @@ liboutput_plugins_a_CPPFLAGS = $(AM_CPPFLAGS) \
 	$(AO_CFLAGS) \
 	$(ALSA_CFLAGS) \
 	$(JACK_CFLAGS) \
+	$(HAIKU_CFLAGS) \
 	$(OPENAL_CFLAGS) \
 	$(OPENSSL_CFLAGS) \
 	$(PULSE_CFLAGS) \
+	$(SNDIO_CFLAGS) \
 	$(SHOUT_CFLAGS)
 
 OUTPUT_LIBS = \
@@ -1323,15 +1356,21 @@ OUTPUT_LIBS = \
 	$(ALSA_LIBS) \
 	$(ROAR_LIBS) \
 	$(JACK_LIBS) \
+	$(HAIKU_LIBS) \
 	$(OPENAL_LIBS) \
+	$(SNDIO_LIBS) \
 	$(SHOUT_LIBS)
 
 OUTPUT_API_SRC = \
+	src/output/Client.hxx \
 	src/output/OutputAPI.hxx \
+	src/output/Internal.cxx \
 	src/output/Internal.hxx \
 	src/output/Wrapper.hxx \
 	src/output/Registry.cxx src/output/Registry.hxx \
 	src/output/MultipleOutputs.cxx src/output/MultipleOutputs.hxx \
+	src/output/SharedPipeConsumer.cxx src/output/SharedPipeConsumer.hxx \
+	src/output/Source.cxx src/output/Source.hxx \
 	src/output/OutputThread.cxx \
 	src/output/Domain.cxx src/output/Domain.hxx \
 	src/output/OutputControl.cxx \
@@ -1365,6 +1404,7 @@ libmixer_plugins_a_SOURCES = \
 	src/mixer/plugins/NullMixerPlugin.cxx \
 	src/mixer/plugins/SoftwareMixerPlugin.cxx \
 	src/mixer/plugins/SoftwareMixerPlugin.hxx
+
 libmixer_plugins_a_CPPFLAGS = $(AM_CPPFLAGS) \
 	$(ALSA_CFLAGS) \
 	$(PULSE_CFLAGS)
@@ -1373,7 +1413,10 @@ if ENABLE_ALSA
 liboutput_plugins_a_SOURCES += \
 	src/output/plugins/AlsaOutputPlugin.cxx \
 	src/output/plugins/AlsaOutputPlugin.hxx
-libmixer_plugins_a_SOURCES += src/mixer/plugins/AlsaMixerPlugin.cxx
+libmixer_plugins_a_SOURCES += \
+	src/mixer/plugins/volume_mapping.h \
+	src/mixer/plugins/volume_mapping.c \
+	src/mixer/plugins/AlsaMixerPlugin.cxx
 endif
 
 if ANDROID
@@ -1406,18 +1449,18 @@ liboutput_plugins_a_SOURCES += \
 	src/output/plugins/FifoOutputPlugin.hxx
 endif
 
-if HAVE_SNDIO
+if ENABLE_SNDIO
 liboutput_plugins_a_SOURCES += \
 	src/output/plugins/SndioOutputPlugin.cxx \
 	src/output/plugins/SndioOutputPlugin.hxx
 endif
 
-if HAVE_HAIKU
+if ENABLE_HAIKU
 liboutput_plugins_a_SOURCES += \
 	src/output/plugins/HaikuOutputPlugin.cxx \
 	src/output/plugins/HaikuOutputPlugin.hxx
 libmixer_plugins_a_SOURCES += \
-	src/mixer/plugins/HaikuMixerPlugin.cxx src/mixer/plugins/HaikuMixerPlugin.hxx
+	src/mixer/plugins/HaikuMixerPlugin.cxx
 endif
 
 if ENABLE_PIPE_OUTPUT
@@ -1450,6 +1493,8 @@ liboutput_plugins_a_SOURCES += \
 	src/output/plugins/OSXOutputPlugin.cxx \
 	src/output/plugins/OSXOutputPlugin.hxx
 endif
+libmixer_plugins_a_SOURCES += \
+	src/mixer/plugins/OSXMixerPlugin.cxx
 
 if ENABLE_PULSE
 liboutput_plugins_a_SOURCES += \
@@ -1556,6 +1601,7 @@ endif
 
 if ENABLE_EXPAT
 libplaylist_plugins_a_SOURCES += \
+	src/lib/expat/StreamExpatParser.cxx \
 	src/lib/expat/ExpatParser.cxx src/lib/expat/ExpatParser.hxx \
 	src/playlist/plugins/XspfPlaylistPlugin.cxx \
 	src/playlist/plugins/XspfPlaylistPlugin.hxx \
@@ -1598,8 +1644,13 @@ FILTER_LIBS = \
 
 if HAVE_SYSTEMD
 systemdsystemunit_DATA = \
-	systemd/mpd.socket \
-	systemd/mpd.service
+	systemd/system/mpd.socket \
+	systemd/system/mpd.service
+endif
+
+if HAVE_SYSTEMD_USER
+systemduserunit_DATA = \
+	systemd/user/mpd.service
 endif
 
 
@@ -1735,6 +1786,10 @@ test_run_storage_SOURCES = \
 	src/IOThread.cxx \
 	test/ScopeIOThread.hxx \
 	test/run_storage.cxx
+
+if ENABLE_WEBDAV
+test_run_storage_SOURCES += $(CURL_SOURCES)
+endif
 
 endif
 
@@ -2181,6 +2236,7 @@ test_test_icy_parser_LDADD = \
 endif
 
 test_test_pcm_SOURCES = \
+	test/TestAudioFormat.cxx test/TestAudioFormat.hxx \
 	test/test_pcm_util.hxx \
 	test/test_pcm_dither.cxx \
 	test/test_pcm_pack.cxx \
@@ -2333,7 +2389,7 @@ uninstall-local:
 	rm -f $(DESTDIR)$(docdir)/api/html/*.*
 
 upload: $(DOCBOOK_HTML) doc/api/html/index.html
-	rsync -vpruz --delete doc/ www.musicpd.org:/var/www/doc/ \
+	rsync -vpruz --delete doc/ www.musicpd.org:/var/www/mpd/doc/ \
 		--chmod=Dug+rwx,Do+rx,Fug+rw,Fo+r \
 		--include=protocol --include=protocol/** \
 		--include=user --include=user/** \
@@ -2355,7 +2411,7 @@ EXTRA_DIST = $(doc_DATA) autogen.sh \
 	$(wildcard $(srcdir)/scripts/*.rb) \
 	$(man_MANS) $(DOCBOOK_FILES) doc/mpdconf.example doc/doxygen.conf \
 	$(wildcard $(srcdir)/doc/include/*.xml) \
-	systemd/mpd.socket \
+	systemd/system/mpd.socket \
 	android/AndroidManifest.xml \
 	android/build.py \
 	android/custom_rules.xml \

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,6 @@
 #include "config/ConfigDefaults.hxx"
 #include "config/ConfigOption.hxx"
 #include "config/ConfigError.hxx"
-#include "Stats.hxx"
 #include "util/RuntimeError.hxx"
 
 #ifdef ENABLE_DAEMON
@@ -118,7 +117,21 @@
 
 #include <limits.h>
 
-static constexpr unsigned DEFAULT_BUFFER_SIZE = 4096;
+static constexpr size_t KILOBYTE = 1024;
+static constexpr size_t MEGABYTE = 1024 * KILOBYTE;
+
+static constexpr size_t DEFAULT_BUFFER_SIZE = 4 * MEGABYTE;
+
+static
+#if GCC_OLDER_THAN(5,0)
+/* gcc 4.x has no "constexpr" for std::max() */
+const
+#else
+constexpr
+#endif
+size_t MIN_BUFFER_SIZE = std::max(CHUNK_SIZE * 32,
+				  64 * KILOBYTE);
+
 static constexpr unsigned DEFAULT_BUFFER_BEFORE_PLAY = 10;
 
 #ifdef ANDROID
@@ -131,7 +144,6 @@ struct Config {
 	ReplayGainConfig replay_gain;
 };
 
-gcc_const
 static Config
 LoadConfig()
 {
@@ -204,7 +216,11 @@ glue_db_init_and_load(void)
 				   "because the database does not need it");
 	}
 
-	instance->database->Open();
+	try {
+		instance->database->Open();
+	} catch (...) {
+		std::throw_with_nested(std::runtime_error("Failed to open database plugin"));
+	}
 
 	if (!instance->database->IsPlugin(simple_db_plugin))
 		return true;
@@ -258,7 +274,7 @@ glue_state_file_init()
 #endif
 	}
 
-	const unsigned interval =
+	const auto interval =
 		config_get_unsigned(ConfigOption::STATE_FILE_INTERVAL,
 				    StateFile::DEFAULT_INTERVAL);
 
@@ -304,11 +320,16 @@ initialize_decoder_and_player(const ReplayGainConfig &replay_gain_config)
 			FormatFatalError("buffer size \"%s\" is not a "
 					 "positive integer, line %i",
 					 param->value.c_str(), param->line);
-		buffer_size = tmp;
+		buffer_size = tmp * KILOBYTE;
+
+		if (buffer_size < MIN_BUFFER_SIZE) {
+			FormatWarning(config_domain, "buffer size %lu is too small, using %lu bytes instead",
+				      (unsigned long)buffer_size,
+				      (unsigned long)MIN_BUFFER_SIZE);
+			buffer_size = MIN_BUFFER_SIZE;
+		}
 	} else
 		buffer_size = DEFAULT_BUFFER_SIZE;
-
-	buffer_size *= 1024;
 
 	const unsigned buffered_chunks = buffer_size / CHUNK_SIZE;
 
@@ -326,6 +347,19 @@ initialize_decoder_and_player(const ReplayGainConfig &replay_gain_config)
 					 "a positive percentage and less "
 					 "than 100 percent, line %i",
 					 param->value.c_str(), param->line);
+		}
+
+		if (perc > 80) {
+			/* this upper limit should avoid deadlocks
+			   which can occur because the DecoderThread
+			   cannot ever fill the music buffer to
+			   exactly 100%; a few chunks always need to
+			   be available to generate silence in
+			   Player::SendSilence() */
+			FormatError(config_domain,
+				    "buffer_before_play is too large (%f%%), capping at 80%%; please fix your configuration",
+				    perc);
+			perc = 80;
 		}
 	} else
 		perc = DEFAULT_BUFFER_BEFORE_PLAY;
@@ -442,7 +476,6 @@ try {
 	glue_daemonize_init(&options);
 #endif
 
-	stats_global_init();
 	TagLoadConfig();
 
 	log_init(options.verbose, options.log_stderr);
@@ -520,6 +553,8 @@ try {
 	instance->partition->outputs.Configure(instance->event_loop,
 					       config.replay_gain,
 					       instance->partition->pc);
+	instance->partition->UpdateEffectiveReplayGainMode();
+
 	client_manager_init();
 	input_stream_global_init();
 	playlist_list_global_init();

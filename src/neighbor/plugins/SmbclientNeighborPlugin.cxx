@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,12 +48,12 @@ class SmbclientNeighborExplorer final : public NeighborExplorer {
 		Server(const Server &) = delete;
 
 		gcc_pure
-		bool operator==(const Server &other) const {
+		bool operator==(const Server &other) const noexcept {
 			return name == other.name;
 		}
 
 		gcc_pure
-		NeighborInfo Export() const {
+		NeighborInfo Export() const noexcept {
 			return { "smb://" + name + "/", comment };
 		}
 	};
@@ -103,7 +103,7 @@ SmbclientNeighborExplorer::Close()
 NeighborExplorer::List
 SmbclientNeighborExplorer::GetList() const
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	/*
 	List list;
 	for (const auto &i : servers)
@@ -169,10 +169,10 @@ ReadServers(NeighborExplorer::List &list, const char *uri)
 
 gcc_pure
 static NeighborExplorer::List
-DetectServers()
+DetectServers() noexcept
 {
 	NeighborExplorer::List list;
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 	ReadServers(list, "smb://");
 	return list;
 }
@@ -181,7 +181,7 @@ gcc_pure
 static NeighborExplorer::List::const_iterator
 FindBeforeServerByURI(NeighborExplorer::List::const_iterator prev,
 		      NeighborExplorer::List::const_iterator end,
-		      const std::string &uri)
+		      const std::string &uri) noexcept
 {
 	for (auto i = std::next(prev); i != end; prev = i, i = std::next(prev))
 		if (i->uri == uri)
@@ -251,7 +251,7 @@ SmbclientNeighborExplorer::ThreadFunc()
 			break;
 
 		// TODO: sleep for how long?
-		cond.timed_wait(mutex, 10000);
+		cond.timed_wait(mutex, std::chrono::seconds(10));
 	}
 
 	mutex.unlock();

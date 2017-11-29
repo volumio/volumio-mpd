@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -77,7 +77,7 @@ Song::Free()
 }
 
 std::string
-Song::GetURI() const
+Song::GetURI() const noexcept
 {
 	assert(*uri);
 
@@ -96,7 +96,7 @@ Song::GetURI() const
 }
 
 LightSong
-Song::Export() const
+Song::Export() const noexcept
 {
 	LightSong dest;
 	dest.directory = parent->IsRoot()

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #ifndef _UPNPPDISC_H_X_INCLUDED_
 #define _UPNPPDISC_H_X_INCLUDED_
 
+#include "Compat.hxx"
 #include "Callback.hxx"
 #include "Device.hxx"
 #include "WorkQueue.hxx"
@@ -32,6 +33,11 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <chrono>
+
+#if UPNP_VERSION < 10800
+#define UpnpDiscovery Upnp_Discovery
+#endif
 
 class ContentDirectoryService;
 
@@ -56,12 +62,12 @@ class UPnPDeviceDirectory final : UpnpCallback {
 	struct DiscoveredTask {
 		std::string url;
 		std::string device_id;
-		unsigned expires; // Seconds valid
+		std::chrono::steady_clock::duration expires;
 
-		DiscoveredTask(const Upnp_Discovery *disco)
-			:url(disco->Location),
-			 device_id(disco->DeviceId),
-			 expires(disco->Expires) {}
+		DiscoveredTask(const UpnpDiscovery *disco)
+			:url(UpnpDiscovery_get_Location_cstr(disco)),
+			 device_id(UpnpDiscovery_get_DeviceID_cstr(disco)),
+			 expires(std::chrono::seconds(UpnpDiscovery_get_Expires(disco))) {}
 	};
 
 	/**
@@ -75,16 +81,17 @@ class UPnPDeviceDirectory final : UpnpCallback {
 		UPnPDevice device;
 
 		/**
-		 * The MonotonicClockS() time stamp when this device
-		 * expires.
+		 * The time stamp when this device expires.
 		 */
-		unsigned expires;
+		std::chrono::steady_clock::time_point expires;
 
 		ContentDirectoryDescriptor() = default;
 
 		ContentDirectoryDescriptor(std::string &&_id,
-					   unsigned last, int exp)
-			:id(std::move(_id)), expires(last + exp + 20) {}
+					   std::chrono::steady_clock::time_point last,
+					   std::chrono::steady_clock::duration exp)
+			:id(std::move(_id)),
+			 expires(last + exp + std::chrono::seconds(20)) {}
 
 		void Parse(const std::string &url, const char *description) {
 			device.Parse(url, description);
@@ -103,12 +110,12 @@ class UPnPDeviceDirectory final : UpnpCallback {
 	 * called delay because it's the base of a random delay that
 	 * the devices apply to avoid responding all at the same time.
 	 */
-	int search_timeout;
+	int search_timeout = 2;
 
 	/**
-	 * The MonotonicClockS() time stamp of the last search.
+	 * The time stamp of the last search.
 	 */
-	unsigned last_search;
+	std::chrono::steady_clock::time_point last_search = std::chrono::steady_clock::time_point();
 
 public:
 	UPnPDeviceDirectory(UpnpClient_Handle _handle,
@@ -151,11 +158,11 @@ private:
 	static void *Explore(void *);
 	void Explore();
 
-	int OnAlive(Upnp_Discovery *disco);
-	int OnByeBye(Upnp_Discovery *disco);
+	int OnAlive(const UpnpDiscovery *disco);
+	int OnByeBye(const UpnpDiscovery *disco);
 
 	/* virtual methods from class UpnpCallback */
-	virtual int Invoke(Upnp_EventType et, void *evp) override;
+	virtual int Invoke(Upnp_EventType et, const void *evp) override;
 };
 
 

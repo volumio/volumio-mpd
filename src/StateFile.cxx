@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,19 +37,20 @@
 
 static constexpr Domain state_file_domain("state_file");
 
-StateFile::StateFile(AllocatedPath &&_path, unsigned _interval,
+constexpr std::chrono::steady_clock::duration StateFile::DEFAULT_INTERVAL;
+
+StateFile::StateFile(AllocatedPath &&_path,
+		     std::chrono::steady_clock::duration _interval,
 		     Partition &_partition, EventLoop &_loop)
 	:TimeoutMonitor(_loop),
 	 path(std::move(_path)), path_utf8(path.ToUTF8()),
 	 interval(_interval),
-	 partition(_partition),
-	 prev_volume_version(0), prev_output_version(0),
-	 prev_playlist_version(0)
+	 partition(_partition)
 {
 }
 
 void
-StateFile::RememberVersions()
+StateFile::RememberVersions() noexcept
 {
 	prev_volume_version = sw_volume_state_get_hash();
 	prev_output_version = audio_output_state_get_version();
@@ -58,7 +59,7 @@ StateFile::RememberVersions()
 }
 
 bool
-StateFile::IsModified() const
+StateFile::IsModified() const noexcept
 {
 	return prev_volume_version != sw_volume_state_get_hash() ||
 		prev_output_version != audio_output_state_get_version() ||
@@ -137,7 +138,7 @@ void
 StateFile::CheckModified()
 {
 	if (!IsActive() && IsModified())
-		ScheduleSeconds(interval);
+		Schedule(interval);
 }
 
 void

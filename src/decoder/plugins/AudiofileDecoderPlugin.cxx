@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -66,7 +66,7 @@ struct AudioFileInputStream {
 
 gcc_pure
 static SongTime
-audiofile_get_duration(AFfilehandle fh)
+audiofile_get_duration(AFfilehandle fh) noexcept
 {
 	return SongTime::FromScale<uint64_t>(afGetFrameCount(fh, AF_DEFAULT_TRACK),
 					     afGetRate(fh, AF_DEFAULT_TRACK));
@@ -239,7 +239,7 @@ audiofile_stream_decode(DecoderClient &client, InputStream &is)
 
 gcc_pure
 static SignedSongTime
-audiofile_get_duration(InputStream &is)
+audiofile_get_duration(InputStream &is) noexcept
 {
 	if (!is.IsSeekable() || !is.KnownSize())
 		return SignedSongTime::Negative();

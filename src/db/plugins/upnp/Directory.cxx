@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@ UPnPDirContent::~UPnPDirContent()
 
 gcc_pure
 static UPnPDirObject::ItemClass
-ParseItemClass(StringView name)
+ParseItemClass(StringView name) noexcept
 {
 	if (name.EqualsLiteral("object.item.audioItem.musicTrack"))
 		return UPnPDirObject::ItemClass::MUSIC;
@@ -51,7 +51,7 @@ ParseItemClass(StringView name)
 
 gcc_pure
 static SignedSongTime
-ParseDuration(const char *duration)
+ParseDuration(const char *duration) noexcept
 {
 	char *endptr;
 
@@ -81,7 +81,7 @@ ParseDuration(const char *duration)
  */
 gcc_pure
 static std::string &&
-TitleToPathSegment(std::string &&s)
+TitleToPathSegment(std::string &&s) noexcept
 {
 	std::replace(s.begin(), s.end(), '/', '_');
 	return std::move(s);
@@ -124,7 +124,7 @@ public:
 	}
 
 protected:
-	virtual void StartElement(const XML_Char *name, const XML_Char **attrs)
+	void StartElement(const XML_Char *name, const XML_Char **attrs) override
 	{
 		if (object.type != UPnPDirObject::Type::UNKNOWN &&
 		    tag_type == TAG_NUM_OF_ITEM_TYPES) {
@@ -188,7 +188,7 @@ protected:
 		}
 	}
 
-	virtual void EndElement(const XML_Char *name)
+	void EndElement(const XML_Char *name) override
 	{
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);
@@ -212,7 +212,7 @@ protected:
 		state = NONE;
 	}
 
-	virtual void CharacterData(const XML_Char *s, int len)
+	void CharacterData(const XML_Char *s, int len) override
 	{
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);

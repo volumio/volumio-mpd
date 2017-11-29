@@ -1,0 +1,418 @@
+/* config.h.in.  Generated from configure.ac by autoheader.  */
+
+/* Define to enable AdPlug decoder plugin */
+#undef ENABLE_ADPLUG
+
+/* Define to enable ALSA output plugin */
+#undef ENABLE_ALSA
+
+/* Define to enable libao output plugin */
+#undef ENABLE_AO
+
+/* Define to enable the archive API */
+#undef ENABLE_ARCHIVE
+
+/* Define to enable audiofile decoder plugin */
+#undef ENABLE_AUDIOFILE
+
+/* Define to enable bzip2 archive plugin */
+#undef ENABLE_BZ2
+
+/* Define to enable libcdio_paranoia input plugin */
+#undef ENABLE_CDIO_PARANOIA
+
+/* Define to enable CUE sheet parser */
+#undef ENABLE_CUE
+
+/* Define to enable libcurl HTTP streaming */
+#undef ENABLE_CURL
+
+/* Define to enable Enable daemonization? */
+#undef ENABLE_DAEMON
+
+/* Define to enable the music database */
+#undef ENABLE_DATABASE
+
+/* Define to enable DSD decoder */
+#undef ENABLE_DSD
+
+/* Define to enable the encoder plugins */
+#undef ENABLE_ENCODER
+
+/* Define to enable expat XML parser */
+#undef ENABLE_EXPAT
+
+/* Define to enable FAAD decoder plugin */
+#undef ENABLE_FAAD
+
+/* Define to enable ffmpeg decoder library */
+#undef ENABLE_FFMPEG
+
+/* Define to enable FLAC decoder */
+#undef ENABLE_FLAC
+
+/* Define to enable FLAC encoder plugin */
+#undef ENABLE_FLAC_ENCODER
+
+/* Define to enable fluidsynth MIDI decoder plugin */
+#undef ENABLE_FLUIDSYNTH
+
+/* Define to enable Game Music Emulator decoder plugin */
+#undef ENABLE_GME
+
+/* Define to enable Haiku output plugin */
+#undef ENABLE_HAIKU
+
+/* Define to enable the HTTP server output */
+#undef ENABLE_HTTPD_OUTPUT
+
+/* Define to enable ID3 support using libid3tag */
+#undef ENABLE_ID3TAG
+
+/* Define to enable inotify support */
+#undef ENABLE_INOTIFY
+
+/* Define to enable libiso9660 archive plugin */
+#undef ENABLE_ISO9660
+
+/* Define to enable JACK output plugin */
+#undef ENABLE_JACK
+
+/* Define to enable LAME encoder plugin */
+#undef ENABLE_LAME
+
+/* Define if large file support is enabled */
+#undef ENABLE_LARGEFILE
+
+/* Define to enable MPD client library */
+#undef ENABLE_LIBMPDCLIENT
+
+/* Define to enable libsamplerate resampling */
+#undef ENABLE_LIBSAMPLERATE
+
+/* Define to enable libmad MP3 decoder plugin */
+#undef ENABLE_MAD
+
+/* Define for mikmod support */
+#undef ENABLE_MIKMOD_DECODER
+
+/* Define to enable libmms mms:// protocol support */
+#undef ENABLE_MMS
+
+/* Define to enable modplug decoder plugin */
+#undef ENABLE_MODPLUG
+
+/* Define to enable Musepack decoder plugin */
+#undef ENABLE_MPCDEC
+
+/* Define to enable libmpg123 decoder plugin */
+#undef ENABLE_MPG123
+
+/* Define to enable neighbor discovery */
+#undef ENABLE_NEIGHBOR_PLUGINS
+
+/* Define to enable NFS input plugin */
+#undef ENABLE_NFS
+
+/* Define to enable opus decoder plugin */
+#undef ENABLE_OPUS
+
+/* Define to enable support for writing audio to a pipe */
+#undef ENABLE_PIPE_OUTPUT
+
+/* Define to enable PulseAudio output plugin */
+#undef ENABLE_PULSE
+
+/* Define to enable the recorder output */
+#undef ENABLE_RECORDER_OUTPUT
+
+/* Define to enable RoarAudio output plugin */
+#undef ENABLE_ROAR
+
+/* Define to enable shine encoder */
+#undef ENABLE_SHINE
+
+/* Define for libsidplay2 support */
+#undef ENABLE_SIDPLAY
+
+/* Define to enable smbclient input plugin */
+#undef ENABLE_SMBCLIENT
+
+/* Define to enable libsndfile decoder plugin */
+#undef ENABLE_SNDFILE
+
+/* Define to enable sndio output plugin */
+#undef ENABLE_SNDIO
+
+/* Define to enable Solaris /dev/audio support */
+#undef ENABLE_SOLARIS_OUTPUT
+
+/* Define to enable soundcloud.com support */
+#undef ENABLE_SOUNDCLOUD
+
+/* Define to enable libsoxr resampler */
+#undef ENABLE_SOXR
+
+/* Define to enable SQLite database support */
+#undef ENABLE_SQLITE
+
+/* Define to enable systemd socket activation */
+#undef ENABLE_SYSTEMD_DAEMON
+
+/* Define to enable TwoLAME encoder plugin */
+#undef ENABLE_TWOLAME
+
+/* Define to enable UPnP client support */
+#undef ENABLE_UPNP
+
+/* Define to enable Ogg Vorbis encoder */
+#undef ENABLE_VORBISENC
+
+/* Define for Ogg Vorbis support */
+#undef ENABLE_VORBIS_DECODER
+
+/* Define to enable PCM wave encoder plugin */
+#undef ENABLE_WAVE_ENCODER
+
+/* Define to enable WavPack decoder plugin */
+#undef ENABLE_WAVPACK
+
+/* Define to enable WebDAV storage plugin */
+#undef ENABLE_WEBDAV
+
+/* Define to enable WildMidi decoder plugin */
+#undef ENABLE_WILDMIDI
+
+/* Define to enable WinMM support */
+#undef ENABLE_WINMM_OUTPUT
+
+/* Define to enable zlib support */
+#undef ENABLE_ZLIB
+
+/* Define to enable libzzip archive library */
+#undef ENABLE_ZZIP
+
+/* The current git commit */
+#undef GIT_COMMIT
+
+/* Define to 1 if you have the `accept4' function. */
+#undef HAVE_ACCEPT4
+
+/* Define to enable Avahi Zeroconf */
+#undef HAVE_AVAHI
+
+/* Define to enable Bonjour Zeroconf support */
+#undef HAVE_BONJOUR
+
+/* define if the Boost library is available */
+#undef HAVE_BOOST
+
+/* Define to 1 if you have the <cdio/paranoia/paranoia.h> header file. */
+#undef HAVE_CDIO_PARANOIA_PARANOIA_H
+
+/* define if the compiler supports basic C++14 syntax */
+#undef HAVE_CXX14
+
+/* Define to enable support for writing audio to a FIFO */
+#undef HAVE_FIFO
+
+/* Define to 1 if you have the `fnmatch' function. */
+#undef HAVE_FNMATCH
+
+/* Define to 1 if you have the `getpeereid' function. */
+#undef HAVE_GETPEEREID
+
+/* Define to 1 if you have the `getpwnam_r' function. */
+#undef HAVE_GETPWNAM_R
+
+/* Define to 1 if you have the `getpwuid_r' function. */
+#undef HAVE_GETPWUID_R
+
+/* Define to 1 if you have the `iconv' function. */
+#undef HAVE_ICONV
+
+/* Define to enable libicu */
+#undef HAVE_ICU
+
+/* Define to 1 if you have the `initgroups' function. */
+#undef HAVE_INITGROUPS
+
+/* Define to 1 if you have the `inotify_init' function. */
+#undef HAVE_INOTIFY_INIT
+
+/* Define to 1 if you have the `inotify_init1' function. */
+#undef HAVE_INOTIFY_INIT1
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define if IPv6 support present */
+#undef HAVE_IPV6
+
+/* Define to 1 if you have the `jack_set_info_function' function. */
+#undef HAVE_JACK_SET_INFO_FUNCTION
+
+/* Define to 1 if you have the `dns_sd' library (-ldns_sd). */
+#undef HAVE_LIBDNS_SD
+
+/* define to enable libwrap library */
+#undef HAVE_LIBWRAP
+
+/* Define to 1 if you have the `linkat' function. */
+#undef HAVE_LINKAT
+
+/* Define to 1 if you have the <locale.h> header file. */
+#undef HAVE_LOCALE_H
+
+/* Define to 1 if you have the <memory.h> header file. */
+#undef HAVE_MEMORY_H
+
+/* Define to enable OpenAL support */
+#undef HAVE_OPENAL
+
+/* Define to 1 if you have the <OpenAL/alc.h> header file. */
+#undef HAVE_OPENAL_ALC_H
+
+/* Define to 1 if you have the <OpenAL/al.h> header file. */
+#undef HAVE_OPENAL_AL_H
+
+/* Define to enable Open Sound System */
+#undef HAVE_OSS
+
+/* Define for compiling OS X support */
+#undef HAVE_OSX
+
+/* Define to 1 if you have the `pipe2' function. */
+#undef HAVE_PIPE2
+
+/* Define to 1 if you have the `prctl' function. */
+#undef HAVE_PRCTL
+
+/* Define if you have POSIX threads libraries and header files. */
+#undef HAVE_PTHREAD
+
+/* Have PTHREAD_PRIO_INHERIT. */
+#undef HAVE_PTHREAD_PRIO_INHERIT
+
+/* Define to 1 if you have the `pthread_setname_np' function. */
+#undef HAVE_PTHREAD_SETNAME_NP
+
+/* Define to enable shoutcast output */
+#undef HAVE_SHOUT
+
+/* Define if libsidplayfp is used instead of libsidplay2 */
+#undef HAVE_SIDPLAYFP
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the `strcasestr' function. */
+#undef HAVE_STRCASESTR
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if you have the `strndup' function. */
+#undef HAVE_STRNDUP
+
+/* Define if struct ucred is present from sys/socket.h */
+#undef HAVE_STRUCT_UCRED
+
+/* Define if syslog() is available */
+#undef HAVE_SYSLOG
+
+/* Define to 1 if you have the <sys/prctl.h> header file. */
+#undef HAVE_SYS_PRCTL_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define if TCP socket support is enabled */
+#undef HAVE_TCP
+
+/* Define to 1 if you have the <tcpd.h> header file. */
+#undef HAVE_TCPD_H
+
+/* Define to use tremor (libvorbisidec) for ogg support */
+#undef HAVE_TREMOR
+
+/* Define if unix domain socket support is enabled */
+#undef HAVE_UN
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define to 1 if you have the <valgrind/memcheck.h> header file. */
+#undef HAVE_VALGRIND_MEMCHECK_H
+
+/* Define to enable Zeroconf support */
+#undef HAVE_ZEROCONF
+
+/* Name of package */
+#undef PACKAGE
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* The MPD protocol version */
+#undef PROTOCOL_VERSION
+
+/* Define to necessary symbol if this constant uses a non-standard name on
+   your system. */
+#undef PTHREAD_CREATE_JOINABLE
+
+/* Define to 1 if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* Define to poll sockets with epoll */
+#undef USE_EPOLL
+
+/* Define to use eventfd */
+#undef USE_EVENTFD
+
+/* Define to poll sockets with poll */
+#undef USE_POLL
+
+/* Define to use signalfd */
+#undef USE_SIGNALFD
+
+/* Define to poll sockets with Windows select */
+#undef USE_WINSELECT
+
+/* Version number of package */
+#undef VERSION
+
+/* Enable large inode numbers on Mac OS X 10.5.  */
+#ifndef _DARWIN_USE_64_BIT_INODE
+# define _DARWIN_USE_64_BIT_INODE 1
+#endif
+
+/* Number of bits in a file offset, on hosts where this is settable. */
+#undef _FILE_OFFSET_BITS
+
+/* Define for large files, on AIX-style hosts. */
+#undef _LARGE_FILES

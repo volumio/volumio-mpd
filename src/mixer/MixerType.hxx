@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,8 @@
 
 #ifndef MPD_MIXER_TYPE_HXX
 #define MPD_MIXER_TYPE_HXX
+
+#include "Compiler.h"
 
 enum class MixerType {
 	/** parser error */
@@ -44,7 +46,8 @@ enum class MixerType {
  * a #MixerType value; #MixerType::UNKNOWN means #input could not be
  * parsed
  */
+gcc_pure
 MixerType
-mixer_type_parse(const char *input);
+mixer_type_parse(const char *input) noexcept;
 
 #endif

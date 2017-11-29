@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -44,16 +44,16 @@ struct LightDirectory {
 	constexpr LightDirectory(const char *_uri, time_t _mtime)
 		:uri(_uri), mtime(_mtime) {}
 
-	static constexpr LightDirectory Root() {
+	static constexpr LightDirectory Root() noexcept {
 		return LightDirectory("", 0);
 	}
 
-	bool IsRoot() const {
+	bool IsRoot() const noexcept {
 		return *uri == 0;
 	}
 
 	gcc_pure
-	const char *GetPath() const {
+	const char *GetPath() const noexcept {
 		return uri;
 	}
 };

@@ -32,7 +32,7 @@ public:
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override {
+	bool IsEOF() noexcept override {
 		return remaining == 0;
 	}
 
@@ -65,7 +65,7 @@ public:
 		CPPUNIT_ASSERT(ris != sis);
 		CPPUNIT_ASSERT(ris != nullptr);
 
-		const ScopeLock protect(mutex);
+		const std::lock_guard<Mutex> protect(mutex);
 
 		ris->Update();
 		CPPUNIT_ASSERT(ris->IsReady());

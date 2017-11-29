@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -111,7 +111,7 @@ struct MusicChunk {
 	 * specified audio_format.
 	 */
 	gcc_pure
-	bool CheckFormat(AudioFormat audio_format) const;
+	bool CheckFormat(AudioFormat audio_format) const noexcept;
 #endif
 
 	/**
@@ -127,7 +127,7 @@ struct MusicChunk {
 	 */
 	WritableBuffer<void> Write(AudioFormat af,
 				   SongTime data_time,
-				   uint16_t bit_rate);
+				   uint16_t bit_rate) noexcept;
 
 	/**
 	 * Increases the length of the chunk after the caller has written to
@@ -138,7 +138,7 @@ struct MusicChunk {
 	 * @param length the number of bytes which were appended
 	 * @return true if the chunk is full
 	 */
-	bool Expand(AudioFormat af, size_t length);
+	bool Expand(AudioFormat af, size_t length) noexcept;
 };
 
 #endif
