@@ -14,7 +14,7 @@ apt-get -y install libsidplayfp-dev
 rm -rf debian/source
 
 echo "Creating Package"
-debuild -i -us -uc -b
+debuild -i -us -uc -b -d
 
 #or debuild -us -uc
 
