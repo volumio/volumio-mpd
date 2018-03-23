@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,8 +30,9 @@
 
 #include <assert.h>
 
+gcc_pure
 static int
-output_mixer_get_volume(const AudioOutput &ao)
+output_mixer_get_volume(const AudioOutput &ao) noexcept
 {
 	if (!ao.enabled)
 		return -1;
@@ -45,13 +46,13 @@ output_mixer_get_volume(const AudioOutput &ao)
 	} catch (const std::runtime_error &e) {
 		FormatError(e,
 			    "Failed to read mixer for '%s'",
-			    ao.name);
+			    ao.GetName());
 		return -1;
 	}
 }
 
 int
-MultipleOutputs::GetVolume() const
+MultipleOutputs::GetVolume() const noexcept
 {
 	unsigned ok = 0;
 	int total = 0;
@@ -71,7 +72,7 @@ MultipleOutputs::GetVolume() const
 }
 
 static bool
-output_mixer_set_volume(AudioOutput &ao, unsigned volume)
+output_mixer_set_volume(AudioOutput &ao, unsigned volume) noexcept
 {
 	assert(volume <= 100);
 
@@ -88,13 +89,13 @@ output_mixer_set_volume(AudioOutput &ao, unsigned volume)
 	} catch (const std::runtime_error &e) {
 		FormatError(e,
 			    "Failed to set mixer for '%s'",
-			    ao.name);
+			    ao.GetName());
 		return false;
 	}
 }
 
 bool
-MultipleOutputs::SetVolume(unsigned volume)
+MultipleOutputs::SetVolume(unsigned volume) noexcept
 {
 	assert(volume <= 100);
 
@@ -107,7 +108,7 @@ MultipleOutputs::SetVolume(unsigned volume)
 }
 
 static int
-output_mixer_get_software_volume(const AudioOutput &ao)
+output_mixer_get_software_volume(const AudioOutput &ao) noexcept
 {
 	if (!ao.enabled)
 		return -1;
@@ -120,7 +121,7 @@ output_mixer_get_software_volume(const AudioOutput &ao)
 }
 
 int
-MultipleOutputs::GetSoftwareVolume() const
+MultipleOutputs::GetSoftwareVolume() const noexcept
 {
 	unsigned ok = 0;
 	int total = 0;
@@ -140,7 +141,7 @@ MultipleOutputs::GetSoftwareVolume() const
 }
 
 void
-MultipleOutputs::SetSoftwareVolume(unsigned volume)
+MultipleOutputs::SetSoftwareVolume(unsigned volume) noexcept
 {
 	assert(volume <= PCM_VOLUME_1);
 

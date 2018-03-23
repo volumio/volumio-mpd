@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
 void
 RenameFile(Path oldpath, Path newpath)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	if (!MoveFileEx(oldpath.c_str(), newpath.c_str(),
 			MOVEFILE_REPLACE_EXISTING))
 		throw MakeLastError("Failed to rename file");
@@ -42,7 +42,7 @@ RenameFile(Path oldpath, Path newpath)
 AllocatedPath
 ReadLink(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	(void)path;
 	errno = EINVAL;
 	return AllocatedPath::Null();
@@ -63,7 +63,7 @@ ReadLink(Path path)
 void
 TruncateFile(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	HANDLE h = CreateFile(path.c_str(), GENERIC_WRITE, 0, nullptr,
 			      TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL,
 			      nullptr);
@@ -83,7 +83,7 @@ TruncateFile(Path path)
 void
 RemoveFile(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	if (!DeleteFile(path.c_str()))
 		throw FormatLastError("Failed to delete %s", path.c_str());
 #else

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 #include "thread/Mutex.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <upnp/upnptools.h>
+#include <upnptools.h>
 
 #include <assert.h>
 
@@ -33,7 +33,12 @@ static unsigned upnp_client_ref;
 static UpnpClient_Handle upnp_client_handle;
 
 static int
-UpnpClientCallback(Upnp_EventType et, void *evp, void *cookie)
+UpnpClientCallback(Upnp_EventType et,
+#if UPNP_VERSION >= 10800
+		   const
+#endif
+		   void *evp,
+		   void *cookie)
 {
 	if (cookie == nullptr)
 		/* this is the cookie passed to UpnpRegisterClient();
@@ -61,7 +66,7 @@ UpnpClientGlobalInit(UpnpClient_Handle &handle)
 	UpnpGlobalInit();
 
 	try {
-		const ScopeLock protect(upnp_client_init_mutex);
+		const std::lock_guard<Mutex> protect(upnp_client_init_mutex);
 		if (upnp_client_ref == 0)
 			DoInit();
 	} catch (...) {
@@ -77,7 +82,7 @@ void
 UpnpClientGlobalFinish()
 {
 	{
-		const ScopeLock protect(upnp_client_init_mutex);
+		const std::lock_guard<Mutex> protect(upnp_client_init_mutex);
 
 		assert(upnp_client_ref > 0);
 		if (--upnp_client_ref == 0)

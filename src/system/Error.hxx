@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,7 +47,7 @@ FormatSystemError(std::error_code code, const char *fmt, Args&&... args)
 	return std::system_error(code, buffer);
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 
 #include <windows.h>
 
@@ -90,7 +90,7 @@ FormatLastError(const char *fmt, Args&&... args)
 			       std::forward<Args>(args)...);
 }
 
-#endif /* WIN32 */
+#endif /* _WIN32 */
 
 #include <errno.h>
 #include <string.h>
@@ -106,7 +106,7 @@ FormatLastError(const char *fmt, Args&&... args)
 static inline const std::error_category &
 ErrnoCategory()
 {
-#ifdef WIN32
+#ifdef _WIN32
 	/* on Windows, the generic_category() is used for errno
 	   values */
 	return std::generic_category();
@@ -149,9 +149,9 @@ FormatErrno(const char *fmt, Args&&... args)
 
 gcc_pure
 static inline bool
-IsFileNotFound(const std::system_error &e)
+IsFileNotFound(const std::system_error &e) noexcept
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return e.code().category() == std::system_category() &&
 		e.code().value() == ERROR_FILE_NOT_FOUND;
 #else
@@ -162,9 +162,9 @@ IsFileNotFound(const std::system_error &e)
 
 gcc_pure
 static inline bool
-IsPathNotFound(const std::system_error &e)
+IsPathNotFound(const std::system_error &e) noexcept
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return e.code().category() == std::system_category() &&
 		e.code().value() == ERROR_PATH_NOT_FOUND;
 #else
@@ -175,9 +175,9 @@ IsPathNotFound(const std::system_error &e)
 
 gcc_pure
 static inline bool
-IsAccessDenied(const std::system_error &e)
+IsAccessDenied(const std::system_error &e) noexcept
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return e.code().category() == std::system_category() &&
 		e.code().value() == ERROR_ACCESS_DENIED;
 #else

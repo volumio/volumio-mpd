@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include "config.h"
 #include "SimpleDatabasePlugin.hxx"
 #include "PrefixedLightSong.hxx"
+#include "Mount.hxx"
 #include "db/DatabasePlugin.hxx"
 #include "db/Selection.hxx"
 #include "db/Helpers.hxx"
@@ -115,7 +116,7 @@ SimpleDatabase::Check() const
 						 path_utf8 + "\" because the "
 						 "parent path is not a directory");
 
-#ifndef WIN32
+#ifndef _WIN32
 		/* Check if we can write to the directory */
 		if (!CheckAccess(dirPath, X_OK | W_OK)) {
 			const int e = errno;
@@ -134,7 +135,7 @@ SimpleDatabase::Check() const
 	if (!fi.IsRegular())
 		throw std::runtime_error("db file \"" + path_utf8 + "\" is not a regular file");
 
-#ifndef WIN32
+#ifndef _WIN32
 	/* And check that we can write to it */
 	if (!CheckAccess(path, R_OK | W_OK))
 		throw FormatErrno("Can't open db file \"%s\" for reading/writing",
@@ -270,6 +271,18 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 	ScopeDatabaseLock protect;
 
 	auto r = root->LookupDirectory(selection.uri.c_str());
+
+	if (r.directory->IsMount()) {
+		/* pass the request and the remaining uri to the mounted database */
+		protect.unlock();
+
+		WalkMount(r.directory->GetPath(), *(r.directory->mounted_database),
+			(r.uri == nullptr)?"":r.uri, selection.recursive, selection.filter,
+			visit_directory, visit_song, visit_playlist);
+
+		return;
+	}
+
 	if (r.uri == nullptr) {
 		/* it's a directory */
 

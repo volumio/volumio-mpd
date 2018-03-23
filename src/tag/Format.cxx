@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -53,7 +53,7 @@ IsUnsafeChar(char ch)
 
 gcc_pure
 static bool
-HasUnsafeChar(const char *s)
+HasUnsafeChar(const char *s) noexcept
 {
 	for (; *s; ++s)
 		if (IsUnsafeChar(*s))
@@ -63,7 +63,7 @@ HasUnsafeChar(const char *s)
 }
 
 static const char *
-SanitizeString(const char *s, char *buffer, size_t buffer_size)
+SanitizeString(const char *s, char *buffer, size_t buffer_size) noexcept
 {
 	/* skip leading dots to avoid generating "../" sequences */
 	while (*s == '.')
@@ -79,14 +79,14 @@ SanitizeString(const char *s, char *buffer, size_t buffer_size)
 
 gcc_pure gcc_nonnull_all
 static const char *
-TagGetter(const void *object, const char *name)
+TagGetter(const void *object, const char *name) noexcept
 {
 	const auto &_ctx = *(const FormatTagContext *)object;
 	auto &ctx = const_cast<FormatTagContext &>(_ctx);
 
 	if (strcmp(name, "iso8601") == 0) {
 		time_t t = time(nullptr);
-#ifdef WIN32
+#ifdef _WIN32
 		const struct tm *tm2 = gmtime(&t);
 #else
 		struct tm tm;
@@ -96,7 +96,7 @@ TagGetter(const void *object, const char *name)
 			return "";
 
 		strftime(ctx.buffer, sizeof(ctx.buffer),
-#ifdef WIN32
+#ifdef _WIN32
 			 /* kludge: use underscore instead of colon on
 			    Windows because colons are not allowed in
 			    file names, and this library is mostly
@@ -126,7 +126,7 @@ TagGetter(const void *object, const char *name)
 }
 
 char *
-FormatTag(const Tag &tag, const char *format)
+FormatTag(const Tag &tag, const char *format) noexcept
 {
 	FormatTagContext ctx(tag);
 	return format_object(format, &ctx, TagGetter);

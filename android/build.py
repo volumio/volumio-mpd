@@ -52,7 +52,8 @@ class AndroidNdkToolchain:
         gcc_version = '4.9'
 
         ndk_platform_path = os.path.join(ndk_path, 'platforms', ndk_platform)
-        sysroot = os.path.join(ndk_platform_path, 'arch-' + self.ndk_arch)
+        sysroot = os.path.join(ndk_path, 'sysroot')
+        target_root = os.path.join(ndk_platform_path, 'arch-' + self.ndk_arch)
 
         install_prefix = os.path.join(arch_path, 'root')
 
@@ -64,7 +65,9 @@ class AndroidNdkToolchain:
         llvm_path = os.path.join(ndk_path, 'toolchains', 'llvm', 'prebuilt', build_arch)
         llvm_triple = 'armv7-none-linux-androideabi'
 
-        common_flags = '-march=armv7-a -mfloat-abi=softfp'
+        common_flags = '-Os -g'
+        common_flags += ' -fPIC'
+        common_flags += ' -march=armv7-a -mfpu=vfp -mfloat-abi=softfp'
 
         toolchain_bin = os.path.join(toolchain_path, 'bin')
         llvm_bin = os.path.join(llvm_path, 'bin')
@@ -72,28 +75,40 @@ class AndroidNdkToolchain:
         self.cxx = os.path.join(llvm_bin, 'clang++')
         common_flags += ' -target ' + llvm_triple + ' -integrated-as -gcc-toolchain ' + toolchain_path
 
+        common_flags += ' -fvisibility=hidden -fdata-sections -ffunction-sections'
+
         self.ar = os.path.join(toolchain_bin, arch + '-ar')
         self.ranlib = os.path.join(toolchain_bin, arch + '-ranlib')
         self.nm = os.path.join(toolchain_bin, arch + '-nm')
         self.strip = os.path.join(toolchain_bin, arch + '-strip')
 
-        self.cflags = '-Os -g ' + common_flags
-        self.cxxflags = '-Os -g ' + common_flags
-        self.cppflags = '--sysroot=' + self.sysroot + ' -isystem ' + os.path.join(install_prefix, 'include')
-        self.ldflags = '--sysroot=' + self.sysroot + ' ' + common_flags + ' -L' + os.path.join(install_prefix, 'lib')
+        self.cflags = common_flags
+        self.cxxflags = common_flags
+        self.cppflags = '--sysroot=' + sysroot + \
+            ' -isystem ' + os.path.join(install_prefix, 'include') + \
+            ' -isystem ' + os.path.join(sysroot, 'usr', 'include', arch) + \
+            ' -D__ANDROID_API__=14'
+        self.ldflags = '--sysroot=' + sysroot + \
+            ' -L' + os.path.join(install_prefix, 'lib') + \
+            ' -L' + os.path.join(target_root, 'usr', 'lib') + \
+            ' -B' + os.path.join(target_root, 'usr', 'lib') + \
+            ' ' + common_flags
         self.libs = ''
 
         self.is_arm = self.ndk_arch == 'arm'
         self.is_armv7 = self.is_arm and 'armv7' in self.cflags
         self.is_windows = False
 
-        libstdcxx_path = os.path.join(ndk_path, 'sources/cxx-stl/gnu-libstdc++', gcc_version)
-        libstdcxx_cppflags = '-isystem ' + os.path.join(libstdcxx_path, 'include') + ' -isystem ' + os.path.join(libstdcxx_path, 'libs', android_abi, 'include')
-        libstdcxx_ldadd = os.path.join(libstdcxx_path, 'libs', android_abi, 'libgnustl_static.a')
+        libcxx_path = os.path.join(ndk_path, 'sources/cxx-stl/llvm-libc++')
+        libcxx_libs_path = os.path.join(libcxx_path, 'libs', android_abi)
+
+        libstdcxx_flags = '-stdlib=libc++'
+        libstdcxx_cxxflags = libstdcxx_flags + ' -isystem ' + os.path.join(libcxx_path, 'include') + ' -isystem ' + os.path.join(ndk_path, 'sources/android/support/include')
+        libstdcxx_ldflags = libstdcxx_flags + ' -static-libstdc++ -L' + libcxx_libs_path
 
         if use_cxx:
-            self.libs += ' ' + libstdcxx_ldadd
-            self.cppflags += ' ' + libstdcxx_cppflags
+            self.cxxflags += ' ' + libstdcxx_cxxflags
+            self.ldflags += ' ' + libstdcxx_ldflags
 
         self.env = dict(os.environ)
 
@@ -109,9 +124,9 @@ thirdparty_libs = [
     opus,
     flac,
     libid3tag,
-    libmad,
     ffmpeg,
     curl,
+    libnfs,
     boost,
 ]
 
@@ -148,6 +163,10 @@ configure = [
     '--disable-icu',
 
 ] + configure_args
+
+from build.cmdline import concatenate_cmdline_variables
+configure = concatenate_cmdline_variables(configure,
+    set(('CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'LIBS')))
 
 subprocess.check_call(configure, env=toolchain.env)
 subprocess.check_call(['/usr/bin/make', '--quiet', '-j12'], env=toolchain.env)

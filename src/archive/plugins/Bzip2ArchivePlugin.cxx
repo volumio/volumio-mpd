@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -93,7 +93,7 @@ public:
 	~Bzip2InputStream();
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 
 private:
@@ -162,7 +162,7 @@ Bzip2InputStream::FillBuffer()
 	if (bzstream.avail_in > 0)
 		return true;
 
-	size_t count = archive->istream->Read(buffer, sizeof(buffer));
+	size_t count = archive->istream->LockRead(buffer, sizeof(buffer));
 	if (count == 0)
 		return false;
 
@@ -174,6 +174,8 @@ Bzip2InputStream::FillBuffer()
 size_t
 Bzip2InputStream::Read(void *ptr, size_t length)
 {
+	const ScopeUnlock unlock(mutex);
+
 	int bz_result;
 	size_t nbytes = 0;
 
@@ -205,7 +207,7 @@ Bzip2InputStream::Read(void *ptr, size_t length)
 }
 
 bool
-Bzip2InputStream::IsEOF()
+Bzip2InputStream::IsEOF() noexcept
 {
 	return eof;
 }
@@ -224,4 +226,3 @@ const ArchivePlugin bz2_archive_plugin = {
 	bz2_open,
 	bz2_extensions,
 };
-

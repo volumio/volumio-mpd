@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <errno.h>
@@ -61,7 +61,7 @@ FormatFatalError(const char *fmt, ...)
 	Abort();
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 
 void
 FatalSystemError(const char *msg, DWORD code)
@@ -79,7 +79,7 @@ FatalSystemError(const char *msg, DWORD code)
 void
 FatalSystemError(const char *msg)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	FatalSystemError(msg, GetLastError());
 #else
 	const char *system_error = strerror(errno);

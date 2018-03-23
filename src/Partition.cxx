@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -141,9 +141,9 @@ Partition::OnMixerVolumeChanged(gcc_unused Mixer &mixer, gcc_unused int volume)
 void
 Partition::OnGlobalEvent(unsigned mask)
 {
-	if ((mask & TAG_MODIFIED) != 0)
-		TagModified();
-
 	if ((mask & SYNC_WITH_PLAYER) != 0)
 		SyncWithPlayer();
+
+	if ((mask & TAG_MODIFIED) != 0)
+		TagModified();
 }

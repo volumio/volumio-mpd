@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,6 +32,7 @@ extern const MixerPlugin software_mixer_plugin;
 extern const MixerPlugin alsa_mixer_plugin;
 extern const MixerPlugin haiku_mixer_plugin;
 extern const MixerPlugin oss_mixer_plugin;
+extern const MixerPlugin osx_mixer_plugin;
 extern const MixerPlugin roar_mixer_plugin;
 extern const MixerPlugin pulse_mixer_plugin;
 extern const MixerPlugin winmm_mixer_plugin;

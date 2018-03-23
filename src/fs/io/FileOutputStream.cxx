@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@ FileOutputStream::FileOutputStream(Path _path, Mode _mode)
 	}
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 
 inline void
 FileOutputStream::OpenCreate(gcc_unused bool visible)
@@ -78,7 +78,7 @@ FileOutputStream::OpenAppend(bool create)
 }
 
 uint64_t
-FileOutputStream::Tell() const
+FileOutputStream::Tell() const noexcept
 {
 	LONG high = 0;
 	DWORD low = SetFilePointer(handle, 0, &high, FILE_CURRENT);
@@ -184,7 +184,7 @@ FileOutputStream::OpenAppend(bool create)
 }
 
 uint64_t
-FileOutputStream::Tell() const
+FileOutputStream::Tell() const noexcept
 {
 	return fd.Tell();
 }
@@ -223,7 +223,7 @@ FileOutputStream::Commit()
 #endif
 
 	if (!Close()) {
-#ifdef WIN32
+#ifdef _WIN32
 		throw FormatLastError("Failed to commit %s",
 				      path.ToUTF8().c_str());
 #else

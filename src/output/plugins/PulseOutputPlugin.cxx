@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,7 @@
 #include "../Wrapper.hxx"
 #include "mixer/MixerList.hxx"
 #include "mixer/plugins/PulseMixerPlugin.hxx"
+#include "util/ScopeExit.hxx"
 #include "Log.hxx"
 
 #include <pulse/thread-mainloop.h>
@@ -90,7 +91,6 @@ public:
 		Signal();
 	}
 
-	gcc_const
 	static bool TestDefaultDevice();
 
 	static PulseOutput *Create(const ConfigBlock &block);
@@ -101,7 +101,7 @@ public:
 	void Open(AudioFormat &audio_format);
 	void Close();
 
-	unsigned Delay();
+	std::chrono::steady_clock::duration Delay() noexcept;
 	size_t Play(const void *chunk, size_t size);
 	void Cancel();
 	bool Pause();
@@ -740,16 +740,16 @@ PulseOutput::StreamPause(bool pause)
 				     "pa_stream_cork() has failed");
 }
 
-inline unsigned
-PulseOutput::Delay()
+inline std::chrono::steady_clock::duration
+PulseOutput::Delay() noexcept
 {
 	Pulse::LockGuard lock(mainloop);
 
-	unsigned result = 0;
+	auto result = std::chrono::steady_clock::duration::zero();
 	if (base.pause && pa_stream_is_corked(stream) &&
 	    pa_stream_get_state(stream) == PA_STREAM_READY)
 		/* idle while paused */
-		result = 1000;
+		result = std::chrono::seconds(1);
 
 	return result;
 }
@@ -855,7 +855,10 @@ PulseOutput::TestDefaultDevice()
 try {
 	const ConfigBlock empty;
 	PulseOutput po(empty);
+	po.Enable();
+	AtScopeExit(&po) { po.Disable(); };
 	po.WaitConnection();
+
 	return true;
 } catch (const std::runtime_error &e) {
 	return false;

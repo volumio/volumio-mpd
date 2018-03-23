@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 #include <stddef.h>
 #include <limits.h>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 static constexpr size_t MPD_PATH_MAX = 260;
 #elif defined(MAXPATHLEN)
 static constexpr size_t MPD_PATH_MAX = MAXPATHLEN;

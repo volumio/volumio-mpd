@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -107,7 +107,7 @@ cue_parse_rem(char *p, TagBuilder &tag)
 }
 
 TagBuilder *
-CueParser::GetCurrentTag()
+CueParser::GetCurrentTag() noexcept
 {
 	if (state == HEADER)
 		return &header_tag;
@@ -139,7 +139,7 @@ cue_parse_position(const char *p)
 }
 
 void
-CueParser::Commit()
+CueParser::Commit() noexcept
 {
 	/* the caller of this library must call cue_parser_get() often
 	   enough */
@@ -158,7 +158,7 @@ CueParser::Commit()
 }
 
 void
-CueParser::Feed2(char *p)
+CueParser::Feed2(char *p) noexcept
 {
 	assert(!end);
 	assert(p != nullptr);
@@ -229,6 +229,8 @@ CueParser::Feed2(char *p)
 		}
 
 		state = TRACK;
+		ignore_index = false;
+
 		current.reset(new DetachedSong(filename));
 		assert(!current->GetTag().IsDefined());
 
@@ -238,6 +240,9 @@ CueParser::Feed2(char *p)
 	} else if (state == IGNORE_TRACK) {
 		return;
 	} else if (state == TRACK && strcmp(command, "INDEX") == 0) {
+		if (ignore_index)
+			return;
+
 		const char *nr = cue_next_token(&p);
 		if (nr == nullptr)
 			return;
@@ -255,12 +260,12 @@ CueParser::Feed2(char *p)
 
 		current->SetStartTime(SongTime::FromMS(position_ms));
 		if(strcmp(nr, "00") != 0 || previous == nullptr)
-			state = IGNORE_TRACK;
+			ignore_index = true;
 	}
 }
 
 void
-CueParser::Feed(const char *line)
+CueParser::Feed(const char *line) noexcept
 {
 	assert(!end);
 	assert(line != nullptr);
@@ -271,7 +276,7 @@ CueParser::Feed(const char *line)
 }
 
 void
-CueParser::Finish()
+CueParser::Finish() noexcept
 {
 	if (end)
 		/* has already been called, ignore */
@@ -282,7 +287,7 @@ CueParser::Finish()
 }
 
 std::unique_ptr<DetachedSong>
-CueParser::Get()
+CueParser::Get() noexcept
 {
 	if (finished == nullptr && end) {
 		/* cue_parser_finish() has been called already:

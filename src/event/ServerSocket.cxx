@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@
 #include <unistd.h>
 #include <assert.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <ws2tcpip.h>
 #include <winsock.h>
 #else
@@ -103,16 +103,16 @@ public:
 	using SocketMonitor::Close;
 
 	gcc_pure
-	std::string ToString() const {
+	std::string ToString() const noexcept {
 		return ::ToString(address);
 	}
 
-	void SetFD(int _fd) {
+	void SetFD(int _fd) noexcept {
 		SocketMonitor::Open(_fd);
 		SocketMonitor::ScheduleRead();
 	}
 
-	void Accept();
+	void Accept() noexcept;
 
 private:
 	virtual bool OnSocketReady(unsigned flags) override;
@@ -146,7 +146,7 @@ get_remote_uid(int fd)
 }
 
 inline void
-OneServerSocket::Accept()
+OneServerSocket::Accept() noexcept
 {
 	StaticSocketAddress peer_address;
 	size_t peer_address_length = sizeof(peer_address);
@@ -343,7 +343,7 @@ ServerSocket::AddPortIPv6(unsigned port)
  */
 gcc_pure
 static bool
-SupportsIPv6()
+SupportsIPv6() noexcept
 {
 	int fd = socket(AF_INET6, SOCK_STREAM, 0);
 	if (fd < 0)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -115,7 +115,12 @@ Iso9660ArchiveFile::Visit(char *path, size_t length, size_t capacity,
 			visitor.VisitArchiveEntry(path + 1);
 		}
 	}
+
+#if LIBCDIO_VERSION_NUM >= 20000
+	iso9660_filelist_free(entlist);
+#else
 	_cdio_list_free (entlist, true);
+#endif
 }
 
 static ArchiveFile *
@@ -162,7 +167,7 @@ public:
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 };
 
@@ -182,6 +187,8 @@ Iso9660ArchiveFile::OpenStream(const char *pathname,
 size_t
 Iso9660InputStream::Read(void *ptr, size_t read_size)
 {
+	const ScopeUnlock unlock(mutex);
+
 	int readed = 0;
 	int no_blocks, cur_block;
 	size_t left_bytes = statbuf->size - offset;
@@ -213,7 +220,7 @@ Iso9660InputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-Iso9660InputStream::IsEOF()
+Iso9660InputStream::IsEOF() noexcept
 {
 	return offset == size;
 }

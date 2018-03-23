@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -191,7 +191,7 @@ public:
 	 * Caller must lock the mutex.
 	 */
 	gcc_pure
-	bool HasClients() const {
+	bool HasClients() const noexcept {
 		return !clients.empty();
 	}
 
@@ -199,8 +199,8 @@ public:
 	 * Check whether there is at least one client.
 	 */
 	gcc_pure
-	bool LockHasClients() const {
-		const ScopeLock protect(mutex);
+	bool LockHasClients() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		return HasClients();
 	}
 
@@ -218,7 +218,7 @@ public:
 	void SendHeader(HttpdClient &client) const;
 
 	gcc_pure
-	unsigned Delay() const;
+	std::chrono::steady_clock::duration Delay() const noexcept;
 
 	/**
 	 * Reads data from the encoder (as much as available) and

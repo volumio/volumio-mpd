@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -52,13 +52,21 @@ public:
 
 	void Set(const AudioFormat &_out_audio_format);
 
+	void Reset() override {
+		if (IsActive())
+			state.Reset();
+	}
+
 	ConstBuffer<void> FilterPCM(ConstBuffer<void> src) override;
+
+private:
+	bool IsActive() const noexcept {
+		return out_audio_format != in_audio_format;
+	}
 };
 
 class PreparedConvertFilter final : public PreparedFilter {
 public:
-	void Set(const AudioFormat &_out_audio_format);
-
 	Filter *Open(AudioFormat &af) override;
 };
 
@@ -78,7 +86,7 @@ ConvertFilter::Set(const AudioFormat &_out_audio_format)
 		/* no change */
 		return;
 
-	if (out_audio_format != in_audio_format) {
+	if (IsActive()) {
 		out_audio_format = in_audio_format;
 		state.Close();
 	}
@@ -109,7 +117,7 @@ ConvertFilter::~ConvertFilter()
 {
 	assert(in_audio_format.IsValid());
 
-	if (out_audio_format != in_audio_format)
+	if (IsActive())
 		state.Close();
 }
 
@@ -118,11 +126,10 @@ ConvertFilter::FilterPCM(ConstBuffer<void> src)
 {
 	assert(in_audio_format.IsValid());
 
-	if (out_audio_format == in_audio_format)
+	return IsActive()
+		? state.Convert(src)
 		/* optimized special case: no-op */
-		return src;
-
-	return state.Convert(src);
+		: src;
 }
 
 const FilterPlugin convert_filter_plugin = {

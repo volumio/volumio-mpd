@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,11 @@ extern "C" {
 #include <assert.h>
 #include <string.h>
 
+/**
+ * Muxer options to be passed to avformat_open_input().
+ */
+static AVDictionary *avformat_options = nullptr;
+
 static AVFormatContext *
 FfmpegOpenInput(AVIOContext *pb,
 		const char *filename,
@@ -67,34 +72,54 @@ FfmpegOpenInput(AVIOContext *pb,
 
 	context->pb = pb;
 
-	int err = avformat_open_input(&context, filename, fmt, nullptr);
-	if (err < 0) {
-		avformat_free_context(context);
+	AVDictionary *options = nullptr;
+	AtScopeExit(&options) { av_dict_free(&options); };
+	av_dict_copy(&options, avformat_options, 0);
+
+	int err = avformat_open_input(&context, filename, fmt, &options);
+	if (err < 0)
 		throw MakeFfmpegError(err, "avformat_open_input() failed");
-	}
 
 	return context;
 }
 
 static bool
-ffmpeg_init(gcc_unused const ConfigBlock &block)
+ffmpeg_init(const ConfigBlock &block)
 {
 	FfmpegInit();
+
+	static constexpr const char *option_names[] = {
+		"probesize",
+		"analyzeduration",
+	};
+
+	for (const char *name : option_names) {
+		const char *value = block.GetBlockValue(name);
+		if (value != nullptr)
+			av_dict_set(&avformat_options, name, value, 0);
+	}
+
 	return true;
+}
+
+static void
+ffmpeg_finish()
+{
+	av_dict_free(&avformat_options);
 }
 
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 25, 0) /* FFmpeg 3.1 */
 
 gcc_pure
 static const AVCodecParameters &
-GetCodecParameters(const AVStream &stream)
+GetCodecParameters(const AVStream &stream) noexcept
 {
 	return *stream.codecpar;
 }
 
 gcc_pure
 static AVSampleFormat
-GetSampleFormat(const AVCodecParameters &codec_params)
+GetSampleFormat(const AVCodecParameters &codec_params) noexcept
 {
 	return AVSampleFormat(codec_params.format);
 }
@@ -103,14 +128,14 @@ GetSampleFormat(const AVCodecParameters &codec_params)
 
 gcc_pure
 static const AVCodecContext &
-GetCodecParameters(const AVStream &stream)
+GetCodecParameters(const AVStream &stream) noexcept
 {
 	return *stream.codec;
 }
 
 gcc_pure
 static AVSampleFormat
-GetSampleFormat(const AVCodecContext &codec_context)
+GetSampleFormat(const AVCodecContext &codec_context) noexcept
 {
 	return codec_context.sample_fmt;
 }
@@ -119,14 +144,14 @@ GetSampleFormat(const AVCodecContext &codec_context)
 
 gcc_pure
 static bool
-IsAudio(const AVStream &stream)
+IsAudio(const AVStream &stream) noexcept
 {
 	return GetCodecParameters(stream).codec_type == AVMEDIA_TYPE_AUDIO;
 }
 
 gcc_pure
 static int
-ffmpeg_find_audio_stream(const AVFormatContext &format_context)
+ffmpeg_find_audio_stream(const AVFormatContext &format_context) noexcept
 {
 	for (unsigned i = 0; i < format_context.nb_streams; ++i)
 		if (IsAudio(*format_context.streams[i]))
@@ -195,7 +220,7 @@ copy_interleave_frame(const AVCodecContext &codec_context,
  */
 gcc_pure
 static int64_t
-StreamRelativePts(const AVPacket &packet, const AVStream &stream)
+StreamRelativePts(const AVPacket &packet, const AVStream &stream) noexcept
 {
 	auto pts = packet.pts;
 	if (pts < 0 || pts == int64_t(AV_NOPTS_VALUE))
@@ -212,7 +237,7 @@ StreamRelativePts(const AVPacket &packet, const AVStream &stream)
 gcc_pure
 static uint64_t
 PtsToPcmFrame(uint64_t pts, const AVStream &stream,
-	      const AVCodecContext &codec_context)
+	      const AVCodecContext &codec_context) noexcept
 {
 	return av_rescale_q(pts, stream.time_base, codec_context.time_base);
 }
@@ -233,7 +258,7 @@ FfmpegSendFrame(DecoderClient &client, InputStream &is,
 	try {
 		output_buffer = copy_interleave_frame(codec_context, frame,
 						      buffer);
-	} catch (const std::exception e) {
+	} catch (const std::exception &e) {
 		/* this must be a serious error, e.g. OOM */
 		LogError(e);
 		return DecoderCommand::STOP;
@@ -412,7 +437,7 @@ ffmpeg_send_packet(DecoderClient &client, InputStream &is,
 
 gcc_const
 static SampleFormat
-ffmpeg_sample_format(enum AVSampleFormat sample_fmt)
+ffmpeg_sample_format(enum AVSampleFormat sample_fmt) noexcept
 {
 	switch (sample_fmt) {
 	case AV_SAMPLE_FMT_S16:
@@ -687,7 +712,9 @@ FfmpegDecode(DecoderClient &client, InputStream &input,
 #endif
 
 	const SignedSongTime total_time =
-		FromFfmpegTimeChecked(av_stream.duration, av_stream.time_base);
+		av_stream.duration != (int64_t)AV_NOPTS_VALUE
+		? FromFfmpegTimeChecked(av_stream.duration, av_stream.time_base)
+		: FromFfmpegTimeChecked(format_context.duration, AV_TIME_BASE_Q);
 
 	client.Ready(audio_format, input.IsSeekable(), total_time);
 
@@ -817,6 +844,10 @@ FfmpegScanStream(AVFormatContext &format_context,
 		tag_handler_invoke_duration(handler, handler_ctx,
 					    FromFfmpegTime(stream.duration,
 							   stream.time_base));
+	else if (format_context.duration != (int64_t)AV_NOPTS_VALUE)
+		tag_handler_invoke_duration(handler, handler_ctx,
+					    FromFfmpegTime(format_context.duration,
+							   AV_TIME_BASE_Q));
 
 	FfmpegScanMetadata(format_context, audio_stream, handler, handler_ctx);
 
@@ -856,7 +887,8 @@ ffmpeg_scan_stream(InputStream &is,
  * more formats.
  */
 static const char *const ffmpeg_suffixes[] = {
-	"16sv", "3g2", "3gp", "4xm", "8svx", "aa3", "aac", "ac3", "afc", "aif",
+	"16sv", "3g2", "3gp", "4xm", "8svx",
+	"aa3", "aac", "ac3", "adx", "afc", "aif",
 	"aifc", "aiff", "al", "alaw", "amr", "anim", "apc", "ape", "asf",
 	"atrac", "au", "aud", "avi", "avm2", "avs", "bap", "bfi", "c93", "cak",
 	"cin", "cmv", "cpk", "daud", "dct", "divx", "dts", "dv", "dvd", "dxa",
@@ -909,6 +941,7 @@ static const char *const ffmpeg_mime_types[] = {
 	"audio/x-16sv",
 	"audio/x-aac",
 	"audio/x-ac3",
+	"audio/x-adx",
 	"audio/x-aiff"
 	"audio/x-alaw",
 	"audio/x-au",
@@ -969,7 +1002,7 @@ static const char *const ffmpeg_mime_types[] = {
 const struct DecoderPlugin ffmpeg_decoder_plugin = {
 	"ffmpeg",
 	ffmpeg_init,
-	nullptr,
+	ffmpeg_finish,
 	ffmpeg_decode,
 	nullptr,
 	nullptr,

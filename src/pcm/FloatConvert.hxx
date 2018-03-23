@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,7 @@ struct FloatToIntegerSampleConvert {
 	static constexpr SV factor = 1 << (DstTraits::BITS - 1);
 
 	gcc_const
-	static DV Convert(SV src) {
+	static DV Convert(SV src) noexcept {
 		return PcmClamp<F, Traits>(SL(src * factor));
 	}
 };
@@ -56,7 +56,7 @@ struct IntegerToFloatSampleConvert {
 	static constexpr DV factor = 0.5 / (1 << (SrcTraits::BITS - 2));
 
 	gcc_const
-	static DV Convert(SV src) {
+	static DV Convert(SV src) noexcept {
 		return DV(src) * factor;
 	}
 };

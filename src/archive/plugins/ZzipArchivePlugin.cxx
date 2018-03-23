@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -116,7 +116,7 @@ struct ZzipInputStream final : public InputStream {
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 	void Seek(offset_type offset) override;
 };
@@ -138,6 +138,8 @@ ZzipArchiveFile::OpenStream(const char *pathname,
 size_t
 ZzipInputStream::Read(void *ptr, size_t read_size)
 {
+	const ScopeUnlock unlock(mutex);
+
 	int ret = zzip_file_read(file, ptr, read_size);
 	if (ret < 0)
 		throw std::runtime_error("zzip_file_read() has failed");
@@ -147,7 +149,7 @@ ZzipInputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-ZzipInputStream::IsEOF()
+ZzipInputStream::IsEOF() noexcept
 {
 	return offset_type(zzip_tell(file)) == size;
 }
@@ -155,6 +157,8 @@ ZzipInputStream::IsEOF()
 void
 ZzipInputStream::Seek(offset_type new_offset)
 {
+	const ScopeUnlock unlock(mutex);
+
 	zzip_off_t ofs = zzip_seek(file, new_offset, SEEK_SET);
 	if (ofs < 0)
 		throw std::runtime_error("zzip_seek() has failed");

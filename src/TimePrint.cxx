@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 void
 time_print(Response &r, const char *name, time_t t)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	const struct tm *tm2 = gmtime(&t);
 #else
 	struct tm tm;
@@ -35,7 +35,7 @@ time_print(Response &r, const char *name, time_t t)
 
 	char buffer[32];
 	strftime(buffer, sizeof(buffer),
-#ifdef WIN32
+#ifdef _WIN32
 		 "%Y-%m-%dT%H:%M:%SZ",
 #else
 		 "%FT%TZ",

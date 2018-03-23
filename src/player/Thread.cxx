@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,6 +32,7 @@
 #include "output/MultipleOutputs.hxx"
 #include "tag/Tag.hxx"
 #include "Idle.hxx"
+#include "system/PeriodClock.hxx"
 #include "util/Domain.hxx"
 #include "thread/Name.hxx"
 #include "Log.hxx"
@@ -135,7 +136,7 @@ class Player {
 	/**
 	 * The current audio format for the audio outputs.
 	 */
-	AudioFormat play_audio_format;
+	AudioFormat play_audio_format = AudioFormat::Undefined();
 
 	/**
 	 * The time stamp of the chunk most recently sent to the
@@ -145,6 +146,8 @@ class Player {
 	 * precisely.
 	 */
 	SongTime elapsed_time;
+
+	PeriodClock throttle_silence_log;
 
 public:
 	Player(PlayerControl &_pc, DecoderControl &_dc,
@@ -200,7 +203,7 @@ private:
 	 * ActivateDecoder()).  This function checks if the decoder
 	 * initialization has completed yet.
 	 *
-	 * The player lock is not held.
+	 * Caller must lock the mutex.
 	 */
 	bool CheckDecoderStartup();
 
@@ -213,14 +216,19 @@ private:
 	 * allowed to be used while a command is being handled.
 	 */
 	bool WaitDecoderStartup() {
+		const std::lock_guard<Mutex> lock(pc.mutex);
+
 		while (decoder_starting) {
 			if (!CheckDecoderStartup()) {
 				/* if decoder startup fails, make sure
 				   the previous song is not being
 				   played anymore */
-				pc.outputs.Cancel();
+				{
+					const ScopeUnlock unlock(pc.mutex);
+					pc.outputs.Cancel();
+				}
 
-				pc.LockCommandFinished();
+				pc.CommandFinished();
 				return false;
 			}
 		}
@@ -242,7 +250,7 @@ private:
 	 * finished.
 	 */
 	gcc_pure
-	bool IsDecoderAtCurrentSong() const {
+	bool IsDecoderAtCurrentSong() const noexcept {
 		assert(pipe != nullptr);
 
 		return dc.pipe == pipe;
@@ -254,7 +262,7 @@ private:
 	 * switched to that song yet.
 	 */
 	gcc_pure
-	bool IsDecoderAtNextSong() const {
+	bool IsDecoderAtNextSong() const noexcept {
 		return dc.pipe != nullptr && !IsDecoderAtCurrentSong();
 	}
 
@@ -291,6 +299,8 @@ private:
 	/**
 	 * Wrapper for MultipleOutputs::Open().  Upon failure, it
 	 * pauses the player.
+	 *
+	 * Caller must lock the mutex.
 	 *
 	 * @return true on success
 	 */
@@ -344,7 +354,7 @@ Player::StartDecoder(MusicPipe &_pipe)
 
 	{
 		/* copy ReplayGain parameters to the decoder */
-		const ScopeLock protect(pc.mutex);
+		const std::lock_guard<Mutex> protect(pc.mutex);
 		dc.replay_gain_mode = pc.replay_gain_mode;
 	}
 
@@ -398,25 +408,26 @@ Player::ActivateDecoder()
 
 	queued = false;
 
-	pc.Lock();
-	pc.ClearTaggedSong();
+	{
+		const std::lock_guard<Mutex> lock(pc.mutex);
 
-	delete song;
-	song = pc.next_song;
-	pc.next_song = nullptr;
+		pc.ClearTaggedSong();
 
-	elapsed_time = pc.seek_time;
+		delete song;
+		song = pc.next_song;
+		pc.next_song = nullptr;
 
-	/* set the "starting" flag, which will be cleared by
-	   player_check_decoder_startup() */
-	decoder_starting = true;
+		elapsed_time = pc.seek_time;
 
-	/* update PlayerControl's song information */
-	pc.total_time = song->GetDuration();
-	pc.bit_rate = 0;
-	pc.audio_format.Clear();
+		/* set the "starting" flag, which will be cleared by
+		   player_check_decoder_startup() */
+		decoder_starting = true;
 
-	pc.Unlock();
+		/* update PlayerControl's song information */
+		pc.total_time = song->GetDuration();
+		pc.bit_rate = 0;
+		pc.audio_format.Clear();
+	}
 
 	/* call syncPlaylistWithQueue() in the main thread */
 	pc.listener.OnPlayerSync();
@@ -451,6 +462,7 @@ Player::OpenOutput()
 	       pc.state == PlayerState::PAUSE);
 
 	try {
+		const ScopeUnlock unlock(pc.mutex);
 		pc.outputs.Open(play_audio_format, buffer);
 	} catch (const std::runtime_error &e) {
 		LogError(e);
@@ -461,10 +473,7 @@ Player::OpenOutput()
 		   audio output becomes available */
 		paused = true;
 
-		pc.Lock();
-		pc.SetError(PlayerError::OUTPUT, std::current_exception());
-		pc.state = PlayerState::PAUSE;
-		pc.Unlock();
+		pc.SetOutputError(std::current_exception());
 
 		idle_add(IDLE_PLAYER);
 
@@ -474,9 +483,7 @@ Player::OpenOutput()
 	output_open = true;
 	paused = false;
 
-	pc.Lock();
 	pc.state = PlayerState::PLAY;
-	pc.Unlock();
 
 	idle_add(IDLE_PLAYER);
 
@@ -488,33 +495,25 @@ Player::CheckDecoderStartup()
 {
 	assert(decoder_starting);
 
-	pc.Lock();
-
 	if (!ForwardDecoderError()) {
 		/* the decoder failed */
-		pc.Unlock();
-
 		return false;
 	} else if (!dc.IsStarting()) {
 		/* the decoder is ready and ok */
 
-		pc.Unlock();
-
 		if (output_open &&
-		    !pc.outputs.Wait(pc, 1))
+		    !pc.WaitOutputConsumed(1))
 			/* the output devices havn't finished playing
 			   all chunks yet - wait for that */
 			return true;
 
-		pc.Lock();
-		pc.total_time = real_song_duration(*dc.song, dc.total_time);
+		pc.total_time = real_song_duration(*dc.song,
+						   dc.total_time);
 		pc.audio_format = dc.in_audio_format;
-		pc.Unlock();
-
-		idle_add(IDLE_PLAYER);
-
 		play_audio_format = dc.out_audio_format;
 		decoder_starting = false;
+
+		idle_add(IDLE_PLAYER);
 
 		if (!paused && !OpenOutput()) {
 			FormatError(player_domain,
@@ -529,7 +528,6 @@ Player::CheckDecoderStartup()
 		/* the decoder is not yet ready; wait
 		   some more */
 		dc.WaitForDecoder();
-		pc.Unlock();
 
 		return true;
 	}
@@ -560,8 +558,10 @@ Player::SendSilence()
 	   partial frames */
 	unsigned num_frames = sizeof(chunk->data) / frame_size;
 
+	chunk->bit_rate = 0;
 	chunk->time = SignedSongTime::Negative(); /* undefined time stamp */
 	chunk->length = num_frames * frame_size;
+	chunk->replay_gain_serial = MusicChunk::IGNORE_REPLAY_GAIN;
 	PcmSilence({chunk->data, chunk->length}, play_audio_format.format);
 
 	try {
@@ -661,9 +661,11 @@ Player::ProcessCommand()
 		break;
 
 	case PlayerCommand::UPDATE_AUDIO:
-		pc.Unlock();
-		pc.outputs.EnableDisable();
-		pc.Lock();
+		{
+			const ScopeUnlock unlock(pc.mutex);
+			pc.outputs.EnableDisable();
+		}
+
 		pc.CommandFinished();
 		break;
 
@@ -675,41 +677,37 @@ Player::ProcessCommand()
 		queued = true;
 		pc.CommandFinished();
 
-		pc.Unlock();
-		if (dc.LockIsIdle())
-			StartDecoder(*new MusicPipe());
-		pc.Lock();
+		{
+			const ScopeUnlock unlock(pc.mutex);
+			if (dc.LockIsIdle())
+				StartDecoder(*new MusicPipe());
+		}
 
 		break;
 
 	case PlayerCommand::PAUSE:
-		pc.Unlock();
-
 		paused = !paused;
 		if (paused) {
-			pc.outputs.Pause();
-			pc.Lock();
-
 			pc.state = PlayerState::PAUSE;
+
+			const ScopeUnlock unlock(pc.mutex);
+			pc.outputs.Pause();
 		} else if (!play_audio_format.IsDefined()) {
 			/* the decoder hasn't provided an audio format
 			   yet - don't open the audio device yet */
-			pc.Lock();
-
 			pc.state = PlayerState::PLAY;
 		} else {
 			OpenOutput();
-
-			pc.Lock();
 		}
 
 		pc.CommandFinished();
 		break;
 
 	case PlayerCommand::SEEK:
-		pc.Unlock();
-		SeekDecoder();
-		pc.Lock();
+		{
+			const ScopeUnlock unlock(pc.mutex);
+			SeekDecoder();
+		}
 		break;
 
 	case PlayerCommand::CANCEL:
@@ -724,9 +722,8 @@ Player::ProcessCommand()
 		if (IsDecoderAtNextSong()) {
 			/* the decoder is already decoding the song -
 			   stop it and reset the position */
-			pc.Unlock();
+			const ScopeUnlock unlock(pc.mutex);
 			StopDecoder();
-			pc.Lock();
 		}
 
 		delete pc.next_song;
@@ -737,9 +734,8 @@ Player::ProcessCommand()
 
 	case PlayerCommand::REFRESH:
 		if (output_open && !paused) {
-			pc.Unlock();
+			const ScopeUnlock unlock(pc.mutex);
 			pc.outputs.Check();
-			pc.Lock();
 		}
 
 		pc.elapsed_time = !pc.outputs.GetElapsedTime().IsNegative()
@@ -795,9 +791,10 @@ play_chunk(PlayerControl &pc,
 		return;
 	}
 
-	pc.Lock();
-	pc.bit_rate = chunk->bit_rate;
-	pc.Unlock();
+	{
+		const std::lock_guard<Mutex> lock(pc.mutex);
+		pc.bit_rate = chunk->bit_rate;
+	}
 
 	/* send the chunk to the audio outputs */
 
@@ -809,7 +806,7 @@ play_chunk(PlayerControl &pc,
 inline bool
 Player::PlayNextChunk()
 {
-	if (!pc.outputs.Wait(pc, 64))
+	if (!pc.LockWaitOutputConsumed(64))
 		/* the output pipe is still large enough, don't send
 		   another chunk */
 		return true;
@@ -871,19 +868,16 @@ Player::PlayNextChunk()
 		} else {
 			/* there are not enough decoded chunks yet */
 
-			pc.Lock();
+			const std::lock_guard<Mutex> lock(pc.mutex);
 
 			if (dc.IsIdle()) {
 				/* the decoder isn't running, abort
 				   cross fading */
-				pc.Unlock();
-
 				xfade_state = CrossFadeState::DISABLED;
 			} else {
 				/* wait for the decoder */
 				dc.Signal();
 				dc.WaitForDecoder();
-				pc.Unlock();
 
 				return true;
 			}
@@ -911,26 +905,22 @@ Player::PlayNextChunk()
 
 		buffer.Return(chunk);
 
-		pc.Lock();
-
-		pc.SetError(PlayerError::OUTPUT, std::current_exception());
-
 		/* pause: the user may resume playback as soon as an
 		   audio output becomes available */
-		pc.state = PlayerState::PAUSE;
 		paused = true;
 
-		pc.Unlock();
+		pc.LockSetOutputError(std::current_exception());
 
 		idle_add(IDLE_PLAYER);
 
 		return false;
 	}
 
+	const std::lock_guard<Mutex> lock(pc.mutex);
+
 	/* this formula should prevent that the decoder gets woken up
 	   with each chunk; it is more efficient to make it decode a
 	   larger block at a time */
-	pc.Lock();
 	if (!dc.IsIdle() &&
 	    dc.pipe->GetSize() <= (pc.buffered_before_play +
 				   buffer.GetSize() * 3) / 4) {
@@ -940,7 +930,6 @@ Player::PlayNextChunk()
 		}
 	} else
 		decoder_woken = false;
-	pc.Unlock();
 
 	return true;
 }
@@ -950,24 +939,19 @@ Player::SongBorder()
 {
 	FormatDefault(player_domain, "played \"%s\"", song->GetURI());
 
+	throttle_silence_log.Reset();
+
 	ReplacePipe(dc.pipe);
 
 	pc.outputs.SongBorder();
 
 	ActivateDecoder();
 
-	pc.Lock();
-
-	const bool border_pause = pc.border_pause;
+	const bool border_pause = pc.LockApplyBorderPause();
 	if (border_pause) {
 		paused = true;
-		pc.state = PlayerState::PAUSE;
-	}
-
-	pc.Unlock();
-
-	if (border_pause)
 		idle_add(IDLE_PLAYER);
+	}
 }
 
 inline void
@@ -1022,10 +1006,13 @@ Player::Run()
 		if (decoder_starting) {
 			/* wait until the decoder is initialized completely */
 
-			if (!CheckDecoderStartup())
-				break;
-
 			pc.Lock();
+
+			if (!CheckDecoderStartup()) {
+				pc.Unlock();
+				break;
+			}
+
 			continue;
 		}
 
@@ -1115,6 +1102,10 @@ Player::Run()
 			/* the decoder is too busy and hasn't provided
 			   new PCM data in time: send silence (if the
 			   output pipe is empty) */
+
+			if (throttle_silence_log.CheckUpdate(std::chrono::seconds(5)))
+				FormatWarning(player_domain, "Decoder is too slow; playing silence to avoid xrun");
+
 			if (!SendSilence())
 				break;
 		}
@@ -1156,91 +1147,89 @@ do_play(PlayerControl &pc, DecoderControl &dc,
 	player.Run();
 }
 
-static void
-player_task(void *arg)
+void
+PlayerControl::RunThread()
 {
-	PlayerControl &pc = *(PlayerControl *)arg;
-
 	SetThreadName("player");
 
-	DecoderControl dc(pc.mutex, pc.cond,
-			  pc.configured_audio_format,
-			  pc.replay_gain_config);
+	DecoderControl dc(mutex, cond,
+			  configured_audio_format,
+			  replay_gain_config);
 	decoder_thread_start(dc);
 
-	MusicBuffer buffer(pc.buffer_chunks);
+	MusicBuffer buffer(buffer_chunks);
 
-	pc.Lock();
+	Lock();
 
 	while (1) {
-		switch (pc.command) {
+		switch (command) {
 		case PlayerCommand::SEEK:
 		case PlayerCommand::QUEUE:
-			assert(pc.next_song != nullptr);
+			assert(next_song != nullptr);
 
-			pc.Unlock();
-			do_play(pc, dc, buffer);
-			pc.listener.OnPlayerSync();
-			pc.Lock();
+			Unlock();
+			do_play(*this, dc, buffer);
+			listener.OnPlayerSync();
+			Lock();
 			break;
 
 		case PlayerCommand::STOP:
-			pc.Unlock();
-			pc.outputs.Cancel();
-			pc.Lock();
+			Unlock();
+			outputs.Cancel();
+			Lock();
 
 			/* fall through */
 
 		case PlayerCommand::PAUSE:
-			delete pc.next_song;
-			pc.next_song = nullptr;
+			delete next_song;
+			next_song = nullptr;
 
-			pc.CommandFinished();
+			CommandFinished();
 			break;
 
 		case PlayerCommand::CLOSE_AUDIO:
-			pc.Unlock();
+			Unlock();
 
-			pc.outputs.Release();
+			outputs.Release();
 
-			pc.Lock();
-			pc.CommandFinished();
+			Lock();
+			CommandFinished();
 
 			assert(buffer.IsEmptyUnsafe());
 
 			break;
 
 		case PlayerCommand::UPDATE_AUDIO:
-			pc.Unlock();
-			pc.outputs.EnableDisable();
-			pc.Lock();
-			pc.CommandFinished();
+			Unlock();
+			outputs.EnableDisable();
+			Lock();
+			CommandFinished();
 			break;
 
 		case PlayerCommand::EXIT:
-			pc.Unlock();
+			Unlock();
 
 			dc.Quit();
 
-			pc.outputs.Close();
+			outputs.Close();
 
-			pc.LockCommandFinished();
+			LockCommandFinished();
 			return;
 
 		case PlayerCommand::CANCEL:
-			delete pc.next_song;
-			pc.next_song = nullptr;
+			delete next_song;
+			next_song = nullptr;
 
-			pc.CommandFinished();
+			CommandFinished();
 			break;
 
 		case PlayerCommand::REFRESH:
 			/* no-op when not playing */
-			pc.CommandFinished();
+			CommandFinished();
 			break;
 
 		case PlayerCommand::NONE:
-			pc.Wait();
+			Wait();
 			break;
 		}
 	}
@@ -1251,5 +1240,5 @@ StartPlayerThread(PlayerControl &pc)
 {
 	assert(!pc.thread.IsDefined());
 
-	pc.thread.Start(player_task, &pc);
+	pc.thread.Start();
 }

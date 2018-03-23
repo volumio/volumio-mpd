@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -67,7 +67,7 @@ BufferedReader::ReadFull(size_t size)
 }
 
 size_t
-BufferedReader::ReadFromBuffer(WritableBuffer<void> dest)
+BufferedReader::ReadFromBuffer(WritableBuffer<void> dest) noexcept
 {
 	auto src = Read();
 	size_t nbytes = std::min(src.size, dest.size);

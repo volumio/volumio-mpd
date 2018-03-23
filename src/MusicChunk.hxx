@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -80,11 +80,19 @@ struct MusicChunk {
 	ReplayGainInfo replay_gain_info;
 
 	/**
+	 * A magic value for #replay_gain_serial which omits updating
+	 * the #ReplayGainFilter.  This is used by "silence" chunks
+	 * (see PlayerThread::SendSilence()) so they don't affect the
+	 * replay gain.
+	 */
+	static constexpr unsigned IGNORE_REPLAY_GAIN = ~0u;
+
+	/**
 	 * A serial number for checking if replay gain info has
 	 * changed since the last chunk.  The magic value 0 indicates
 	 * that there is no replay gain info available.
 	 */
-	unsigned replay_gain_serial = 0;
+	unsigned replay_gain_serial;
 
 	/** the data (probably PCM) */
 	uint8_t data[CHUNK_SIZE];
@@ -111,7 +119,7 @@ struct MusicChunk {
 	 * specified audio_format.
 	 */
 	gcc_pure
-	bool CheckFormat(AudioFormat audio_format) const;
+	bool CheckFormat(AudioFormat audio_format) const noexcept;
 #endif
 
 	/**
@@ -127,7 +135,7 @@ struct MusicChunk {
 	 */
 	WritableBuffer<void> Write(AudioFormat af,
 				   SongTime data_time,
-				   uint16_t bit_rate);
+				   uint16_t bit_rate) noexcept;
 
 	/**
 	 * Increases the length of the chunk after the caller has written to
@@ -138,7 +146,7 @@ struct MusicChunk {
 	 * @param length the number of bytes which were appended
 	 * @return true if the chunk is full
 	 */
-	bool Expand(AudioFormat af, size_t length);
+	bool Expand(AudioFormat af, size_t length) noexcept;
 };
 
 #endif

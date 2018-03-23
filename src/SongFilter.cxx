@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,9 +24,14 @@
 #include "tag/Tag.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/StringAPI.hxx"
+#include "util/StringCompare.hxx"
+#include "util/StringView.hxx"
 #include "util/ASCII.hxx"
+#include "util/TimeParser.hxx"
 #include "util/UriUtil.hxx"
-#include "lib/icu/Collate.hxx"
+#include "lib/icu/CaseFold.hxx"
+
+#include <stdexcept>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -36,7 +41,7 @@
 #define LOCATE_TAG_ANY_KEY      "any"
 
 unsigned
-locate_parse_type(const char *str)
+locate_parse_type(const char *str) noexcept
 {
 	if (StringEqualsCaseASCII(str, LOCATE_TAG_FILE_KEY) ||
 	    StringEqualsCaseASCII(str, LOCATE_TAG_FILE_KEY_OLD))
@@ -54,18 +59,10 @@ locate_parse_type(const char *str)
 	return tag_name_parse_i(str);
 }
 
-gcc_pure
-static AllocatedString<>
-ImportString(const char *p, bool fold_case)
-{
-	return fold_case
-		? IcuCaseFold(p)
-		: AllocatedString<>::Duplicate(p);
-}
-
 SongFilter::Item::Item(unsigned _tag, const char *_value, bool _fold_case)
-	:tag(_tag), fold_case(_fold_case),
-	 value(ImportString(_value, _fold_case))
+	:tag(_tag),
+	 value(_value),
+	 fold_case(_fold_case ? IcuCompare(value.c_str()) : IcuCompare())
 {
 }
 
@@ -75,7 +72,7 @@ SongFilter::Item::Item(unsigned _tag, time_t _time)
 }
 
 bool
-SongFilter::Item::StringMatch(const char *s) const
+SongFilter::Item::StringMatch(const char *s) const noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */
@@ -85,23 +82,21 @@ SongFilter::Item::StringMatch(const char *s) const
 	assert(tag != LOCATE_TAG_MODIFIED_SINCE);
 
 	if (fold_case) {
-		const auto folded = IcuCaseFold(s);
-		assert(!folded.IsNull());
-		return StringFind(folded.c_str(), value.c_str()) != nullptr;
+		return fold_case.IsIn(s);
 	} else {
 		return StringIsEqual(s, value.c_str());
 	}
 }
 
 bool
-SongFilter::Item::Match(const TagItem &item) const
+SongFilter::Item::Match(const TagItem &item) const noexcept
 {
 	return (tag == LOCATE_TAG_ANY_TYPE || (unsigned)item.type == tag) &&
 		StringMatch(item.value);
 }
 
 bool
-SongFilter::Item::Match(const Tag &_tag) const
+SongFilter::Item::Match(const Tag &_tag) const noexcept
 {
 	bool visited_types[TAG_NUM_OF_ITEM_TYPES];
 	std::fill_n(visited_types, size_t(TAG_NUM_OF_ITEM_TYPES), false);
@@ -137,7 +132,7 @@ SongFilter::Item::Match(const Tag &_tag) const
 }
 
 bool
-SongFilter::Item::Match(const DetachedSong &song) const
+SongFilter::Item::Match(const DetachedSong &song) const noexcept
 {
 	if (tag == LOCATE_TAG_BASE_TYPE)
 		return uri_is_child_or_same(value.c_str(), song.GetURI());
@@ -152,7 +147,7 @@ SongFilter::Item::Match(const DetachedSong &song) const
 }
 
 bool
-SongFilter::Item::Match(const LightSong &song) const
+SongFilter::Item::Match(const LightSong &song) const noexcept
 {
 	if (tag == LOCATE_TAG_BASE_TYPE) {
 		const auto uri = song.GetURI();
@@ -180,27 +175,9 @@ SongFilter::~SongFilter()
 	/* this destructor exists here just so it won't get inlined */
 }
 
-#if !defined(__GLIBC__) && !defined(WIN32)
-
-/**
- * Determine the time zone offset in a portable way.
- */
-gcc_const
-static time_t
-GetTimeZoneOffset()
-{
-	time_t t = 1234567890;
-	struct tm tm;
-	tm.tm_isdst = 0;
-	gmtime_r(&t, &tm);
-	return t - mktime(&tm);
-}
-
-#endif
-
 gcc_pure
 static time_t
-ParseTimeStamp(const char *s)
+ParseTimeStamp(const char *s) noexcept
 {
 	assert(s != nullptr);
 
@@ -210,26 +187,13 @@ ParseTimeStamp(const char *s)
 		/* it's an integral UNIX time stamp */
 		return (time_t)value;
 
-#ifdef WIN32
-	/* TODO: emulate strptime()? */
-	return 0;
-#else
-	/* try ISO 8601 */
-
-	struct tm tm;
-	const char *end = strptime(s, "%FT%TZ", &tm);
-	if (end == nullptr || *end != 0)
+	try {
+		/* try ISO 8601 */
+		const auto t = ParseTimePoint(s, "%FT%TZ");
+		return std::chrono::system_clock::to_time_t(t);
+	} catch (const std::runtime_error &) {
 		return 0;
-
-#ifdef __GLIBC__
-	/* timegm() is a GNU extension */
-	return timegm(&tm);
-#else
-	tm.tm_isdst = 0;
-	return mktime(&tm) + GetTimeZoneOffset();
-#endif /* !__GLIBC__ */
-
-#endif /* !WIN32 */
+	}
 }
 
 bool
@@ -274,7 +238,7 @@ SongFilter::Parse(ConstBuffer<const char *> args, bool fold_case)
 }
 
 bool
-SongFilter::Match(const DetachedSong &song) const
+SongFilter::Match(const DetachedSong &song) const noexcept
 {
 	for (const auto &i : items)
 		if (!i.Match(song))
@@ -284,7 +248,7 @@ SongFilter::Match(const DetachedSong &song) const
 }
 
 bool
-SongFilter::Match(const LightSong &song) const
+SongFilter::Match(const LightSong &song) const noexcept
 {
 	for (const auto &i : items)
 		if (!i.Match(song))
@@ -294,7 +258,7 @@ SongFilter::Match(const LightSong &song) const
 }
 
 bool
-SongFilter::HasOtherThanBase() const
+SongFilter::HasOtherThanBase() const noexcept
 {
 	for (const auto &i : items)
 		if (i.GetTag() != LOCATE_TAG_BASE_TYPE)
@@ -304,11 +268,41 @@ SongFilter::HasOtherThanBase() const
 }
 
 const char *
-SongFilter::GetBase() const
+SongFilter::GetBase() const noexcept
 {
 	for (const auto &i : items)
 		if (i.GetTag() == LOCATE_TAG_BASE_TYPE)
 			return i.GetValue();
 
 	return nullptr;
+}
+
+SongFilter
+SongFilter::WithoutBasePrefix(const char *_prefix) const noexcept
+{
+	const StringView prefix(_prefix);
+	SongFilter result;
+
+	for (const auto &i : items) {
+		if (i.GetTag() == LOCATE_TAG_BASE_TYPE) {
+			const char *s = StringAfterPrefix(i.GetValue(), prefix);
+			if (s != nullptr) {
+				if (*s == 0)
+					continue;
+
+				if (*s == '/') {
+					++s;
+
+					if (*s != 0)
+						result.items.emplace_back(LOCATE_TAG_BASE_TYPE, s);
+
+					continue;
+				}
+			}
+		}
+
+		result.items.emplace_back(i);
+	}
+
+	return result;
 }

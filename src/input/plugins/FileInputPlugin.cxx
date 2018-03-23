@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -45,7 +45,7 @@ public:
 
 	/* virtual methods from InputStream */
 
-	bool IsEOF() override {
+	bool IsEOF() noexcept override {
 		return GetOffset() >= GetSize();
 	}
 
@@ -65,9 +65,12 @@ OpenFileInputStream(Path path,
 		throw FormatRuntimeError("Not a regular file: %s",
 					 path.c_str());
 
+#if !defined(__BIONIC__) || __ANDROID_API__ >= 21
+	/* posix_fadvise() requires Android API 21 */
 #ifdef POSIX_FADV_SEQUENTIAL
 	posix_fadvise(reader.GetFD().Get(), (off_t)0, info.GetSize(),
 		      POSIX_FADV_SEQUENTIAL);
+#endif
 #endif
 
 	return InputStreamPtr(new FileInputStream(path.ToUTF8().c_str(),
@@ -87,14 +90,24 @@ input_file_open(gcc_unused const char *filename,
 void
 FileInputStream::Seek(offset_type new_offset)
 {
-	reader.Seek((off_t)new_offset);
+	{
+		const ScopeUnlock unlock(mutex);
+		reader.Seek((off_t)new_offset);
+	}
+
 	offset = new_offset;
 }
 
 size_t
 FileInputStream::Read(void *ptr, size_t read_size)
 {
-	size_t nbytes = reader.Read(ptr, read_size);
+	size_t nbytes;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		nbytes = reader.Read(ptr, read_size);
+	}
+
 	offset += nbytes;
 	return nbytes;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,7 @@
 #define HAVE_CLASS_GLOB
 #include <string>
 #include <fnmatch.h>
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #define HAVE_CLASS_GLOB
 #include <string>
 #include <shlwapi.h>
@@ -40,12 +40,12 @@
  * (asterisk and question mark).
  */
 class Glob {
-#if defined(HAVE_FNMATCH) || defined(WIN32)
+#if defined(HAVE_FNMATCH) || defined(_WIN32)
 	std::string pattern;
 #endif
 
 public:
-#if defined(HAVE_FNMATCH) || defined(WIN32)
+#if defined(HAVE_FNMATCH) || defined(_WIN32)
 	explicit Glob(const char *_pattern)
 		:pattern(_pattern) {}
 
@@ -54,10 +54,10 @@ public:
 #endif
 
 	gcc_pure
-	bool Check(const char *name_fs) const {
+	bool Check(const char *name_fs) const noexcept {
 #ifdef HAVE_FNMATCH
 		return fnmatch(pattern.c_str(), name_fs, 0) == 0;
-#elif defined(WIN32)
+#elif defined(_WIN32)
 		return PathMatchSpecA(name_fs, pattern.c_str());
 #endif
 	}

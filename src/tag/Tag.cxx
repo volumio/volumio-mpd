@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +27,7 @@
 #include <string.h>
 
 TagType
-tag_name_parse(const char *name)
+tag_name_parse(const char *name) noexcept
 {
 	assert(name != nullptr);
 
@@ -42,7 +42,7 @@ tag_name_parse(const char *name)
 }
 
 TagType
-tag_name_parse_i(const char *name)
+tag_name_parse_i(const char *name) noexcept
 {
 	assert(name != nullptr);
 
@@ -112,7 +112,7 @@ Tag::MergeReplace(Tag *base, Tag *add)
 }
 
 const char *
-Tag::GetValue(TagType type) const
+Tag::GetValue(TagType type) const noexcept
 {
 	assert(type < TAG_NUM_OF_ITEM_TYPES);
 
@@ -124,7 +124,7 @@ Tag::GetValue(TagType type) const
 }
 
 bool
-Tag::HasType(TagType type) const
+Tag::HasType(TagType type) const noexcept
 {
 	return GetValue(type) != nullptr;
 }

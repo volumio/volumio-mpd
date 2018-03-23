@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -207,13 +207,12 @@ try {
 			continue;
 
 #ifdef _UNICODE
-		wchar_t buffer[MAX_PATH];
-		auto result = MultiByteToWideChar(CP_ACP, 0, s, -1,
-						  buffer, ARRAY_SIZE(buffer));
-		if (result <= 0)
+		/* on Windows, playlists always contain UTF-8, because
+		   its "narrow" charset (i.e. CP_ACP) is incapable of
+		   storing all Unicode paths */
+		const auto path = AllocatedPath::FromUTF8(s);
+		if (path.IsNull())
 			continue;
-
-		const Path path = Path::FromFS(buffer);
 #else
 		const Path path = Path::FromFS(s);
 #endif
@@ -335,7 +334,7 @@ try {
 	const auto path_fs = spl_map_to_fs(utf8path);
 	assert(!path_fs.IsNull());
 
-	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_EXISTING);
+	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_OR_CREATE);
 
 	if (fos.Tell() / (MPD_PATH_MAX + 1) >= playlist_max_length)
 		throw PlaylistError(PlaylistResult::TOO_LARGE,

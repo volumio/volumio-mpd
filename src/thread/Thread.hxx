@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,9 +21,10 @@
 #define MPD_THREAD_HXX
 
 #include "check.h"
+#include "util/BindMethod.hxx"
 #include "Compiler.h"
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <pthread.h>
@@ -32,28 +33,28 @@
 #include <assert.h>
 
 class Thread {
-#ifdef WIN32
+	typedef BoundMethod<void()> Function;
+	const Function f;
+
+#ifdef _WIN32
 	HANDLE handle = nullptr;
 	DWORD id;
 #else
-	pthread_t handle;
-	bool defined = false;
+	pthread_t handle = pthread_t();
 
 #ifndef NDEBUG
 	/**
-	 * The thread is currently being created.  This is a workaround for
-	 * IsInside(), which may return false until pthread_create() has
-	 * initialised the #handle.
+	 * This handle is only used by IsInside(), and is set by the
+	 * thread function.  Since #handle is set by pthread_create()
+	 * which is racy, we need this attribute for early checks
+	 * inside the thread function.
 	 */
-	bool creating = false;
+	pthread_t inside_handle = pthread_t();
 #endif
 #endif
-
-	void (*f)(void *ctx);
-	void *ctx;
 
 public:
-	Thread() = default;
+	explicit Thread(Function _f):f(_f) {}
 
 	Thread(const Thread &) = delete;
 
@@ -66,34 +67,40 @@ public:
 #endif
 
 	bool IsDefined() const {
-#ifdef WIN32
+#ifdef _WIN32
 		return handle != nullptr;
 #else
-		return defined;
+		return handle != pthread_t();
 #endif
-  }
+	}
 
+#ifndef NDEBUG
 	/**
 	 * Check if this thread is the current thread.
 	 */
 	gcc_pure
-	bool IsInside() const {
-#ifdef WIN32
+	bool IsInside() const noexcept {
+#ifdef _WIN32
 		return GetCurrentThreadId() == id;
 #else
-#ifdef NDEBUG
-		constexpr bool creating = false;
-#endif
-		return IsDefined() && (creating ||
-				       pthread_equal(pthread_self(), handle));
+		/* note: not using pthread_equal() because that
+		   function "is undefined if either thread ID is not
+		   valid so we can't safely use it on
+		   default-constructed values" (comment from
+		   libstdc++) - and if both libstdc++ and libc++ get
+		   away with this, we can do it as well */
+		return pthread_self() == inside_handle;
 #endif
 	}
+#endif
 
-	bool Start(void (*f)(void *ctx), void *ctx);
+	void Start();
 	void Join();
 
 private:
-#ifdef WIN32
+	void Run();
+
+#ifdef _WIN32
 	static DWORD WINAPI ThreadProc(LPVOID ctx);
 #else
 	static void *ThreadProc(void *ctx);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #include <assert.h>
 #include <stddef.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 /* ERROR is a WIN32 macro that poisons our namespace; this is a kludge
    to allow us to use it anyway */
 #ifdef ERROR

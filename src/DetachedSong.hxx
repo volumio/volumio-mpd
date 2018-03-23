@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -63,18 +63,18 @@ class DetachedSong {
 
 	Tag tag;
 
-	time_t mtime;
+	time_t mtime = 0;
 
 	/**
 	 * Start of this sub-song within the file.
 	 */
-	SongTime start_time;
+	SongTime start_time = SongTime::zero();
 
 	/**
 	 * End of this sub-song within the file.
 	 * Unused if zero.
 	 */
-	SongTime end_time;
+	SongTime end_time = SongTime::zero();
 
 	explicit DetachedSong(const LightSong &other);
 
@@ -82,33 +82,25 @@ public:
 	explicit DetachedSong(const DetachedSong &) = default;
 
 	explicit DetachedSong(const char *_uri)
-		:uri(_uri),
-		 mtime(0),
-		 start_time(SongTime::zero()), end_time(SongTime::zero()) {}
+		:uri(_uri) {}
 
 	explicit DetachedSong(const std::string &_uri)
-		:uri(_uri),
-		 mtime(0),
-		 start_time(SongTime::zero()), end_time(SongTime::zero()) {}
+		:uri(_uri) {}
 
 	explicit DetachedSong(std::string &&_uri)
-		:uri(std::move(_uri)),
-		 mtime(0),
-		 start_time(SongTime::zero()), end_time(SongTime::zero()) {}
+		:uri(std::move(_uri)) {}
 
 	template<typename U>
 	DetachedSong(U &&_uri, Tag &&_tag)
 		:uri(std::forward<U>(_uri)),
-		 tag(std::move(_tag)),
-		 mtime(0),
-		 start_time(SongTime::zero()), end_time(SongTime::zero()) {}
+		 tag(std::move(_tag)) {}
 
 	DetachedSong(DetachedSong &&) = default;
 
 	~DetachedSong();
 
 	gcc_pure
-	const char *GetURI() const {
+	const char *GetURI() const noexcept {
 		return uri.c_str();
 	}
 
@@ -122,7 +114,7 @@ public:
 	 * displayed URI?
 	 */
 	gcc_pure
-	bool HasRealURI() const {
+	bool HasRealURI() const noexcept {
 		return !real_uri.empty();
 	}
 
@@ -131,7 +123,7 @@ public:
 	 * GetURI().
 	 */
 	gcc_pure
-	const char *GetRealURI() const {
+	const char *GetRealURI() const noexcept {
 		return (HasRealURI() ? real_uri : uri).c_str();
 	}
 
@@ -145,34 +137,36 @@ public:
 	 * song.
 	 */
 	gcc_pure
-	bool IsSame(const DetachedSong &other) const {
-		return uri == other.uri;
+	bool IsSame(const DetachedSong &other) const noexcept {
+		return uri == other.uri &&
+			start_time == other.start_time &&
+			end_time == other.end_time;
 	}
 
 	gcc_pure gcc_nonnull_all
-	bool IsURI(const char *other_uri) const {
+	bool IsURI(const char *other_uri) const noexcept {
 		return uri == other_uri;
 	}
 
 	gcc_pure
-	bool IsRemote() const;
+	bool IsRemote() const noexcept;
 
 	gcc_pure
-	bool IsFile() const {
+	bool IsFile() const noexcept {
 		return !IsRemote();
 	}
 
 	gcc_pure
-	bool IsAbsoluteFile() const;
+	bool IsAbsoluteFile() const noexcept;
 
 	gcc_pure
-	bool IsInDatabase() const;
+	bool IsInDatabase() const noexcept;
 
-	const Tag &GetTag() const {
+	const Tag &GetTag() const noexcept {
 		return tag;
 	}
 
-	Tag &WritableTag() {
+	Tag &WritableTag() noexcept {
 		return tag;
 	}
 
@@ -221,7 +215,7 @@ public:
 	}
 
 	gcc_pure
-	SignedSongTime GetDuration() const;
+	SignedSongTime GetDuration() const noexcept;
 
 	/**
 	 * Update the #tag and #mtime.

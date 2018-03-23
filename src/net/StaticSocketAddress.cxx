@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2012-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@
 #include <string.h>
 
 StaticSocketAddress &
-StaticSocketAddress::operator=(SocketAddress other)
+StaticSocketAddress::operator=(SocketAddress other) noexcept
 {
 	size = std::min(other.GetSize(), GetCapacity());
 	memcpy(&address, other.GetAddress(), size);

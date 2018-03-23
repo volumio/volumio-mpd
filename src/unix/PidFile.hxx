@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -88,7 +88,7 @@ public:
 
 gcc_pure
 static inline pid_t
-ReadPidFile(Path path)
+ReadPidFile(Path path) noexcept
 {
 	int fd = OpenFile(path, O_RDONLY, 0);
 	if (fd < 0)

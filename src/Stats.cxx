@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,12 +29,15 @@
 #include "system/Clock.hxx"
 #include "Log.hxx"
 
-#ifndef WIN32
+#include <chrono>
+
+#ifndef _WIN32
 /**
  * The monotonic time stamp when MPD was started.  It is used to
  * calculate the uptime.
  */
-static unsigned start_time;
+static const std::chrono::steady_clock::time_point start_time =
+	std::chrono::steady_clock::now();
 #endif
 
 #ifdef ENABLE_DATABASE
@@ -46,17 +49,6 @@ enum class StatsValidity : uint8_t {
 };
 
 static StatsValidity stats_validity = StatsValidity::INVALID;
-
-#endif
-
-void stats_global_init(void)
-{
-#ifndef WIN32
-	start_time = MonotonicClockS();
-#endif
-}
-
-#ifdef ENABLE_DATABASE
 
 void
 stats_invalidate()
@@ -122,10 +114,10 @@ stats_print(Response &r, const Partition &partition)
 {
 	r.Format("uptime: %u\n"
 		 "playtime: %lu\n",
-#ifdef WIN32
+#ifdef _WIN32
 		 GetProcessUptimeS(),
 #else
-		 MonotonicClockS() - start_time,
+		 (unsigned)std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_time).count(),
 #endif
 		 (unsigned long)(partition.pc.GetTotalPlayTime() + 0.5));
 

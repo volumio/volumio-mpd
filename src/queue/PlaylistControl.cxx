@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,29 @@ playlist::Stop(PlayerControl &pc)
 	}
 }
 
+unsigned
+playlist::MoveOrderToCurrent(unsigned old_order)
+{
+	if (!queue.random)
+		/* no-op because there is no order list */
+		return old_order;
+
+	if (playing) {
+		/* already playing: move the specified song after the
+		   current one (because the current one has already
+		   been playing and shall not be played again) */
+		return queue.MoveOrderAfter(old_order, current);
+	} else if (current >= 0) {
+		/* not playing: move the specified song before the
+		   current one, so it will be played eventually */
+		return queue.MoveOrderBefore(old_order, current);
+	} else {
+		/* not playing anything: move the specified song to
+		   the front */
+		return queue.MoveOrderBefore(old_order, 0);
+	}
+}
+
 void
 playlist::PlayPosition(PlayerControl &pc, int song)
 {
@@ -90,13 +113,7 @@ playlist::PlayPosition(PlayerControl &pc, int song)
 			   number, because random mode is enabled */
 			i = queue.PositionToOrder(song);
 
-		if (!playing)
-			current = 0;
-
-		/* swap the new song with the previous "current" one,
-		   so playback continues as planned */
-		queue.SwapOrders(i, current);
-		i = current;
+		i = MoveOrderToCurrent(i);
 	}
 
 	stop_on_error = false;
@@ -195,8 +212,6 @@ playlist::SeekSongOrder(PlayerControl &pc, unsigned i, SongTime seek_time)
 {
 	assert(queue.IsValidOrder(i));
 
-	const DetachedSong *queued_song = GetQueuedSong();
-
 	pc.LockClearError();
 	stop_on_error = true;
 	error_count = 0;
@@ -205,10 +220,10 @@ playlist::SeekSongOrder(PlayerControl &pc, unsigned i, SongTime seek_time)
 		/* seeking is not within the current song - prepare
 		   song change */
 
+		i = MoveOrderToCurrent(i);
+
 		playing = true;
 		current = i;
-
-		queued_song = nullptr;
 	}
 
 	queued = -1;
@@ -216,7 +231,7 @@ playlist::SeekSongOrder(PlayerControl &pc, unsigned i, SongTime seek_time)
 	try {
 		pc.LockSeek(new DetachedSong(queue.GetOrder(i)), seek_time);
 	} catch (...) {
-		UpdateQueuedSong(pc, queued_song);
+		UpdateQueuedSong(pc, nullptr);
 		throw;
 	}
 

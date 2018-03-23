@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 #include <string.h>
 
 const char *
-vorbis_comment_value(const char *entry, const char *name)
+vorbis_comment_value(const char *entry, const char *name) noexcept
 {
 	assert(entry != nullptr);
 	assert(name != nullptr);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -153,7 +153,7 @@ HttpdOutput::RunDeferred()
 	/* this method runs in the IOThread; it broadcasts pages from
 	   our own queue to all clients */
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	while (!pages.empty()) {
 		Page *page = pages.front();
@@ -200,7 +200,7 @@ HttpdOutput::OnAccept(int fd, SocketAddress address, gcc_unused int uid)
 	(void)address;
 #endif	/* HAVE_WRAP */
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (fd >= 0) {
 		/* can we allow additional client */
@@ -296,7 +296,7 @@ httpd_output_open(AudioOutput *ao, AudioFormat &audio_format)
 {
 	HttpdOutput *httpd = HttpdOutput::Cast(ao);
 
-	const ScopeLock protect(httpd->mutex);
+	const std::lock_guard<Mutex> protect(httpd->mutex);
 	httpd->Open(audio_format);
 }
 
@@ -324,7 +324,7 @@ httpd_output_close(AudioOutput *ao)
 {
 	HttpdOutput *httpd = HttpdOutput::Cast(ao);
 
-	const ScopeLock protect(httpd->mutex);
+	const std::lock_guard<Mutex> protect(httpd->mutex);
 	httpd->Close();
 }
 
@@ -344,8 +344,8 @@ HttpdOutput::SendHeader(HttpdClient &client) const
 		client.PushPage(header);
 }
 
-inline unsigned
-HttpdOutput::Delay() const
+inline std::chrono::steady_clock::duration
+HttpdOutput::Delay() const noexcept
 {
 	if (!LockHasClients() && base.pause) {
 		/* if there's no client and this output is paused,
@@ -357,16 +357,16 @@ HttpdOutput::Delay() const
 		/* some arbitrary delay that is long enough to avoid
 		   consuming too much CPU, and short enough to notice
 		   new clients quickly enough */
-		return 1000;
+		return std::chrono::seconds(1);
 	}
 
 	return timer->IsStarted()
 		? timer->GetDelay()
-		: 0;
+		: std::chrono::steady_clock::duration::zero();
 }
 
-static unsigned
-httpd_output_delay(AudioOutput *ao)
+static std::chrono::steady_clock::duration
+httpd_output_delay(AudioOutput *ao) noexcept
 {
 	HttpdOutput *httpd = HttpdOutput::Cast(ao);
 
@@ -468,6 +468,7 @@ HttpdOutput::SendTag(const Tag &tag)
 
 		try {
 			encoder->SendTag(tag);
+			encoder->Flush();
 		} catch (const std::runtime_error &) {
 			/* ignore */
 		}
@@ -496,7 +497,7 @@ HttpdOutput::SendTag(const Tag &tag)
 
 		metadata = icy_server_metadata_page(tag, &types[0]);
 		if (metadata != nullptr) {
-			const ScopeLock protect(mutex);
+			const std::lock_guard<Mutex> protect(mutex);
 			for (auto &client : clients)
 				client.PushMetaData(metadata);
 		}
@@ -514,7 +515,7 @@ httpd_output_tag(AudioOutput *ao, const Tag &tag)
 inline void
 HttpdOutput::CancelAllClients()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	while (!pages.empty()) {
 		Page *page = pages.front();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,7 +41,7 @@ public:
 	 * @param num_chunks the number of #MusicChunk reserved in
 	 * this buffer
 	 */
-	MusicBuffer(unsigned num_chunks);
+	MusicBuffer(unsigned num_chunks) noexcept;
 
 #ifndef NDEBUG
 	/**
@@ -60,7 +60,7 @@ public:
 	 * music_buffer_new().
 	 */
 	gcc_pure
-	unsigned GetSize() const {
+	unsigned GetSize() const noexcept {
 		return buffer.GetCapacity();
 	}
 
@@ -71,13 +71,13 @@ public:
 	 * @return an empty chunk or nullptr if there are no chunks
 	 * available
 	 */
-	MusicChunk *Allocate();
+	MusicChunk *Allocate() noexcept;
 
 	/**
 	 * Returns a chunk to the buffer.  It can be reused by
 	 * Allocate() then.
 	 */
-	void Return(MusicChunk *chunk);
+	void Return(MusicChunk *chunk) noexcept;
 };
 
 #endif

@@ -1,4 +1,194 @@
-ver 0.20 (not yet released)
+ver 0.20.18 (2018/02/24)
+* input
+  - curl: allow authentication methods other than "Basic"
+* decoder
+  - flac: improve seeking precision
+* fix gapless CUE song transitions
+* Android, Windows
+  - enable the NFS storage plugin
+
+ver 0.20.17 (2018/02/11)
+* output
+  - alsa: fix crash bug with 8 channels
+* mixer
+  - alsa: fix rounding error at volume 0
+* fix real-time and idle scheduling with Musl
+* Android
+  - fix compatibility with Android 4.0
+
+ver 0.20.16 (2018/02/03)
+* output
+  - pulse: fix crash during auto-detection
+* database
+  - simple: fix search within mount points
+  - upnp: enable IPv6
+* archive
+  - iso9660: libcdio 2.0 compatibility
+* fix crash in debug build on Haiku and other operating systems
+
+ver 0.20.15 (2018/01/05)
+* queue: fix crash after seek failure
+* resampler
+  - soxr: clear internal state after manual song change
+* state file
+  - make mount point restore errors non-fatal
+  - fix crash when restoring mounts with incompatible database plugin
+* Android
+  - build without Ant
+  - fix for SIGSYS crash
+
+ver 0.20.14 (2018/01/01)
+* database
+  - simple: fix file corruption in the presence of mount points
+* archive
+  - bz2: fix deadlock
+  - reduce lock contention, fixing lots of xrun problems
+* fix Solaris build failure
+
+ver 0.20.13 (2017/12/18)
+* output
+  - osx: set up ring buffer to hold at least 100ms
+* mixer
+  - alsa: fix rounding errors
+* database
+  - simple: don't purge mount points on update/rescan
+  - simple: fix "mount" bug caused by bad compiler optimization
+  - simple: fix "lsinfo" into mount points
+  - upnp: work around libupnp 1.6.24 API breakage
+* queue: fix spuriously misplaced prioritized songs
+* save and restore mountpoints within the state file
+* include Windows cross-build script in source tarball
+* fix Windows build failures
+
+ver 0.20.12 (2017/11/25)
+* database
+  - upnp: adapt to libupnp 1.8 API changes
+* input
+  - cdio_paranoia, ffmpeg, file, smbclient: reduce lock contention,
+    fixing lots of xrun problems
+  - curl: fix seeking
+* decoder
+  - ffmpeg: fix GCC 8 warning
+  - vorbis: fix Tremor support
+* player
+  - log message when decoder is too slow
+* encoder
+  - vorbis: default to quality 3
+* output
+  - fix hanging playback with soxr resampler
+  - httpd: flush encoder after tag; fixes corrupt Vorbis stream
+
+ver 0.20.11 (2017/10/18)
+* storage
+  - curl: support Content-Type application/xml
+* decoder
+  - ffmpeg: more reliable song duration
+  - gme: fix track numbering
+* improve random song order when switching songs manually
+* fix case insensitive search without libicu
+* fix Unicode file names in playlists on Windows
+* fix endless loop when accessing malformed file names in ZIP files
+
+ver 0.20.10 (2017/08/24)
+* decoder
+  - ffmpeg: support MusicBrainz ID3v2 tags
+* tags
+  - aiff: fix FORM chunk size endianess (is big-endian)
+* mixer
+  - osx: add a mixer for OSX.
+* fix crash when resuming playback before decoder is ready
+* fix crash on Windows
+
+ver 0.20.9 (2017/06/04)
+* decoder
+  - ffmpeg: support *.adx
+* fix byte order detection on FreeBSD/aarch64
+* fix more random crashes when compiled with clang
+
+ver 0.20.8 (2017/05/19)
+* output
+  - osx: fix build failure due to missing "noexcept"
+* playlist
+  - m3u: support MIME type `audio/mpegurl`
+* fix build failure with GCC 4.x
+
+ver 0.20.7 (2017/05/15)
+* database
+  - simple: fix false positive directory loop detection with NFS
+* enforce a reasonable minimum audio_buffer_size setting
+* cap buffer_before_play at 80% to prevent deadlock
+* fix random crashes when compiled with clang
+
+ver 0.20.6 (2017/03/10)
+* input
+  - curl: fix headers after HTTP redirect to Shoutcast server
+* decoder
+  - ffmpeg: re-enable as fallback
+  - mpcdec: fix crash (division by zero) after seeking
+  - sidplay: make compatible with libsidplayfp < 1.8
+* fix stream tags after automatic song change
+* workaround for GCC 4.9.4 / libstdc++ bug (build failure)
+
+ver 0.20.5 (2017/02/20)
+* tags
+  - id3: fix memory leak on corrupt ID3 tags
+* decoder
+  - sidplay: don't require libsidutils when building with libsidplayfp
+* output
+  - httpd: fix two buffer overflows in IcyMetaData length calculation
+* mixer
+  - alsa: fix crash bug
+
+ver 0.20.4 (2017/02/01)
+* input
+  - nfs: fix freeze after reconnect
+* output
+  - sndio: work around a libroar C++ incompatibility
+* workaround for GCC 4.9 "constexpr" bug
+* fix FreeBSD build failure
+
+ver 0.20.3 (2017/01/25)
+* protocol
+  - "playlistadd" creates new playlist if it does not exist, as documented
+* database
+  - proxy: fix error "terminate called after throwing ..."
+  - proxy: make connect errors during startup non-fatal
+* neighbor
+  - upnp: fix premature expiry
+* replay gain: don't reset ReplayGain levels when unpausing playback
+* silence surround channels when converting from stereo
+* use shortcuts such as "dsd64" in log messages
+
+ver 0.20.2 (2017/01/15)
+* input
+  - alsa: fix crash bug
+  - alsa: fix buffer overruns
+* decoder
+  - flac: add options "probesize" and "analyzeduration"
+* resampler
+  - libsamplerate: reset state after seeking
+* output
+  - fix static noise after changing to a different audio format
+  - alsa: fix the DSD_U32 sample rate
+  - alsa: fix the DSD_U32 byte order
+  - alsa: support DSD_U16
+  - recorder: fix error "Failed to create : No such file or directory"
+* playlist
+  - cue: fix skipping songs
+
+ver 0.20.1 (2017/01/09)
+* input
+  - curl: fix crash bug
+  - curl: fix freeze bug
+* decoder
+  - wavpack: fix crash bug
+* storage
+  - curl: new storage plugin for WebDAV (work in progress)
+* mixer
+  - alsa: normalize displayed volume according to human perception
+* fix crash with volume_normalization enabled
+
+ver 0.20 (2017/01/04)
 * protocol
   - "commands" returns playlist commands only if playlist_directory configured
   - "search"/"find" have a "window" parameter
@@ -7,6 +197,8 @@ ver 0.20 (not yet released)
   - drop the "file:///" prefix for absolute file paths
   - add range parameter to command "plchanges" and "plchangesposid"
   - send verbose error message to client
+* input
+  - curl: fix memory leak
 * tags
   - ape, ogg: drop support for non-standard tag "album artist"
     affected filetypes: vorbis, flac, opus & all files with ape2 tags
@@ -50,7 +242,9 @@ ver 0.20 (not yet released)
   - new block "resampler" in configuration file
     replacing the old "samplerate_converter" setting
   - soxr: allow multi-threaded resampling
-* reset song priority on playback
+* player
+  - reset song priority on playback
+  - reduce xruns
 * write database and state file atomically
 * always write UTF-8 to the log file.
 * remove dependency on GLib
@@ -61,6 +255,12 @@ ver 0.20 (not yet released)
   - apply .mpdignore matches to subdirectories
 * switch the code base to C++14
   - GCC 4.9 or clang 3.4 (or newer) recommended
+
+ver 0.19.21 (2016/12/13)
+* decoder
+  - ffmpeg: fix crash bug
+* fix unit test failure after recent "setprio" change
+* systemd: add user unit
 
 ver 0.19.20 (2016/12/09)
 * protocol

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 #include "ArgParser.hxx"
 #include "Ack.hxx"
 #include "Chrono.hxx"
+#include "util/NumberParser.hxx"
 
 #include <stdlib.h>
 
@@ -151,7 +152,7 @@ float
 ParseCommandArgFloat(const char *s)
 {
 	char *endptr;
-	auto value = strtof(s, &endptr);
+	auto value = ParseFloat(s, &endptr);
 	if (endptr == s || *endptr != 0)
 		throw FormatProtocolError(ACK_ERROR_ARG,
 					  "Float expected: %s", s);

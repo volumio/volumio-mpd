@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,14 +31,14 @@
 #include "CharUtil.hxx"
 
 void
-StringView::StripLeft()
+StringView::StripLeft() noexcept
 {
 	while (!IsEmpty() && IsWhitespaceOrNull(front()))
 		pop_front();
 }
 
 void
-StringView::StripRight()
+StringView::StripRight() noexcept
 {
 	while (!IsEmpty() && IsWhitespaceOrNull(back()))
 		pop_back();

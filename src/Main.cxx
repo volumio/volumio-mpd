@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -50,13 +50,13 @@
 #include "unix/SignalHandlers.hxx"
 #include "system/FatalError.hxx"
 #include "thread/Slack.hxx"
+#include "net/Init.hxx"
 #include "lib/icu/Init.hxx"
 #include "config/ConfigGlobal.hxx"
 #include "config/Param.hxx"
 #include "config/ConfigDefaults.hxx"
 #include "config/ConfigOption.hxx"
 #include "config/ConfigError.hxx"
-#include "Stats.hxx"
 #include "util/RuntimeError.hxx"
 
 #ifdef ENABLE_DAEMON
@@ -107,18 +107,27 @@
 #include <locale.h>
 #endif
 
-#ifdef WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#endif
-
 #ifdef __BLOCKS__
 #include <dispatch/dispatch.h>
 #endif
 
 #include <limits.h>
 
-static constexpr unsigned DEFAULT_BUFFER_SIZE = 4096;
+static constexpr size_t KILOBYTE = 1024;
+static constexpr size_t MEGABYTE = 1024 * KILOBYTE;
+
+static constexpr size_t DEFAULT_BUFFER_SIZE = 4 * MEGABYTE;
+
+static
+#if GCC_OLDER_THAN(5,0)
+/* gcc 4.x has no "constexpr" for std::max() */
+const
+#else
+constexpr
+#endif
+size_t MIN_BUFFER_SIZE = std::max(CHUNK_SIZE * 32,
+				  64 * KILOBYTE);
+
 static constexpr unsigned DEFAULT_BUFFER_BEFORE_PLAY = 10;
 
 #ifdef ANDROID
@@ -131,7 +140,6 @@ struct Config {
 	ReplayGainConfig replay_gain;
 };
 
-gcc_const
 static Config
 LoadConfig()
 {
@@ -204,7 +212,11 @@ glue_db_init_and_load(void)
 				   "because the database does not need it");
 	}
 
-	instance->database->Open();
+	try {
+		instance->database->Open();
+	} catch (...) {
+		std::throw_with_nested(std::runtime_error("Failed to open database plugin"));
+	}
 
 	if (!instance->database->IsPlugin(simple_db_plugin))
 		return true;
@@ -258,7 +270,7 @@ glue_state_file_init()
 #endif
 	}
 
-	const unsigned interval =
+	const auto interval =
 		config_get_unsigned(ConfigOption::STATE_FILE_INTERVAL,
 				    StateFile::DEFAULT_INTERVAL);
 
@@ -266,25 +278,6 @@ glue_state_file_init()
 					     *instance->partition,
 					     instance->event_loop);
 	instance->state_file->Read();
-}
-
-/**
- * Windows-only initialization of the Winsock2 library.
- */
-static void winsock_init(void)
-{
-#ifdef WIN32
-	WSADATA sockinfo;
-
-	int retval = WSAStartup(MAKEWORD(2, 2), &sockinfo);
-	if(retval != 0)
-		FormatFatalError("Attempt to open Winsock2 failed; error code %d",
-				 retval);
-
-	if (LOBYTE(sockinfo.wVersion) != 2)
-		FatalError("We use Winsock2 but your version is either too new "
-			   "or old; please install Winsock 2.x");
-#endif
 }
 
 /**
@@ -304,11 +297,16 @@ initialize_decoder_and_player(const ReplayGainConfig &replay_gain_config)
 			FormatFatalError("buffer size \"%s\" is not a "
 					 "positive integer, line %i",
 					 param->value.c_str(), param->line);
-		buffer_size = tmp;
+		buffer_size = tmp * KILOBYTE;
+
+		if (buffer_size < MIN_BUFFER_SIZE) {
+			FormatWarning(config_domain, "buffer size %lu is too small, using %lu bytes instead",
+				      (unsigned long)buffer_size,
+				      (unsigned long)MIN_BUFFER_SIZE);
+			buffer_size = MIN_BUFFER_SIZE;
+		}
 	} else
 		buffer_size = DEFAULT_BUFFER_SIZE;
-
-	buffer_size *= 1024;
 
 	const unsigned buffered_chunks = buffer_size / CHUNK_SIZE;
 
@@ -326,6 +324,19 @@ initialize_decoder_and_player(const ReplayGainConfig &replay_gain_config)
 					 "a positive percentage and less "
 					 "than 100 percent, line %i",
 					 param->value.c_str(), param->line);
+		}
+
+		if (perc > 80) {
+			/* this upper limit should avoid deadlocks
+			   which can occur because the DecoderThread
+			   cannot ever fill the music buffer to
+			   exactly 100%; a few chunks always need to
+			   be available to generate silence in
+			   Player::SendSilence() */
+			FormatError(config_domain,
+				    "buffer_before_play is too large (%f%%), capping at 80%%; please fix your configuration",
+				    perc);
+			perc = 80;
 		}
 	} else
 		perc = DEFAULT_BUFFER_BEFORE_PLAY;
@@ -384,7 +395,7 @@ Instance::OnIdle(unsigned flags)
 
 int main(int argc, char *argv[])
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return win32_main(argc, argv);
 #else
 	return mpd_main(argc, argv);
@@ -417,7 +428,8 @@ try {
 
 	IcuInit();
 
-	winsock_init();
+	const ScopeNetInit net_init;
+
 	io_thread_init();
 	config_global_init();
 
@@ -442,7 +454,6 @@ try {
 	glue_daemonize_init(&options);
 #endif
 
-	stats_global_init();
 	TagLoadConfig();
 
 	log_init(options.verbose, options.log_stderr);
@@ -520,6 +531,8 @@ try {
 	instance->partition->outputs.Configure(instance->event_loop,
 					       config.replay_gain,
 					       instance->partition->pc);
+	instance->partition->UpdateEffectiveReplayGainMode();
+
 	client_manager_init();
 	input_stream_global_init();
 	playlist_list_global_init();
@@ -580,7 +593,7 @@ try {
 	   playlist_state_restore() */
 	instance->partition->pc.LockUpdateAudio();
 
-#ifdef WIN32
+#ifdef _WIN32
 	win32_app_started();
 #endif
 
@@ -595,7 +608,7 @@ try {
 	/* run the main loop */
 	instance->event_loop.Run();
 
-#ifdef WIN32
+#ifdef _WIN32
 	win32_app_stopping();
 #endif
 
@@ -665,10 +678,6 @@ try {
 
 #ifdef ENABLE_DAEMON
 	daemonize_finish();
-#endif
-
-#ifdef WIN32
-	WSACleanup();
 #endif
 
 	IcuFinish();

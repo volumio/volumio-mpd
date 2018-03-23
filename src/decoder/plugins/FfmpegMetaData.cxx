@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,7 @@
 #include "FfmpegMetaData.hxx"
 #include "tag/TagTable.hxx"
 #include "tag/TagHandler.hxx"
+#include "tag/Id3MusicBrainz.hxx"
 
 extern "C" {
 #include <libavutil/dict.h>
@@ -72,6 +73,11 @@ FfmpegScanDictionary(AVDictionary *dict,
 				      handler, handler_ctx);
 
 		for (const struct tag_table *i = ffmpeg_tags;
+		     i->name != nullptr; ++i)
+			FfmpegScanTag(i->type, dict, i->name,
+				      handler, handler_ctx);
+
+		for (const struct tag_table *i = musicbrainz_txxx_tags;
 		     i->name != nullptr; ++i)
 			FfmpegScanTag(i->type, dict, i->name,
 				      handler, handler_ctx);

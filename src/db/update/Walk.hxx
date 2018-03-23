@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,7 +36,7 @@ class UpdateWalk final {
 	friend class UpdateArchiveVisitor;
 #endif
 
-#ifndef WIN32
+#ifndef _WIN32
 	static constexpr bool DEFAULT_FOLLOW_INSIDE_SYMLINKS = true;
 	static constexpr bool DEFAULT_FOLLOW_OUTSIDE_SYMLINKS = true;
 
@@ -78,7 +78,7 @@ public:
 private:
 	gcc_pure
 	bool SkipSymlink(const Directory *directory,
-			 const char *utf8_name) const;
+			 const char *utf8_name) const noexcept;
 
 	void RemoveExcludedFromDirectory(Directory &directory,
 					 const ExcludeList &exclude_list);

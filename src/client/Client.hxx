@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -100,7 +100,7 @@ public:
 	}
 
 	gcc_pure
-	bool IsExpired() const {
+	bool IsExpired() const noexcept {
 		return !FullyBufferedSocket::IsDefined();
 	}
 
@@ -160,7 +160,7 @@ public:
 	};
 
 	gcc_pure
-	bool IsSubscribed(const char *channel_name) const {
+	bool IsSubscribed(const char *channel_name) const noexcept {
 		return subscriptions.find(channel_name) != subscriptions.end();
 	}
 
@@ -186,16 +186,15 @@ public:
 	 * Wrapper for Instance::GetDatabase().
 	 */
 	gcc_pure
-	const Database *GetDatabase() const;
+	const Database *GetDatabase() const noexcept;
 
 	/**
 	 * Wrapper for Instance::GetDatabaseOrThrow().
 	 */
-	gcc_pure
 	const Database &GetDatabaseOrThrow() const;
 
 	gcc_pure
-	const Storage *GetStorage() const;
+	const Storage *GetStorage() const noexcept;
 
 private:
 	/* virtual methods from class BufferedSocket */

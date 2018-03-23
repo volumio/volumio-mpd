@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,7 +41,7 @@ try {
 		return;
 	}
 
-#ifndef WIN32
+#ifndef _WIN32
 	try {
 		const auto x = AllocatedPath::Build(path_fs,
 						    PathTraitsFS::CURRENT_DIRECTORY);

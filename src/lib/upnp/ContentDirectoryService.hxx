@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 
 #include "Compiler.h"
 
-#include <upnp/upnp.h>
+#include <upnp.h>
 
 #include <string>
 #include <list>
@@ -114,12 +114,12 @@ public:
 	std::list<std::string> getSearchCapabilities(UpnpClient_Handle handle) const;
 
 	gcc_pure
-	std::string GetURI() const {
+	std::string GetURI() const noexcept {
 		return "upnp://" + m_deviceId + "/" + m_serviceType;
 	}
 
 	/** Retrieve the "friendly name" for this server, useful for display. */
-	const char *getFriendlyName() const {
+	const char *getFriendlyName() const noexcept {
 		return m_friendlyName.c_str();
 	}
 };

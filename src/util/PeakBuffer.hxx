@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,12 +57,12 @@ public:
 	PeakBuffer &operator=(const PeakBuffer &) = delete;
 
 	gcc_pure
-	bool IsEmpty() const;
+	bool IsEmpty() const noexcept;
 
 	gcc_pure
-	WritableBuffer<void> Read() const;
+	WritableBuffer<void> Read() const noexcept;
 
-	void Consume(size_t length);
+	void Consume(size_t length) noexcept;
 
 	bool Append(const void *data, size_t length);
 };

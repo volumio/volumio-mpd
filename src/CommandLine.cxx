@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -67,7 +67,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #define CONFIG_FILE_LOCATION PATH_LITERAL("mpd\\mpd.conf")
 #define APP_CONFIG_FILE_LOCATION PATH_LITERAL("conf\\mpd.conf")
 #else
@@ -107,7 +107,7 @@ static void version(void)
 	       "\n"
 	       "\n"
 	       "Copyright (C) 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
-	       "Copyright (C) 2008-2015 Max Kellermann <max@duempel.org>\n"
+	       "Copyright 2008-2017 Max Kellermann <max.kellermann@gmail.com>\n"
 	       "This is free software; see the source for copying conditions.  There is NO\n"
 	       "warranty; not even MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n"
 
@@ -389,7 +389,7 @@ ParseCommandLine(int argc, char **argv, struct options *options)
 	ConfigLoader loader;
 
 	bool found =
-#ifdef WIN32
+#ifdef _WIN32
 		loader.TryFile(GetUserConfigDir(), CONFIG_FILE_LOCATION) ||
 		loader.TryFile(GetSystemConfigDir(), CONFIG_FILE_LOCATION) ||
 		loader.TryFile(GetAppBaseDir(), APP_CONFIG_FILE_LOCATION);

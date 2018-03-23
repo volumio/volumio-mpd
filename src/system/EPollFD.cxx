@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 #include "EPollFD.hxx"
 #include "FatalError.hxx"
 
-#ifdef __BIONIC__
+#if defined(__BIONIC__) && __ANDROID_API__ < 21
 
 #include <sys/syscall.h>
 #include <fcntl.h>
