@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,9 +25,9 @@
 #ifndef NDEBUG
 
 bool
-MusicPipe::Contains(const MusicChunk *chunk) const
+MusicPipe::Contains(const MusicChunk *chunk) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	for (const MusicChunk *i = head; i != nullptr; i = i->next)
 		if (i == chunk)
@@ -39,9 +39,9 @@ MusicPipe::Contains(const MusicChunk *chunk) const
 #endif
 
 MusicChunk *
-MusicPipe::Shift()
+MusicPipe::Shift() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	MusicChunk *chunk = head;
 	if (chunk != nullptr) {
@@ -73,7 +73,7 @@ MusicPipe::Shift()
 }
 
 void
-MusicPipe::Clear(MusicBuffer &buffer)
+MusicPipe::Clear(MusicBuffer &buffer) noexcept
 {
 	MusicChunk *chunk;
 
@@ -82,12 +82,12 @@ MusicPipe::Clear(MusicBuffer &buffer)
 }
 
 void
-MusicPipe::Push(MusicChunk *chunk)
+MusicPipe::Push(MusicChunk *chunk) noexcept
 {
 	assert(!chunk->IsEmpty());
 	assert(chunk->length == 0 || chunk->audio_format.IsValid());
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	assert(size > 0 || !audio_format.IsDefined());
 	assert(!audio_format.IsDefined() ||

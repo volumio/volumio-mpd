@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2012-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@
 
 #include <cstddef>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
@@ -45,7 +45,7 @@
  */
 class SocketAddress {
 public:
-#ifdef WIN32
+#ifdef _WIN32
 	typedef int size_type;
 #else
 	typedef socklen_t size_type;
@@ -93,9 +93,9 @@ public:
 	}
 
 	gcc_pure
-	bool operator==(const SocketAddress other) const;
+	bool operator==(const SocketAddress other) const noexcept;
 
-	bool operator!=(const SocketAddress other) const {
+	bool operator!=(const SocketAddress other) const noexcept {
 		return !(*this == other);
 	}
 };

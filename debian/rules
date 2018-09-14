@@ -1,0 +1,151 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/architecture.mk
+
+WITH_TREMOR=--without-tremor --enable-vorbis --disable-shine-encoder
+ifeq ($(DEB_HOST_ARCH), arm)
+WITH_TREMOR=--with-tremor --disable-vorbis --enable-shine-encoder
+endif
+ifeq ($(DEB_HOST_ARCH), armel)
+WITH_TREMOR=--with-tremor --disable-vorbis --enable-shine-encoder
+endif
+ifeq ($(DEB_HOST_ARCH), armeb)
+WITH_TREMOR=--with-tremor --disable-vorbis --enable-shine-encoder
+endif
+
+# no systemd and no alsa on non-linux arches
+ifeq ($(DEB_HOST_ARCH_OS), linux)
+WITH_SYSTEMD=--enable-systemd-daemon --with-systemdsystemunitdir=/lib/systemd/system --with-systemduserunitdir=/usr/lib/systemd/user --enable-alsa
+else
+WITH_SYSTEMD=--disable-systemd-daemon --disable-alsa
+endif
+
+# no smbclient on hurd-i386 (#815441)
+ENABLE_SMBCLIENT=--enable-smbclient
+ifeq ($(DEB_HOST_ARCH), hurd-i386)
+    ENABLE_SMBCLIENT=--disable-smbclient
+endif
+
+
+###############################################################
+## Define Debian feature set (in configure summary order)
+RUN_TESTS=--enable-test
+
+# Archive support
+ENABLE_ARCHIVES=--enable-bzip2 \
+	        --enable-iso9660 \
+		--enable-zlib \
+		--enable-zzip
+
+# Autodiscovery support
+ENABLE_AUTODISCOVERY=--enable-neighbor-plugins \
+		     --enable-upnp \
+		     --with-zeroconf=avahi
+
+# Client support
+ENABLE_CLIENTS=--enable-ipv6 \
+	       --enable-tcp \
+	       --enable-un
+
+# Storage support
+ENABLE_STORAGE=--enable-nfs \
+	       ${ENABLE_SMBCLIENT} \
+	       --enable-webdav
+
+# File format support
+# Note: OggTremor / OggVorbis are in WITH_TREMOR
+ENABLE_FILEFORMATS=--enable-aac \
+		   --enable-adplug \
+		   --enable-sidplay \
+		   --enable-ffmpeg \
+		   --enable-flac \
+		   --enable-fluidsynth \
+		   --enable-gme \
+		   --enable-sndfile \
+		   --enable-mikmod \
+		   --enable-modplug \
+		   --enable-mad \
+		   --enable-mpg123 \
+		   --enable-mpc \
+		   --enable-opus \
+		   --enable-audiofile \
+		   --enable-wavpack \
+		   --enable-wildmidi
+
+# Other features
+ENABLE_OTHER=--with-boost \
+	     --enable-cue \
+	     --enable-database \
+	     --enable-expat \
+	     --enable-icu \
+	     --enable-lsr \
+	     --enable-libmpdclient \
+	     --enable-libwrap \
+	     --enable-inotify \
+	     --enable-soxr \
+	     --enable-sqlite \
+	     --enable-syslog
+
+# Metadata support
+ENABLE_METADATA=--enable-id3
+
+# Playback support
+# Note: ALSA is in WITH_SYSTEMD
+ENABLE_PLAYBACKS=--enable-fifo \
+		 --disable-sndio \
+		 --enable-recorder-output \
+		 --disable-haiku \
+		 --enable-httpd-output \
+		 --disable-jack \
+		 --enable-ao \
+		 --disable-oss \
+		 --enable-openal \
+		 --enable-pipe-output \
+		 --enable-pulse \
+		 --enable-roar \
+		 --enable-shout
+
+# Streaming encoder support
+# Note: FLAC and Opus enabled under file formats
+ENABLE_ENCODERS=--enable-lame-encoder \
+		--enable-vorbis-encoder \
+		--disable-twolame-encoder \
+		--enable-wave-encoder
+
+# Streaming support
+ENABLE_STREAMING=--enable-cdio-paranoia \
+		 --enable-curl \
+		 --enable-soundcloud \
+		 --enable-mms
+
+###############################################################
+
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+LDFLAGS += -Wl,--as-needed
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(WITH_TREMOR) $(WITH_SYSTEMD) \
+		$(RUN_TESTS) \
+		$(ENABLE_ARCHIVES) \
+		$(ENABLE_AUTODISCOVERY) \
+		$(ENABLE_CLIENTS) \
+		$(ENABLE_STORAGE) \
+		$(ENABLE_FILEFORMATS) \
+		$(ENABLE_OTHER) \
+		$(ENABLE_METADATA) \
+		$(ENABLE_PLAYBACKS) \
+		$(ENABLE_ENCODERS) \
+		$(ENABLE_STREAMING)
+
+override_dh_auto_build:
+	dh_auto_build
+	# from the available documentation, generate just the user manual, as one html file
+	/usr/bin/xmlto --stringparam chunker.output.encoding=utf-8 html-nochunks $(CURDIR)/doc/user.xml
+	mv user.html user-manual.html
+
+override_dh_installchangelogs:
+	dh_installchangelogs NEWS
+	rm debian/mpd/usr/share/doc/mpd/COPYING debian/mpd/usr/share/doc/mpd/NEWS debian/mpd/usr/share/doc/mpd/README.md

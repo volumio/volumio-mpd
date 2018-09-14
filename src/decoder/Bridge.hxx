@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,6 +48,11 @@ public:
 	 * The time stamp of the next data chunk, in seconds.
 	 */
 	double timestamp = 0;
+
+	/**
+	 * The time stamp of the next data chunk, in PCM frames.
+	 */
+	uint64_t absolute_frame = 0;
 
 	/**
 	 * Is the initial seek (to the start position of the sub-song)
@@ -114,7 +119,7 @@ public:
 	 * Caller must lock the #DecoderControl object.
 	 */
 	gcc_pure
-	bool CheckCancelRead() const;
+	bool CheckCancelRead() const noexcept;
 
 	/**
 	 * Returns the current chunk the decoder writes to, or allocates a new
@@ -122,7 +127,7 @@ public:
 	 *
 	 * @return the chunk, or NULL if we have received a decoder command
 	 */
-	MusicChunk *GetChunk();
+	MusicChunk *GetChunk() noexcept;
 
 	/**
 	 * Flushes the current chunk.
@@ -134,10 +139,10 @@ public:
 	/* virtual methods from DecoderClient */
 	void Ready(AudioFormat audio_format,
 		   bool seekable, SignedSongTime duration) override;
-	DecoderCommand GetCommand() override;
+	DecoderCommand GetCommand() noexcept override;
 	void CommandFinished() override;
-	SongTime GetSeekTime() override;
-	uint64_t GetSeekFrame() override;
+	SongTime GetSeekTime() noexcept override;
+	uint64_t GetSeekFrame() noexcept override;
 	void SeekError() override;
 	InputStreamPtr OpenUri(const char *uri) override;
 	size_t Read(InputStream &is, void *buffer, size_t length) override;
@@ -161,8 +166,8 @@ private:
 	 * "virtual" synthesized command, e.g. to seek to the
 	 * beginning of the CUE track.
 	 */
-	DecoderCommand GetVirtualCommand();
-	DecoderCommand LockGetVirtualCommand();
+	DecoderCommand GetVirtualCommand() noexcept;
+	DecoderCommand LockGetVirtualCommand() noexcept;
 
 	/**
 	 * Sends a #Tag as-is to the #MusicPipe.  Flushes the current

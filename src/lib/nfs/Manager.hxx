@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -59,15 +59,15 @@ class NfsManager final : IdleMonitor {
 	struct Compare {
 		gcc_pure
 		bool operator()(const LookupKey a,
-				const ManagedConnection &b) const;
+				const ManagedConnection &b) const noexcept;
 
 		gcc_pure
 		bool operator()(const ManagedConnection &a,
-				const LookupKey b) const;
+				const LookupKey b) const noexcept;
 
 		gcc_pure
 		bool operator()(const ManagedConnection &a,
-				const ManagedConnection &b) const;
+				const ManagedConnection &b) const noexcept;
 	};
 
 	/**
@@ -99,7 +99,7 @@ public:
 
 	gcc_pure
 	NfsConnection &GetConnection(const char *server,
-				     const char *export_name);
+				     const char *export_name) noexcept;
 
 private:
 	void ScheduleDelete(ManagedConnection &c) {

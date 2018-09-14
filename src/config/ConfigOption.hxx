@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 
 #include "Compiler.h"
 
-#if defined(WIN32) && CLANG_OR_GCC_VERSION(4,7)
+#if defined(_WIN32) && CLANG_OR_GCC_VERSION(4,7)
 /* "INPUT" is declared by winuser.h */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wshadow"
@@ -93,7 +93,7 @@ enum class ConfigBlockOption {
 	MAX
 };
 
-#if defined(WIN32) && CLANG_OR_GCC_VERSION(4,7)
+#if defined(_WIN32) && CLANG_OR_GCC_VERSION(4,7)
 #pragma GCC diagnostic pop
 #endif
 
@@ -102,13 +102,13 @@ enum class ConfigBlockOption {
  */
 gcc_pure
 enum ConfigOption
-ParseConfigOptionName(const char *name);
+ParseConfigOptionName(const char *name) noexcept;
 
 /**
  * @return #ConfigOption::MAX if not found
  */
 gcc_pure
 enum ConfigBlockOption
-ParseConfigBlockOptionName(const char *name);
+ParseConfigBlockOptionName(const char *name) noexcept;
 
 #endif

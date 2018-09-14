@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,12 +18,13 @@
  */
 
 #include "AudioFormat.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/StringFormat.hxx"
 
 #include <assert.h>
-#include <stdio.h>
 
 void
-AudioFormat::ApplyMask(AudioFormat mask)
+AudioFormat::ApplyMask(AudioFormat mask) noexcept
 {
 	assert(IsValid());
 	assert(mask.IsMaskValid());
@@ -40,46 +41,19 @@ AudioFormat::ApplyMask(AudioFormat mask)
 	assert(IsValid());
 }
 
-const char *
-sample_format_to_string(SampleFormat format)
+StringBuffer<24>
+ToString(const AudioFormat af) noexcept
 {
-	switch (format) {
-	case SampleFormat::UNDEFINED:
-		return "?";
-
-	case SampleFormat::S8:
-		return "8";
-
-	case SampleFormat::S16:
-		return "16";
-
-	case SampleFormat::S24_P32:
-		return "24";
-
-	case SampleFormat::S32:
-		return "32";
-
-	case SampleFormat::FLOAT:
-		return "f";
-
-	case SampleFormat::DSD:
-		return "dsd";
+	if (af.format == SampleFormat::DSD && af.sample_rate > 0 &&
+	    af.sample_rate % 44100 == 0) {
+		/* use shortcuts such as "dsd64" which implies the
+		   sample rate */
+		return StringFormat<24>("dsd%u:%u",
+					af.sample_rate * 8 / 44100,
+					af.channels);
 	}
 
-	/* unreachable */
-	assert(false);
-	gcc_unreachable();
-}
-
-const char *
-audio_format_to_string(const AudioFormat af,
-		       struct audio_format_string *s)
-{
-	assert(s != nullptr);
-
-	snprintf(s->buffer, sizeof(s->buffer), "%u:%s:%u",
-		 af.sample_rate, sample_format_to_string(af.format),
-		 af.channels);
-
-	return s->buffer;
+	return StringFormat<24>("%u:%s:%u",
+				af.sample_rate, sample_format_to_string(af.format),
+				af.channels);
 }

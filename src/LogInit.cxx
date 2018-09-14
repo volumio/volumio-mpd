@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -72,7 +72,7 @@ log_init_file(int line)
 
 	out_fd = open_log_file();
 	if (out_fd < 0) {
-#ifdef WIN32
+#ifdef _WIN32
 		const std::string out_path_utf8 = out_path.ToUTF8();
 		throw FormatRuntimeError("failed to open log file \"%s\" (config line %d)",
 					 out_path_utf8.c_str(), line);
@@ -182,7 +182,7 @@ void setup_log_output()
 	fflush(nullptr);
 
 	if (out_fd < 0) {
-#ifdef WIN32
+#ifdef _WIN32
 		return;
 #else
 		out_fd = open("/dev/null", O_WRONLY);

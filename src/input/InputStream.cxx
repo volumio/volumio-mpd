@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #include "config.h"
 #include "InputStream.hxx"
 #include "thread/Cond.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 #include <stdexcept>
 
@@ -64,7 +64,7 @@ InputStream::WaitReady()
 void
 InputStream::LockWaitReady()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	WaitReady();
 }
 
@@ -75,14 +75,14 @@ InputStream::LockWaitReady()
  */
 gcc_pure
 static bool
-ExpensiveSeeking(const char *uri)
+ExpensiveSeeking(const char *uri) noexcept
 {
-	return StringStartsWith(uri, "http://") ||
-		StringStartsWith(uri, "https://");
+	return StringStartsWithCaseASCII(uri, "http://") ||
+		StringStartsWithCaseASCII(uri, "https://");
 }
 
 bool
-InputStream::CheapSeeking() const
+InputStream::CheapSeeking() const noexcept
 {
 	return IsSeekable() && !ExpensiveSeeking(uri.c_str());
 }
@@ -96,14 +96,14 @@ InputStream::Seek(gcc_unused offset_type new_offset)
 void
 InputStream::LockSeek(offset_type _offset)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	Seek(_offset);
 }
 
 void
 InputStream::LockSkip(offset_type _offset)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	Skip(_offset);
 }
 
@@ -116,12 +116,12 @@ InputStream::ReadTag()
 Tag *
 InputStream::LockReadTag()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	return ReadTag();
 }
 
 bool
-InputStream::IsAvailable()
+InputStream::IsAvailable() noexcept
 {
 	return true;
 }
@@ -135,7 +135,7 @@ InputStream::LockRead(void *ptr, size_t _size)
 #endif
 	assert(_size > 0);
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	return Read(ptr, _size);
 }
 
@@ -164,13 +164,13 @@ InputStream::LockReadFull(void *ptr, size_t _size)
 #endif
 	assert(_size > 0);
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	ReadFull(ptr, _size);
 }
 
 bool
-InputStream::LockIsEOF()
+InputStream::LockIsEOF() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	return IsEOF();
 }

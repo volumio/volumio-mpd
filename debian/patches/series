@@ -1,0 +1,4 @@
+hurd_pthread.patch
+# Debian-specific
+systemd_honor_MPDCONF.patch
+mpd.service.documentation.user.patch

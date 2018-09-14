@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@
 #include <stdlib.h>
 
 bool
-DsdId::Equals(const char *s) const
+DsdId::Equals(const char *s) const noexcept
 {
 	assert(s != nullptr);
 	assert(strlen(s) == sizeof(value));
@@ -95,7 +95,7 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 }
 
 bool
-dsdlib_valid_freq(uint32_t samplefreq)
+dsdlib_valid_freq(uint32_t samplefreq) noexcept
 {
 	switch (samplefreq) {
 	case 2822400: /* DSD64, 64xFs, Fs = 44.100kHz */
@@ -128,7 +128,7 @@ dsdlib_tag_id3(InputStream &is,
 		return;
 
 	const auto count64 = size - tagoffset;
-	if (count64 < 10 || count64 > 1024 * 1024)
+	if (count64 < 10 || count64 > 4 * 1024 * 1024)
 		return;
 
 	if (!dsdlib_skip_to(nullptr, is, tagoffset))

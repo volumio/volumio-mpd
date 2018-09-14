@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,9 +23,7 @@
 #include "../InputPlugin.hxx"
 #include "lib/nfs/Glue.hxx"
 #include "lib/nfs/FileReader.hxx"
-#include "util/StringCompare.hxx"
-
-#include <string.h>
+#include "util/ASCII.hxx"
 
 /**
  * Do not buffer more than this number of bytes.  It should be a
@@ -142,7 +140,7 @@ NfsInputStream::DoSeek(offset_type new_offset)
 void
 NfsInputStream::OnNfsFileOpen(uint64_t _size)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (reconnecting) {
 		/* reconnect has succeeded */
@@ -162,7 +160,7 @@ NfsInputStream::OnNfsFileOpen(uint64_t _size)
 void
 NfsInputStream::OnNfsFileRead(const void *data, size_t data_size)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	assert(!IsBufferFull());
 	assert(IsBufferFull() == (GetBufferSpace() == 0));
 	AppendToBuffer(data, data_size);
@@ -175,7 +173,7 @@ NfsInputStream::OnNfsFileRead(const void *data, size_t data_size)
 void
 NfsInputStream::OnNfsFileError(std::exception_ptr &&e)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (IsPaused()) {
 		/* while we're paused, don't report this error to the
@@ -219,7 +217,7 @@ static InputStream *
 input_nfs_open(const char *uri,
 	       Mutex &mutex, Cond &cond)
 {
-	if (!StringStartsWith(uri, "nfs://"))
+	if (!StringStartsWithCaseASCII(uri, "nfs://"))
 		return nullptr;
 
 	NfsInputStream *is = new NfsInputStream(uri, mutex, cond);

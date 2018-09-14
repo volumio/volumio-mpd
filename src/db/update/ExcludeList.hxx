@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@
 #include "check.h"
 #include "Compiler.h"
 #include "fs/Glob.hxx"
+#include "input/Ptr.hxx"
 
 #ifdef HAVE_CLASS_GLOB
 #include <forward_list>
@@ -50,7 +51,7 @@ public:
 		:parent(&_parent) {}
 
 	gcc_pure
-	bool IsEmpty() const {
+	bool IsEmpty() const noexcept {
 #ifdef HAVE_CLASS_GLOB
 		return ((parent == nullptr) || parent->IsEmpty()) && patterns.empty();
 #else
@@ -62,13 +63,16 @@ public:
 	/**
 	 * Loads and parses a .mpdignore file.
 	 */
-	bool LoadFile(Path path_fs);
+	bool Load(InputStreamPtr is);
 
 	/**
 	 * Checks whether one of the patterns in the .mpdignore file matches
 	 * the specified file name.
 	 */
-	bool Check(Path name_fs) const;
+	bool Check(Path name_fs) const noexcept;
+
+private:
+	void ParseLine(char *line) noexcept;
 };
 
 

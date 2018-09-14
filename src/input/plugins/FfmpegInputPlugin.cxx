@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #include "../InputStream.hxx"
 #include "../InputPlugin.hxx"
 #include "PluginUnavailable.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 extern "C" {
 #include <libavformat/avio.h>
@@ -59,7 +59,7 @@ struct FfmpegInputStream final : public InputStream {
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 	void Seek(offset_type offset) override;
 };
@@ -85,12 +85,12 @@ static InputStream *
 input_ffmpeg_open(const char *uri,
 		  Mutex &mutex, Cond &cond)
 {
-	if (!StringStartsWith(uri, "gopher://") &&
-	    !StringStartsWith(uri, "rtp://") &&
-	    !StringStartsWith(uri, "rtsp://") &&
-	    !StringStartsWith(uri, "rtmp://") &&
-	    !StringStartsWith(uri, "rtmpt://") &&
-	    !StringStartsWith(uri, "rtmps://"))
+	if (!StringStartsWithCaseASCII(uri, "gopher://") &&
+	    !StringStartsWithCaseASCII(uri, "rtp://") &&
+	    !StringStartsWithCaseASCII(uri, "rtsp://") &&
+	    !StringStartsWithCaseASCII(uri, "rtmp://") &&
+	    !StringStartsWithCaseASCII(uri, "rtmpt://") &&
+	    !StringStartsWithCaseASCII(uri, "rtmps://"))
 		return nullptr;
 
 	AVIOContext *h;
@@ -104,7 +104,13 @@ input_ffmpeg_open(const char *uri,
 size_t
 FfmpegInputStream::Read(void *ptr, size_t read_size)
 {
-	auto result = avio_read(h, (unsigned char *)ptr, read_size);
+	int result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		result = avio_read(h, (unsigned char *)ptr, read_size);
+	}
+
 	if (result <= 0) {
 		if (result < 0)
 			throw MakeFfmpegError(result, "avio_read() failed");
@@ -118,7 +124,7 @@ FfmpegInputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-FfmpegInputStream::IsEOF()
+FfmpegInputStream::IsEOF() noexcept
 {
 	return eof;
 }
@@ -126,7 +132,12 @@ FfmpegInputStream::IsEOF()
 void
 FfmpegInputStream::Seek(offset_type new_offset)
 {
-	auto result = avio_seek(h, new_offset, SEEK_SET);
+	int64_t result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		result = avio_seek(h, new_offset, SEEK_SET);
+	}
 
 	if (result < 0)
 		throw MakeFfmpegError(result, "avio_seek() failed");

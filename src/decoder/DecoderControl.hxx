@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -227,30 +227,30 @@ struct DecoderControl {
 	}
 
 	gcc_pure
-	bool LockIsIdle() const {
-		const ScopeLock protect(mutex);
+	bool LockIsIdle() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		return IsIdle();
 	}
 
-	bool IsStarting() const {
+	bool IsStarting() const noexcept {
 		return state == DecoderState::START;
 	}
 
 	gcc_pure
-	bool LockIsStarting() const {
-		const ScopeLock protect(mutex);
+	bool LockIsStarting() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		return IsStarting();
 	}
 
-	bool HasFailed() const {
+	bool HasFailed() const noexcept {
 		assert(command == DecoderCommand::NONE);
 
 		return state == DecoderState::ERROR;
 	}
 
 	gcc_pure
-	bool LockHasFailed() const {
-		const ScopeLock protect(mutex);
+	bool LockHasFailed() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		return HasFailed();
 	}
 
@@ -281,7 +281,7 @@ struct DecoderControl {
 	 * Like CheckRethrowError(), but locks and unlocks the object.
 	 */
 	void LockCheckRethrowError() const {
-		const ScopeLock protect(mutex);
+		const std::lock_guard<Mutex> protect(mutex);
 		CheckRethrowError();
 	}
 
@@ -305,12 +305,17 @@ struct DecoderControl {
 	 * Caller must lock the object.
 	 */
 	gcc_pure
-	bool IsCurrentSong(const DetachedSong &_song) const;
+	bool IsCurrentSong(const DetachedSong &_song) const noexcept;
 
 	gcc_pure
-	bool LockIsCurrentSong(const DetachedSong &_song) const {
-		const ScopeLock protect(mutex);
-		return IsCurrentSong(_song);
+	bool IsSeekableCurrentSong(const DetachedSong &_song) const noexcept {
+		return seekable && IsCurrentSong(_song);
+	}
+
+	gcc_pure
+	bool LockIsSeeakbleCurrentSong(const DetachedSong &_song) const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
+		return IsSeekableCurrentSong(_song);
 	}
 
 private:
@@ -346,13 +351,13 @@ private:
 	 * object.
 	 */
 	void LockSynchronousCommand(DecoderCommand cmd) {
-		const ScopeLock protect(mutex);
+		const std::lock_guard<Mutex> protect(mutex);
 		ClearError();
 		SynchronousCommandLocked(cmd);
 	}
 
 	void LockAsynchronousCommand(DecoderCommand cmd) {
-		const ScopeLock protect(mutex);
+		const std::lock_guard<Mutex> protect(mutex);
 		command = cmd;
 		Signal();
 	}
@@ -415,6 +420,9 @@ public:
 	 * mixramp_start/mixramp_end.
 	 */
 	void CycleMixRamp();
+
+private:
+	void RunThread();
 };
 
 #endif

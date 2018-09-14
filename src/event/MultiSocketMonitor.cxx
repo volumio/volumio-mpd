@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,17 +23,23 @@
 
 #include <algorithm>
 
-#ifndef WIN32
+#ifndef _WIN32
 #include <poll.h>
 #endif
 
 MultiSocketMonitor::MultiSocketMonitor(EventLoop &_loop)
-	:IdleMonitor(_loop), TimeoutMonitor(_loop), ready(false) {
+	:IdleMonitor(_loop), TimeoutMonitor(_loop) {
 }
 
-MultiSocketMonitor::~MultiSocketMonitor()
+void
+MultiSocketMonitor::Reset()
 {
-	// TODO
+	assert(GetEventLoop().IsInsideOrNull());
+
+	fds.clear();
+	IdleMonitor::Cancel();
+	TimeoutMonitor::Cancel();
+	ready = refresh = false;
 }
 
 void
@@ -44,7 +50,7 @@ MultiSocketMonitor::ClearSocketList()
 	fds.clear();
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 
 void
 MultiSocketMonitor::ReplaceSocketList(pollfd *pfds, unsigned n)
@@ -73,9 +79,9 @@ MultiSocketMonitor::ReplaceSocketList(pollfd *pfds, unsigned n)
 void
 MultiSocketMonitor::Prepare()
 {
-	int timeout_ms = PrepareSockets();
-	if (timeout_ms >= 0)
-		TimeoutMonitor::Schedule(timeout_ms);
+	const auto timeout = PrepareSockets();
+	if (timeout >= timeout.zero())
+		TimeoutMonitor::Schedule(timeout);
 	else
 		TimeoutMonitor::Cancel();
 

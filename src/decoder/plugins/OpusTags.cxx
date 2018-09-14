@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,7 +31,7 @@
 
 gcc_pure
 static TagType
-ParseOpusTagName(const char *name)
+ParseOpusTagName(const char *name) noexcept
 {
 	TagType type = tag_name_parse_i(name);
 	if (type != TAG_NUM_OF_ITEM_TYPES)
@@ -53,6 +53,14 @@ ScanOneOpusTag(const char *name, const char *value,
 		long l = strtol(value, &endptr, 10);
 		if (endptr > value && *endptr == 0)
 			rgi->track.gain = double(l) / 256.;
+	} else if (rgi != nullptr && strcmp(name, "R128_ALBUM_GAIN") == 0) {
+		/* R128_ALBUM_GAIN is a Q7.8 fixed point number in
+		   dB */
+
+		char *endptr;
+		long l = strtol(value, &endptr, 10);
+		if (endptr > value && *endptr == 0)
+			rgi->album.gain = double(l) / 256.;
 	}
 
 	tag_handler_invoke_pair(handler, ctx, name, value);

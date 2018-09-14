@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,7 @@
 #include "Domain.hxx"
 #include "LogV.hxx"
 #include "util/Domain.hxx"
+#include "util/StringFormat.hxx"
 
 extern "C" {
 #include <libavutil/log.h>
@@ -34,7 +35,7 @@ extern "C" {
 
 gcc_const
 static LogLevel
-FfmpegImportLogLevel(int level)
+FfmpegImportLogLevel(int level) noexcept
 {
 	if (level <= AV_LOG_FATAL)
 		return LogLevel::ERROR;
@@ -57,9 +58,10 @@ FfmpegLogCallback(gcc_unused void *ptr, int level, const char *fmt, va_list vl)
 		cls = *(const AVClass *const*)ptr;
 
 	if (cls != nullptr) {
-		char domain[64];
-		snprintf(domain, sizeof(domain), "%s/%s",
-			 ffmpeg_domain.GetName(), cls->item_name(ptr));
+		const auto domain =
+			StringFormat<64>("%s/%s",
+					 ffmpeg_domain.GetName(),
+					 cls->item_name(ptr));
 		const Domain d(domain);
 		LogFormatV(d, FfmpegImportLogLevel(level), fmt, vl);
 	}

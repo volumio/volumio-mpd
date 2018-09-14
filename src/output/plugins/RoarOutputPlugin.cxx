@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * Copyright (C) 2010-2011 Philipp 'ph3-der-loewe' Schafft
  * Copyright (C) 2010-2011 Hans-Kristian 'maister' Arntzen
  *
@@ -35,6 +35,8 @@
 #define new _new
 #include <roaraudio.h>
 #undef new
+
+#include <assert.h>
 
 class RoarOutput {
 	friend struct AudioOutputWrapper<RoarOutput>;
@@ -73,7 +75,7 @@ static constexpr Domain roar_output_domain("roar_output");
 
 gcc_pure
 static int
-GetConfiguredRole(const ConfigBlock &block)
+GetConfiguredRole(const ConfigBlock &block) noexcept
 {
 	const char *role = block.GetBlockValue("role");
 	return role != nullptr
@@ -92,7 +94,7 @@ RoarOutput::RoarOutput(const ConfigBlock &block)
 inline int
 RoarOutput::GetVolume() const
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (vss == nullptr || !alive)
 		return -1;
@@ -116,7 +118,7 @@ RoarOutput::SetVolume(unsigned volume)
 {
 	assert(volume <= 100);
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	if (vss == nullptr || !alive)
 		throw std::runtime_error("closed");
 
@@ -177,7 +179,7 @@ roar_use_audio_format(struct roar_audio_info *info,
 inline void
 RoarOutput::Open(AudioFormat &audio_format)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (roar_simple_connect(&con,
 				host.empty() ? nullptr : host.c_str(),
@@ -201,7 +203,7 @@ RoarOutput::Open(AudioFormat &audio_format)
 inline void
 RoarOutput::Close()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	alive = false;
 
@@ -214,7 +216,7 @@ RoarOutput::Close()
 inline void
 RoarOutput::Cancel()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (vss == nullptr)
 		return;
@@ -289,8 +291,6 @@ roar_tag_convert(TagType type, bool *is_uuid)
 		case TAG_MUSICBRAINZ_ALBUMID:
 		case TAG_MUSICBRAINZ_ALBUMARTISTID:
 		case TAG_MUSICBRAINZ_TRACKID:
-			*is_uuid = true;
-			return "HASH";
 		case TAG_MUSICBRAINZ_RELEASETRACKID:
 			*is_uuid = true;
 			return "HASH";
@@ -306,7 +306,7 @@ RoarOutput::SendTag(const Tag &tag)
 	if (vss == nullptr)
 		return;
 
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	size_t cnt = 0;
 	struct roar_keyval vals[32];

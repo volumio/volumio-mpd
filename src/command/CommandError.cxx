@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,14 +23,38 @@
 #include "db/DatabaseError.hxx"
 #include "client/Response.hxx"
 #include "Log.hxx"
+#include "util/Exception.hxx"
 
 #include <system_error>
 
 #include <assert.h>
 
+#define GLIBCXX_490 20140422
+#define GLIBCXX_491 20140716
+#define GLIBCXX_492 20141030
+#define GLIBCXX_492_Debian_9 20141220
+#define GLIBCXX_493 20150626
+#define GLIBCXX_494 20160803
+#define GLIBCXX_49X_NDK_r13b 20150123
+
+/* the big mess attempts to detect whether we're compiling with
+   libstdc++ 4.9.x; __GLIBCXX__ is a date tag and cannot be used to
+   check the major version; and just checking the compiler version
+   isn't enough, because somebody could use an old libstdc++ with
+   clang - SIGH! */
+#if GCC_OLDER_THAN(5,0) || (defined(__GLIBCXX__) &&		     \
+	(__GLIBCXX__ == GLIBCXX_490 || __GLIBCXX__ == GLIBCXX_491 || \
+	 __GLIBCXX__ == GLIBCXX_492 || \
+	 __GLIBCXX__ == GLIBCXX_492_Debian_9 || \
+	 __GLIBCXX__ == GLIBCXX_493 || \
+	 __GLIBCXX__ == GLIBCXX_494 || \
+	 __GLIBCXX__ == GLIBCXX_49X_NDK_r13b))
+#define GLIBCXX_49X
+#endif
+
 gcc_const
 static enum ack
-ToAck(PlaylistResult result)
+ToAck(PlaylistResult result) noexcept
 {
 	switch (result) {
 	case PlaylistResult::SUCCESS:
@@ -66,7 +90,7 @@ ToAck(PlaylistResult result)
 #ifdef ENABLE_DATABASE
 gcc_const
 static enum ack
-ToAck(DatabaseErrorCode code)
+ToAck(DatabaseErrorCode code) noexcept
 {
 	switch (code) {
 	case DatabaseErrorCode::DISABLED:
@@ -83,7 +107,7 @@ ToAck(DatabaseErrorCode code)
 
 gcc_pure
 static enum ack
-ToAck(std::exception_ptr ep)
+ToAck(std::exception_ptr ep) noexcept
 {
 	try {
 		std::rethrow_exception(ep);
@@ -99,13 +123,17 @@ ToAck(std::exception_ptr ep)
 		return ACK_ERROR_SYSTEM;
 	} catch (const std::invalid_argument &e) {
 		return ACK_ERROR_ARG;
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20151204
+	} catch (const std::length_error &e) {
+		return ACK_ERROR_ARG;
+	} catch (const std::out_of_range &e) {
+		return ACK_ERROR_ARG;
+#ifdef GLIBCXX_49X
 	} catch (const std::exception &e) {
 #else
 	} catch (...) {
 #endif
 		try {
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20151204
+#ifdef GLIBCXX_49X
 			/* workaround for g++ 4.x: no overload for
 			   rethrow_exception(exception_ptr) */
 			std::rethrow_if_nested(e);
@@ -122,12 +150,6 @@ ToAck(std::exception_ptr ep)
 void
 PrintError(Response &r, std::exception_ptr ep)
 {
-	try {
-		std::rethrow_exception(ep);
-	} catch (const std::exception &e) {
-		LogError(e);
-		r.Error(ToAck(ep), e.what());
-	} catch (...) {
-		r.Error(ACK_ERROR_UNKNOWN, "Unknown error");
-	}
+	LogError(ep);
+	r.Error(ToAck(ep), FullMessage(ep).c_str());
 }

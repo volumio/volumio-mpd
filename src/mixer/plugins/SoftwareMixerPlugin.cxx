@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -71,7 +71,7 @@ software_mixer_init(gcc_unused EventLoop &event_loop,
 
 gcc_const
 static unsigned
-PercentVolumeToSoftwareVolume(unsigned volume)
+PercentVolumeToSoftwareVolume(unsigned volume) noexcept
 {
 	assert(volume <= 100);
 

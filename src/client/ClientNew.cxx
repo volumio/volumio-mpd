@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
 #include "Log.hxx"
 
 #include <assert.h>
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
@@ -53,7 +53,7 @@ Client::Client(EventLoop &_loop, Partition &_partition,
 	 idle_waiting(false), idle_flags(0),
 	 num_subscriptions(0)
 {
-	TimeoutMonitor::ScheduleSeconds(client_timeout);
+	TimeoutMonitor::Schedule(client_timeout);
 }
 
 void

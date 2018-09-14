@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,7 +31,7 @@ extern bool decoder_plugins_enabled[];
 
 gcc_pure
 const struct DecoderPlugin *
-decoder_plugin_from_name(const char *name);
+decoder_plugin_from_name(const char *name) noexcept;
 
 /* this is where we "load" all the "plugins" ;-) */
 void
@@ -86,6 +86,6 @@ decoder_plugins_for_each_enabled(F f)
  */
 gcc_pure gcc_nonnull_all
 bool
-decoder_plugins_supports_suffix(const char *suffix);
+decoder_plugins_supports_suffix(const char *suffix) noexcept;
 
 #endif

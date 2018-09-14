@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #include "fs/Path.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/FormatString.hxx"
+#include "util/StringFormat.hxx"
 #include "util/UriUtil.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
@@ -38,7 +38,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 #define SUBTUNE_PREFIX "tune_"
 
@@ -74,7 +73,7 @@ gme_plugin_init(gcc_unused const ConfigBlock &block)
 
 gcc_pure
 static unsigned
-ParseSubtuneName(const char *base)
+ParseSubtuneName(const char *base) noexcept
 {
 	if (memcmp(base, SUBTUNE_PREFIX, sizeof(SUBTUNE_PREFIX) - 1) != 0)
 		return 0;
@@ -191,20 +190,17 @@ ScanGmeInfo(const gme_info_t &info, unsigned song_num, int track_count,
 		tag_handler_invoke_duration(handler, handler_ctx,
 					    SongTime::FromMS(info.play_length));
 
-	if (track_count > 1) {
-		char track[16];
-		sprintf(track, "%u", song_num + 1);
-		tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK, track);
-	}
+	if (track_count > 1)
+		tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK,
+				       StringFormat<16>("%u", song_num + 1));
 
 	if (info.song != nullptr) {
 		if (track_count > 1) {
 			/* start numbering subtunes from 1 */
-			char tag_title[1024];
-			snprintf(tag_title, sizeof(tag_title),
-				 "%s (%u/%d)",
-				 info.song, song_num + 1,
-				 track_count);
+			const auto tag_title =
+				StringFormat<1024>("%s (%u/%d)",
+						   info.song, song_num + 1,
+						   track_count);
 			tag_handler_invoke_tag(handler, handler_ctx,
 					       TAG_TITLE, tag_title);
 		} else
@@ -293,13 +289,13 @@ gme_container_scan(Path path_fs)
 	TagBuilder tag_builder;
 
 	auto tail = list.before_begin();
-	for (unsigned i = 1; i <= num_songs; ++i) {
+	for (unsigned i = 0; i < num_songs; ++i) {
 		ScanMusicEmu(emu, i,
 			     add_tag_handler, &tag_builder);
 
-		char track_name[64];
-		snprintf(track_name, sizeof(track_name),
-			 SUBTUNE_PREFIX "%03u.%s", i, subtune_suffix);
+		const auto track_name =
+			StringFormat<64>(SUBTUNE_PREFIX "%03u.%s", i+1,
+					 subtune_suffix);
 		tail = list.emplace_after(tail, track_name,
 					  tag_builder.Commit());
 	}

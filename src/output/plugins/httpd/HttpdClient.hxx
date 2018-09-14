@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -82,11 +82,6 @@ class HttpdClient final
 	 */
 	bool head_method;
 
-	/**
-         * If DLNA streaming was an option.
-         */
-	bool dlna_streaming_requested;
-
 	/* ICY */
 
 	/**
@@ -168,7 +163,7 @@ public:
 	bool SendResponse();
 
 	gcc_pure
-	ssize_t GetBytesTillMetaData() const;
+	ssize_t GetBytesTillMetaData() const noexcept;
 
 	ssize_t TryWritePage(const Page &page, size_t position);
 	ssize_t TryWritePageN(const Page &page, size_t position, ssize_t n);

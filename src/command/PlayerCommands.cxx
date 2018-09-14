@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,7 +30,9 @@
 #include "Instance.hxx"
 #include "Idle.hxx"
 #include "AudioFormat.hxx"
+#include "util/StringBuffer.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/Exception.hxx"
 
 #ifdef ENABLE_DATABASE
 #include "db/update/Service.hxx"
@@ -170,13 +172,9 @@ handle_status(Client &client, gcc_unused Request args, Response &r)
 			r.Format("duration: %1.3f\n",
 				 player_status.total_time.ToDoubleS());
 
-		if (player_status.audio_format.IsDefined()) {
-			struct audio_format_string af_string;
-
+		if (player_status.audio_format.IsDefined())
 			r.Format(COMMAND_STATUS_AUDIO ": %s\n",
-				 audio_format_to_string(player_status.audio_format,
-							&af_string));
-		}
+				 ToString(player_status.audio_format).c_str());
 	}
 
 #ifdef ENABLE_DATABASE
@@ -192,10 +190,9 @@ handle_status(Client &client, gcc_unused Request args, Response &r)
 
 	try {
 		client.player_control.LockCheckRethrowError();
-	} catch (const std::exception &e) {
-		r.Format(COMMAND_STATUS_ERROR ": %s\n", e.what());
 	} catch (...) {
-		r.Format(COMMAND_STATUS_ERROR ": unknown\n");
+		r.Format(COMMAND_STATUS_ERROR ": %s\n",
+			 FullMessage(std::current_exception()).c_str());
 	}
 
 	song = playlist.GetNextPosition();

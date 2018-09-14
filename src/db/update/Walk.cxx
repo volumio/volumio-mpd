@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,6 +36,9 @@
 #include "fs/Traits.hxx"
 #include "fs/FileSystem.hxx"
 #include "storage/FileInfo.hxx"
+#include "input/InputStream.hxx"
+#include "input/Error.hxx"
+#include "thread/Cond.hxx"
 #include "util/Alloc.hxx"
 #include "util/StringCompare.hxx"
 #include "util/UriUtil.hxx"
@@ -55,7 +58,7 @@ UpdateWalk::UpdateWalk(EventLoop &_loop, DatabaseListener &_listener,
 	 storage(_storage),
 	 editor(_loop, _listener)
 {
-#ifndef WIN32
+#ifndef _WIN32
 	follow_inside_symlinks =
 		config_get_bool(ConfigOption::FOLLOW_INSIDE_SYMLINKS,
 				DEFAULT_FOLLOW_INSIDE_SYMLINKS);
@@ -104,7 +107,7 @@ inline void
 UpdateWalk::PurgeDeletedFromDirectory(Directory &directory)
 {
 	directory.ForEachChildSafe([&](Directory &child){
-			if (DirectoryExists(storage, child))
+			if (child.IsMount() || DirectoryExists(storage, child))
 				return;
 
 			editor.LockDeleteDirectory(&child);
@@ -133,7 +136,7 @@ UpdateWalk::PurgeDeletedFromDirectory(Directory &directory)
 	}
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 static bool
 update_directory_stat(Storage &storage, Directory &directory)
 {
@@ -156,7 +159,7 @@ static int
 FindAncestorLoop(Storage &storage, Directory *parent,
 		 unsigned inode, unsigned device)
 {
-#ifndef WIN32
+#ifndef _WIN32
 	if (device == 0 && inode == 0)
 		/* can't detect loops if the Storage does not support
 		   these numbers */
@@ -248,7 +251,7 @@ try {
 /* we don't look at "." / ".." nor files with newlines in their name */
 gcc_pure
 static bool
-skip_path(const char *name_utf8)
+skip_path(const char *name_utf8) noexcept
 {
 	return strchr(name_utf8, '\n') != nullptr;
 }
@@ -256,9 +259,9 @@ skip_path(const char *name_utf8)
 gcc_pure
 bool
 UpdateWalk::SkipSymlink(const Directory *directory,
-			const char *utf8_name) const
+			const char *utf8_name) const noexcept
 {
-#ifndef WIN32
+#ifndef _WIN32
 	const auto path_fs = storage.MapChildFS(directory->GetPath(),
 						utf8_name);
 	if (path_fs.IsNull())
@@ -345,11 +348,16 @@ UpdateWalk::UpdateDirectory(Directory &directory,
 
 	ExcludeList child_exclude_list(exclude_list);
 
-	{
-		const auto exclude_path_fs =
-			storage.MapChildFS(directory.GetPath(), ".mpdignore");
-		if (!exclude_path_fs.IsNull())
-			child_exclude_list.LoadFile(exclude_path_fs);
+	try {
+		Mutex mutex;
+		Cond cond;
+		auto is = InputStream::OpenReady(PathTraitsUTF8::Build(storage.MapUTF8(directory.GetPath()).c_str(),
+								       ".mpdignore").c_str(),
+						 mutex, cond);
+		child_exclude_list.Load(std::move(is));
+	} catch (...) {
+		if (!IsFileNotFound(std::current_exception()))
+			LogError(std::current_exception());
 	}
 
 	if (!child_exclude_list.IsEmpty())

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,11 +42,6 @@ class RefCount {
 	std::atomic_uint n;
 
 public:
-#ifndef _LIBCPP_VERSION
-	/* the "constexpr" is missing in libc++'s "atomic"
-	   implementation */
-	constexpr
-#endif
 	RefCount():n(1) {}
 
 	void Increment() {

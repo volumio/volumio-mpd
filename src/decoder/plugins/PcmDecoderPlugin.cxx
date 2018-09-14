@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,8 @@ FillBuffer(DecoderClient &client, InputStream &is, B &buffer)
 {
 	buffer.Shift();
 	auto w = buffer.Write();
-	assert(!w.IsEmpty());
+	if (w.IsEmpty())
+		return true;
 
 	size_t nbytes = decoder_read(client, is, w.data, w.size);
 	if (nbytes == 0 && is.LockIsEOF())
@@ -80,7 +81,7 @@ pcm_stream_decode(DecoderClient &client, InputStream &is)
 	if (is_float)
 		audio_format.format = SampleFormat::FLOAT;
 
-	{
+	if (mime != nullptr) {
 		const auto mime_parameters = ParseMimeTypeParameters(mime);
 
 		/* MIME type parameters according to RFC 2586 */

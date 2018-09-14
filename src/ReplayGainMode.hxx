@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,13 +36,12 @@ enum class ReplayGainMode : uint8_t {
  */
 gcc_pure
 const char *
-ToString(ReplayGainMode mode);
+ToString(ReplayGainMode mode) noexcept;
 
 /**
  * Parse a string to a #ReplayGainMode.  Throws std::runtime_error on
  * error.
  */
-gcc_pure
 ReplayGainMode
 FromString(const char *s);
 

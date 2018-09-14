@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,7 +31,7 @@
 #endif
 
 #ifdef HAVE_THREAD_NAME
-#  include <stdio.h>
+#include "util/StringFormat.hxx"
 #endif
 
 static inline void
@@ -59,9 +59,7 @@ static inline void
 FormatThreadName(const char *fmt, gcc_unused Args&&... args)
 {
 #ifdef HAVE_THREAD_NAME
-	char buffer[16];
-	snprintf(buffer, sizeof(buffer), fmt, args...);
-	SetThreadName(buffer);
+	SetThreadName(StringFormat<16>(fmt, args...));
 #else
 	(void)fmt;
 #endif

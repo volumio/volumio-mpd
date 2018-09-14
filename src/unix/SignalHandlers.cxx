@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #include "SignalHandlers.hxx"
 #include "event/SignalMonitor.hxx"
 
-#ifndef WIN32
+#ifndef _WIN32
 
 #include "Log.hxx"
 #include "LogInit.hxx"
@@ -61,7 +61,7 @@ SignalHandlersInit(EventLoop &loop)
 {
 	SignalMonitorInit(loop);
 
-#ifndef WIN32
+#ifndef _WIN32
 	struct sigaction sa;
 
 	sa.sa_flags = 0;

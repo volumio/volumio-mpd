@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -178,6 +178,20 @@ VorbisDecoder::SubmitInit()
 	client.Ready(audio_format, eos_granulepos > 0, duration);
 }
 
+#ifdef HAVE_TREMOR
+static inline int16_t tremor_clip_sample(int32_t x)
+{
+	x >>= 9;
+
+	if (x < INT16_MIN)
+		return INT16_MIN;
+	if (x > INT16_MAX)
+		return INT16_MAX;
+
+	return x;
+}
+#endif
+
 bool
 VorbisDecoder::SubmitSomePcm()
 {
@@ -197,7 +211,7 @@ VorbisDecoder::SubmitSomePcm()
 		auto *dest = &buffer[c];
 
 		for (size_t i = 0; i < n_frames; ++i) {
-			*dest = *src++;
+			*dest = tremor_clip_sample(*src++);
 			dest += channels;
 		}
 	}

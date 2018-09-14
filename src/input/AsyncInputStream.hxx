@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -82,25 +82,25 @@ public:
 
 	/* virtual methods from InputStream */
 	void Check() final;
-	bool IsEOF() final;
+	bool IsEOF() noexcept final;
 	void Seek(offset_type new_offset) final;
 	Tag *ReadTag() final;
-	bool IsAvailable() final;
+	bool IsAvailable() noexcept final;
 	size_t Read(void *ptr, size_t read_size) final;
 
 protected:
 	/**
 	 * Pass an tag from the I/O thread to the client thread.
 	 */
-	void SetTag(Tag *_tag);
+	void SetTag(Tag *_tag) noexcept;
 
-	void ClearTag() {
+	void ClearTag() noexcept {
 		SetTag(nullptr);
 	}
 
-	void Pause();
+	void Pause() noexcept;
 
-	bool IsPaused() const {
+	bool IsPaused() const noexcept {
 		return paused;
 	}
 
@@ -109,15 +109,15 @@ protected:
 	 * continue feeding Read() calls from the buffer until it runs
 	 * empty.
 	 */
-	void SetClosed() {
+	void SetClosed() noexcept {
 		open = false;
 	}
 
-	bool IsBufferEmpty() const {
+	bool IsBufferEmpty() const noexcept {
 		return buffer.IsEmpty();
 	}
 
-	bool IsBufferFull() const {
+	bool IsBufferFull() const noexcept {
 		return buffer.IsFull();
 	}
 
@@ -125,21 +125,21 @@ protected:
 	 * Determine how many bytes can be added to the buffer.
 	 */
 	gcc_pure
-	size_t GetBufferSpace() const {
+	size_t GetBufferSpace() const noexcept {
 		return buffer.GetSpace();
 	}
 
-	CircularBuffer<uint8_t>::Range PrepareWriteBuffer() {
+	CircularBuffer<uint8_t>::Range PrepareWriteBuffer() noexcept {
 		return buffer.Write();
 	}
 
-	void CommitWriteBuffer(size_t nbytes);
+	void CommitWriteBuffer(size_t nbytes) noexcept;
 
 	/**
 	 * Append data to the buffer.  The size must fit into the
 	 * buffer; see GetBufferSpace().
 	 */
-	void AppendToBuffer(const void *data, size_t append_size);
+	void AppendToBuffer(const void *data, size_t append_size) noexcept;
 
 	/**
 	 * Implement code here that will resume the stream after it
@@ -154,7 +154,7 @@ protected:
 	 */
 	virtual void DoSeek(offset_type new_offset) = 0;
 
-	bool IsSeekPending() const {
+	bool IsSeekPending() const noexcept {
 		return seek_state == SeekState::PENDING;
 	}
 
@@ -162,14 +162,14 @@ protected:
 	 * Call this after seeking has finished.  It will notify the
 	 * client thread.
 	 */
-	void SeekDone();
+	void SeekDone() noexcept;
 
 private:
 	void Resume();
 
 	/* for DeferredCall */
-	void DeferredResume();
-	void DeferredSeek();
+	void DeferredResume() noexcept;
+	void DeferredSeek() noexcept;
 };
 
 #endif

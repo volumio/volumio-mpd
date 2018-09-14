@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -114,7 +114,7 @@ CompositeStorage::Directory::~Directory()
 }
 
 const CompositeStorage::Directory *
-CompositeStorage::Directory::Find(const char *uri) const
+CompositeStorage::Directory::Find(const char *uri) const noexcept
 {
 	const Directory *directory = this;
 	while (*uri != 0) {
@@ -149,7 +149,7 @@ CompositeStorage::Directory::Make(const char *uri)
 }
 
 bool
-CompositeStorage::Directory::Unmount()
+CompositeStorage::Directory::Unmount() noexcept
 {
 	if (storage == nullptr)
 		return false;
@@ -160,7 +160,7 @@ CompositeStorage::Directory::Unmount()
 }
 
 bool
-CompositeStorage::Directory::Unmount(const char *uri)
+CompositeStorage::Directory::Unmount(const char *uri) noexcept
 {
 	if (StringIsEmpty(uri))
 		return Unmount();
@@ -180,7 +180,7 @@ CompositeStorage::Directory::Unmount(const char *uri)
 
 bool
 CompositeStorage::Directory::MapToRelativeUTF8(std::string &buffer,
-					       const char *uri) const
+					       const char *uri) const noexcept
 {
 	if (storage != nullptr) {
 		const char *result = storage->MapToRelativeUTF8(uri);
@@ -202,7 +202,7 @@ CompositeStorage::Directory::MapToRelativeUTF8(std::string &buffer,
 	return false;
 }
 
-CompositeStorage::CompositeStorage()
+CompositeStorage::CompositeStorage() noexcept
 {
 }
 
@@ -211,9 +211,9 @@ CompositeStorage::~CompositeStorage()
 }
 
 Storage *
-CompositeStorage::GetMount(const char *uri)
+CompositeStorage::GetMount(const char *uri) noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto result = FindStorage(uri);
 	if (*result.uri != 0)
@@ -226,7 +226,7 @@ CompositeStorage::GetMount(const char *uri)
 void
 CompositeStorage::Mount(const char *uri, Storage *storage)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	Directory &directory = root.Make(uri);
 	if (directory.storage != nullptr)
@@ -237,13 +237,13 @@ CompositeStorage::Mount(const char *uri, Storage *storage)
 bool
 CompositeStorage::Unmount(const char *uri)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	return root.Unmount(uri);
 }
 
 CompositeStorage::FindResult
-CompositeStorage::FindStorage(const char *uri) const
+CompositeStorage::FindStorage(const char *uri) const noexcept
 {
 	FindResult result{&root, uri};
 
@@ -266,7 +266,7 @@ CompositeStorage::FindStorage(const char *uri) const
 StorageFileInfo
 CompositeStorage::GetInfo(const char *uri, bool follow)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	std::exception_ptr error;
 
@@ -298,7 +298,7 @@ CompositeStorage::GetInfo(const char *uri, bool follow)
 StorageDirectoryReader *
 CompositeStorage::OpenDirectory(const char *uri)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	const Directory *directory = f.directory->Find(f.uri);
@@ -322,9 +322,9 @@ CompositeStorage::OpenDirectory(const char *uri)
 }
 
 std::string
-CompositeStorage::MapUTF8(const char *uri) const
+CompositeStorage::MapUTF8(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
@@ -334,9 +334,9 @@ CompositeStorage::MapUTF8(const char *uri) const
 }
 
 AllocatedPath
-CompositeStorage::MapFS(const char *uri) const
+CompositeStorage::MapFS(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
@@ -346,9 +346,9 @@ CompositeStorage::MapFS(const char *uri) const
 }
 
 const char *
-CompositeStorage::MapToRelativeUTF8(const char *uri) const
+CompositeStorage::MapToRelativeUTF8(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (root.storage != nullptr) {
 		const char *result = root.storage->MapToRelativeUTF8(uri);

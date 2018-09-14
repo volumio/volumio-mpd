@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,12 +27,17 @@
 
 #include <assert.h>
 
-static struct {
+static struct IOThread {
 	Mutex mutex;
 	Cond cond;
 
 	EventLoop *loop;
 	Thread thread;
+
+	IOThread():thread(BIND_THIS_METHOD(Run)) {}
+
+private:
+	void Run() noexcept;
 } io;
 
 void
@@ -44,15 +49,15 @@ io_thread_run(void)
 	io.loop->Run();
 }
 
-static void
-io_thread_func(gcc_unused void *arg)
+inline void
+IOThread::Run() noexcept
 {
 	SetThreadName("io");
 
 	/* lock+unlock to synchronize with io_thread_start(), to be
 	   sure that io.thread is set */
-	io.mutex.lock();
-	io.mutex.unlock();
+	mutex.lock();
+	mutex.unlock();
 
 	io_thread_run();
 }
@@ -72,8 +77,8 @@ io_thread_start()
 	assert(io.loop != nullptr);
 	assert(!io.thread.IsDefined());
 
-	const ScopeLock protect(io.mutex);
-	io.thread.Start(io_thread_func, nullptr);
+	const std::lock_guard<Mutex> protect(io.mutex);
+	io.thread.Start();
 }
 
 void
@@ -96,15 +101,19 @@ io_thread_deinit(void)
 }
 
 EventLoop &
-io_thread_get()
+io_thread_get() noexcept
 {
 	assert(io.loop != nullptr);
 
 	return *io.loop;
 }
 
+#ifndef NDEBUG
+
 bool
-io_thread_inside(void)
+io_thread_inside() noexcept
 {
 	return io.thread.IsInside();
 }
+
+#endif

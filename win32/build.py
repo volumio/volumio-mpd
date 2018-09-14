@@ -5,11 +5,22 @@ import sys, subprocess
 
 configure_args = sys.argv[1:]
 
-host_arch = 'i686-w64-mingw32'
+x64 = True
 
-if len(configure_args) > 0 and configure_args[0] == '--64':
-    configure_args = configure_args[1:]
+while len(configure_args) > 0:
+    arg = configure_args[0]
+    if arg == '--64':
+        x64 = True
+    elif arg == '--32':
+        x64 = False
+    else:
+        break
+    configure_args.pop(0)
+
+if x64:
     host_arch = 'x86_64-w64-mingw32'
+else:
+    host_arch = 'i686-w64-mingw32'
 
 # the path to the MPD sources
 mpd_path = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]) or '.', '..'))
@@ -39,15 +50,22 @@ class CrossGccToolchain:
         self.nm = os.path.join(toolchain_bin, arch + '-nm')
         self.strip = os.path.join(toolchain_bin, arch + '-strip')
 
-        common_flags = ''
-        self.cflags = '-O2 -g ' + common_flags
-        self.cxxflags = '-O2 -g ' + common_flags
-        self.cppflags = '-isystem ' + os.path.join(install_prefix, 'include')
+        common_flags = '-O2 -g'
+
+        if not x64:
+            # enable SSE support which is required for LAME
+            common_flags += ' -march=pentium3'
+
+        self.cflags = common_flags
+        self.cxxflags = common_flags
+        self.cppflags = '-isystem ' + os.path.join(install_prefix, 'include') + \
+                        ' -DWINVER=0x0600 -D_WIN32_WINNT=0x0600'
         self.ldflags = '-L' + os.path.join(install_prefix, 'lib')
         self.libs = ''
 
         self.is_arm = arch.startswith('arm')
         self.is_armv7 = self.is_arm and 'armv7' in self.cflags
+        self.is_aarch64 = arch == 'aarch64'
         self.is_windows = 'mingw32' in arch
 
         self.env = dict(os.environ)
@@ -59,14 +77,18 @@ class CrossGccToolchain:
 # a list of third-party libraries to be used by MPD on Android
 from build.libs import *
 thirdparty_libs = [
+    libmpdclient,
     libogg,
     libvorbis,
     opus,
     flac,
     zlib,
     libid3tag,
+    liblame,
     ffmpeg,
     curl,
+    libexpat,
+    libnfs,
     boost,
 ]
 
@@ -100,6 +122,10 @@ configure = [
     '--disable-icu',
 
 ] + configure_args
+
+from build.cmdline import concatenate_cmdline_variables
+configure = concatenate_cmdline_variables(configure,
+    set(('CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'LIBS')))
 
 subprocess.check_call(configure, env=toolchain.env)
 subprocess.check_call(['/usr/bin/make', '--quiet', '-j12'], env=toolchain.env)

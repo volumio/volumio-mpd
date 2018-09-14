@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,7 +30,8 @@
 DecoderControl::DecoderControl(Mutex &_mutex, Cond &_client_cond,
 			       const AudioFormat _configured_audio_format,
 			       const ReplayGainConfig &_replay_gain_config)
-	:mutex(_mutex), client_cond(_client_cond),
+	:thread(BIND_THIS_METHOD(RunThread)),
+	 mutex(_mutex), client_cond(_client_cond),
 	 configured_audio_format(_configured_audio_format),
 	 replay_gain_config(_replay_gain_config) {}
 
@@ -64,8 +65,7 @@ DecoderControl::SetReady(const AudioFormat audio_format,
 	assert(audio_format.IsValid());
 
 	in_audio_format = audio_format;
-	out_audio_format = audio_format;
-	out_audio_format.ApplyMask(configured_audio_format);
+	out_audio_format = audio_format.WithMask(configured_audio_format);
 
 	seekable = _seekable;
 	total_time = _duration;
@@ -75,7 +75,7 @@ DecoderControl::SetReady(const AudioFormat audio_format,
 }
 
 bool
-DecoderControl::IsCurrentSong(const DetachedSong &_song) const
+DecoderControl::IsCurrentSong(const DetachedSong &_song) const noexcept
 {
 	switch (state) {
 	case DecoderState::STOP:
@@ -112,7 +112,7 @@ DecoderControl::Start(DetachedSong *_song,
 void
 DecoderControl::Stop()
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (command != DecoderCommand::NONE)
 		/* Attempt to cancel the current command.  If it's too

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -162,7 +162,7 @@ FileLog(const Domain &domain, const char *message)
 		domain.GetName(),
 		chomp_length(message), message);
 
-#ifdef WIN32
+#ifdef _WIN32
 	/* force-flush the log file, because setvbuf() does not seem
 	   to have an effect on WIN32 */
 	fflush(stderr);

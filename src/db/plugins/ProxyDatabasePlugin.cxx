@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,7 @@
 #include "tag/TagBuilder.hxx"
 #include "tag/Tag.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/RuntimeError.hxx"
 #include "protocol/Ack.hxx"
 #include "event/SocketMonitor.hxx"
 #include "event/IdleMonitor.hxx"
@@ -46,7 +47,7 @@
 #include <string>
 #include <list>
 
-class LibmpdclientError final : std::runtime_error {
+class LibmpdclientError final : public std::runtime_error {
 	enum mpd_error code;
 
 public:
@@ -81,6 +82,7 @@ class ProxyDatabase final : public Database, SocketMonitor, IdleMonitor {
 	DatabaseListener &listener;
 
 	const std::string host;
+	const std::string password;
 	const unsigned port;
 	const bool keepalive;
 
@@ -108,8 +110,8 @@ public:
 	static Database *Create(EventLoop &loop, DatabaseListener &listener,
 				const ConfigBlock &block);
 
-	virtual void Open() override;
-	virtual void Close() override;
+	void Open() override;
+	void Close() override;
 	const LightSong *GetSong(const char *uri_utf8) const override;
 	void ReturnSong(const LightSong *song) const override;
 
@@ -126,7 +128,7 @@ public:
 
 	unsigned Update(const char *uri_utf8, bool discard) override;
 
-	virtual time_t GetUpdateStamp() const override {
+	time_t GetUpdateStamp() const noexcept override {
 		return update_stamp;
 	}
 
@@ -138,10 +140,10 @@ private:
 	void Disconnect();
 
 	/* virtual methods from SocketMonitor */
-	virtual bool OnSocketReady(unsigned flags) override;
+	bool OnSocketReady(unsigned flags) override;
 
 	/* virtual methods from IdleMonitor */
-	virtual void OnIdle() override;
+	void OnIdle() override;
 };
 
 static constexpr struct {
@@ -168,6 +170,13 @@ static constexpr struct {
 #if LIBMPDCLIENT_CHECK_VERSION(2,10,0)
 	{ TAG_MUSICBRAINZ_RELEASETRACKID,
 	  MPD_TAG_MUSICBRAINZ_RELEASETRACKID },
+#endif
+#if LIBMPDCLIENT_CHECK_VERSION(2,11,0)
+	{ TAG_ARTIST_SORT, MPD_TAG_ARTIST_SORT },
+	{ TAG_ALBUM_ARTIST_SORT, MPD_TAG_ALBUM_ARTIST_SORT },
+#endif
+#if LIBMPDCLIENT_CHECK_VERSION(2,12,0)
+	{ TAG_ALBUM_SORT, MPD_TAG_ALBUM_SORT },
 #endif
 	{ TAG_NUM_OF_ITEM_TYPES, MPD_TAG_COUNT }
 };
@@ -215,7 +224,7 @@ ProxySong::ProxySong(const mpd_song *song)
 
 gcc_const
 static enum mpd_tag_type
-Convert(TagType tag_type)
+Convert(TagType tag_type) noexcept
 {
 	for (auto i = &tag_table[0]; i->d != TAG_NUM_OF_ITEM_TYPES; ++i)
 		if (i->d == tag_type)
@@ -324,12 +333,41 @@ SendConstraints(mpd_connection *connection, const DatabaseSelection &selection)
 	return true;
 }
 
+static bool
+SendGroupMask(mpd_connection *connection, tag_mask_t mask)
+{
+#if LIBMPDCLIENT_CHECK_VERSION(2,12,0)
+	for (unsigned i = 0; i < TAG_NUM_OF_ITEM_TYPES; ++i) {
+		if ((mask & (tag_mask_t(1) << i)) == 0)
+			continue;
+
+		const auto tag = Convert(TagType(i));
+		if (tag == MPD_TAG_COUNT)
+			throw std::runtime_error("Unsupported tag");
+
+		if (!mpd_search_add_group_tag(connection, tag))
+			return false;
+	}
+
+	return true;
+#else
+	(void)connection;
+	(void)mask;
+
+	if (mask != 0)
+		throw std::runtime_error("Grouping requires libmpdclient 2.12");
+
+	return true;
+#endif
+}
+
 ProxyDatabase::ProxyDatabase(EventLoop &_loop, DatabaseListener &_listener,
 			     const ConfigBlock &block)
 	:Database(proxy_db_plugin),
 	 SocketMonitor(_loop), IdleMonitor(_loop),
 	 listener(_listener),
 	 host(block.GetBlockValue("host", "")),
+	 password(block.GetBlockValue("password", "")),
 	 port(block.GetBlockValue("port", 0u)),
 	 keepalive(block.GetBlockValue("keepalive", false))
 {
@@ -345,9 +383,15 @@ ProxyDatabase::Create(EventLoop &loop, DatabaseListener &listener,
 void
 ProxyDatabase::Open()
 {
-	Connect();
-
 	update_stamp = 0;
+
+	try {
+		Connect();
+	} catch (const std::runtime_error &error) {
+		/* this error is non-fatal, because this plugin will
+		   attempt to reconnect again automatically */
+		LogError(error);
+	}
 }
 
 void
@@ -367,11 +411,18 @@ ProxyDatabase::Connect()
 
 	try {
 		CheckError(connection);
+
+		if (!password.empty() &&
+		    !mpd_run_password(connection, password.c_str()))
+			ThrowError(connection);
 	} catch (...) {
 		mpd_connection_free(connection);
 		connection = nullptr;
 
-		throw;
+		std::throw_with_nested(host.empty()
+				       ? std::runtime_error("Failed to connect to remote MPD")
+				       : FormatRuntimeError("Failed to connect to remote MPD '%s'",
+							    host.c_str()));
 	}
 
 #if LIBMPDCLIENT_CHECK_VERSION(2, 10, 0)
@@ -564,7 +615,7 @@ Visit(struct mpd_connection *connection,
 
 gcc_pure
 static bool
-Match(const SongFilter *filter, const LightSong &song)
+Match(const SongFilter *filter, const LightSong &song) noexcept
 {
 	return filter == nullptr || filter->Match(song);
 }
@@ -672,7 +723,7 @@ static void
 SearchSongs(struct mpd_connection *connection,
 	    const DatabaseSelection &selection,
 	    VisitSong visit_song)
-{
+try {
 	assert(selection.recursive);
 	assert(visit_song);
 
@@ -699,6 +750,11 @@ SearchSongs(struct mpd_connection *connection,
 
 	if (!mpd_response_finish(connection))
 		ThrowError(connection);
+} catch (...) {
+	if (connection != nullptr)
+		mpd_search_cancel(connection);
+
+	throw;
 }
 
 /**
@@ -707,7 +763,7 @@ SearchSongs(struct mpd_connection *connection,
  */
 gcc_pure
 static bool
-ServerSupportsSearchBase(const struct mpd_connection *connection)
+ServerSupportsSearchBase(const struct mpd_connection *connection) noexcept
 {
 #if LIBMPDCLIENT_CHECK_VERSION(2,9,0)
 	return mpd_connection_cmp_server_version(connection, 0, 18, 0) >= 0;
@@ -746,9 +802,9 @@ ProxyDatabase::Visit(const DatabaseSelection &selection,
 void
 ProxyDatabase::VisitUniqueTags(const DatabaseSelection &selection,
 			       TagType tag_type,
-			       gcc_unused tag_mask_t group_mask,
+			       tag_mask_t group_mask,
 			       VisitTag visit_tag) const
-{
+try {
 	// TODO: eliminate the const_cast
 	const_cast<ProxyDatabase *>(this)->EnsureConnected();
 
@@ -757,32 +813,47 @@ ProxyDatabase::VisitUniqueTags(const DatabaseSelection &selection,
 		throw std::runtime_error("Unsupported tag");
 
 	if (!mpd_search_db_tags(connection, tag_type2) ||
-	    !SendConstraints(connection, selection))
+	    !SendConstraints(connection, selection) ||
+	    !SendGroupMask(connection, group_mask))
 		ThrowError(connection);
-
-	// TODO: use group_mask
 
 	if (!mpd_search_commit(connection))
 		ThrowError(connection);
 
-	while (auto *pair = mpd_recv_pair_tag(connection, tag_type2)) {
+	TagBuilder builder;
+
+	while (auto *pair = mpd_recv_pair(connection)) {
 		AtScopeExit(this, pair) {
 			mpd_return_pair(connection, pair);
 		};
 
-		TagBuilder tag;
-		tag.AddItem(tag_type, pair->value);
+		const auto current_type = tag_name_parse_i(pair->name);
+		if (current_type == TAG_NUM_OF_ITEM_TYPES)
+			continue;
 
-		if (tag.IsEmpty())
+		if (current_type == tag_type && !builder.IsEmpty()) {
+			try {
+				visit_tag(builder.Commit());
+			} catch (...) {
+				mpd_response_finish(connection);
+				throw;
+			}
+		}
+
+		builder.AddItem(current_type, pair->value);
+
+		if (!builder.HasType(current_type))
 			/* if no tag item has been added, then the
 			   given value was not acceptable
 			   (e.g. empty); forcefully insert an empty
 			   tag in this case, as the caller expects the
 			   given tag type to be present */
-			tag.AddEmptyItem(tag_type);
+			builder.AddEmptyItem(current_type);
+	}
 
+	if (!builder.IsEmpty()) {
 		try {
-			visit_tag(tag.Commit());
+			visit_tag(builder.Commit());
 		} catch (...) {
 			mpd_response_finish(connection);
 			throw;
@@ -791,6 +862,11 @@ ProxyDatabase::VisitUniqueTags(const DatabaseSelection &selection,
 
 	if (!mpd_response_finish(connection))
 		ThrowError(connection);
+} catch (...) {
+	if (connection != nullptr)
+		mpd_search_cancel(connection);
+
+	throw;
 }
 
 DatabaseStats

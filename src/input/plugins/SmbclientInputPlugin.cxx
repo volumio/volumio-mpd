@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 #include "../InputPlugin.hxx"
 #include "PluginUnavailable.hxx"
 #include "system/Error.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 #include <libsmbclient.h>
 
@@ -55,7 +55,7 @@ public:
 
 	/* virtual methods from InputStream */
 
-	bool IsEOF() override {
+	bool IsEOF() noexcept override {
 		return offset >= size;
 	}
 
@@ -87,10 +87,10 @@ static InputStream *
 input_smbclient_open(const char *uri,
 		     Mutex &mutex, Cond &cond)
 {
-	if (!StringStartsWith(uri, "smb://"))
+	if (!StringStartsWithCaseASCII(uri, "smb://"))
 		return nullptr;
 
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 
 	SMBCCTX *ctx = smbc_new_context();
 	if (ctx == nullptr)
@@ -125,9 +125,14 @@ input_smbclient_open(const char *uri,
 size_t
 SmbclientInputStream::Read(void *ptr, size_t read_size)
 {
-	smbclient_mutex.lock();
-	ssize_t nbytes = smbc_read(fd, ptr, read_size);
-	smbclient_mutex.unlock();
+	ssize_t nbytes;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		const std::lock_guard<Mutex> lock(smbclient_mutex);
+		nbytes = smbc_read(fd, ptr, read_size);
+	}
+
 	if (nbytes < 0)
 		throw MakeErrno("smbc_read() failed");
 
@@ -138,9 +143,14 @@ SmbclientInputStream::Read(void *ptr, size_t read_size)
 void
 SmbclientInputStream::Seek(offset_type new_offset)
 {
-	smbclient_mutex.lock();
-	off_t result = smbc_lseek(fd, new_offset, SEEK_SET);
-	smbclient_mutex.unlock();
+	off_t result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		const std::lock_guard<Mutex> lock(smbclient_mutex);
+		result = smbc_lseek(fd, new_offset, SEEK_SET);
+	}
+
 	if (result < 0)
 		throw MakeErrno("smbc_lseek() failed");
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,14 +24,13 @@
 #include "Connection.hxx"
 #include "event/Call.hxx"
 #include "IOThread.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 #include <utility>
 
 #include <assert.h>
 #include <string.h>
 #include <fcntl.h>
-#include <sys/stat.h>
 
 NfsFileReader::NfsFileReader()
 	:DeferredMonitor(io_thread_get()), state(State::INITIAL)
@@ -94,7 +93,7 @@ NfsFileReader::Open(const char *uri)
 {
 	assert(state == State::INITIAL);
 
-	if (!StringStartsWith(uri, "nfs://"))
+	if (!StringStartsWithCaseASCII(uri, "nfs://"))
 		throw std::runtime_error("Malformed nfs:// URI");
 
 	uri += 6;

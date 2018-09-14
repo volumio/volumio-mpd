@@ -1,10 +1,10 @@
 AC_PREREQ(2.60)
 
-AC_INIT(mpd, 0.20, musicpd-dev-team@lists.sourceforge.net)
+AC_INIT(mpd, 0.20.21, musicpd-dev-team@lists.sourceforge.net)
 
 VERSION_MAJOR=0
 VERSION_MINOR=20
-VERSION_REVISION=0
+VERSION_REVISION=21
 VERSION_EXTRA=0
 
 AC_CONFIG_SRCDIR([src/Main.cxx])
@@ -16,7 +16,7 @@ AC_CONFIG_MACRO_DIR([m4])
 
 AC_DEFINE(PROTOCOL_VERSION, "0.20.0", [The MPD protocol version])
 
-GIT_COMMIT=`GIT_DIR="$srcdir/.git" git describe --dirty --always 2>/dev/null`
+GIT_COMMIT=`cd "$srcdir" && git describe --dirty --always 2>/dev/null`
 if test x$GIT_COMMIT != x; then
 	AC_DEFINE_UNQUOTED(GIT_COMMIT, ["$GIT_COMMIT"], [The current git commit])
 fi
@@ -51,6 +51,22 @@ if test "x$with_systemdsystemunitdir" != xno; then
 	AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])
 fi
 AM_CONDITIONAL(HAVE_SYSTEMD, [test -n "$with_systemdsystemunitdir" -a "x$with_systemdsystemunitdir" != xno ])
+
+AC_ARG_WITH([systemduserunitdir],
+	    AS_HELP_STRING([--with-systemduserunitdir=DIR], [Directory for systemd service files]),
+	    [], [with_systemduserunitdir=no])
+if test "x$with_systemduserunitdir" = xyes; then
+	AC_MSG_CHECKING(for systemd)
+	with_systemduserunitdir=$($PKG_CONFIG --variable=systemduserunitdir systemd)
+	if test -z "$with_systemduserunitdir"; then
+		AC_MSG_ERROR([Failed to detect systemd])
+	fi
+	AC_MSG_RESULT([$with_systemduserunitdir])
+fi
+if test "x$with_systemduserunitdir" != xno; then
+	AC_SUBST([systemduserunitdir], [$with_systemduserunitdir])
+fi
+AM_CONDITIONAL(HAVE_SYSTEMD_USER, [test -n "$with_systemduserunitdir" -a "x$with_systemduserunitdir" != xno ])
 
 dnl ---------------------------------------------------------------------------
 dnl Declare Variables
@@ -170,6 +186,7 @@ AC_ARG_WITH([android-sdk],
 		[Directory for Android SDK]),
 		[], [with_android_sdk=no])
 
+android_abi=""
 if test x$host_is_android = xyes; then
 	if test x$with_android_sdk = xno; then
 		AC_MSG_ERROR([Android build requires option --with-android-sdk=DIR])
@@ -178,9 +195,15 @@ if test x$host_is_android = xyes; then
 	if ! test -x $with_android_sdk/tools/android; then
 		AC_MSG_ERROR([Android SDK not found in $with_android_sdk])
 	fi
+
+	AS_CASE([$host_cpu],
+		[i686], [android_abi="x86"],
+		[aarch64], [android_abi="arm64-v8a"],
+		[android_abi="armeabi-v7a"])
 fi
 
 AC_SUBST(ANDROID_SDK, [$with_android_sdk])
+AC_SUBST(ANDROID_ABI, [$android_abi])
 
 dnl ---------------------------------------------------------------------------
 dnl Language Checks
@@ -225,6 +248,7 @@ AC_CHECK_FUNCS(getpwnam_r getpwuid_r)
 AC_CHECK_FUNCS(initgroups)
 AC_CHECK_FUNCS(fnmatch)
 AC_CHECK_FUNCS(strndup)
+AC_CHECK_FUNCS(strcasestr)
 
 if test x$host_is_linux = xyes; then
 	MPD_OPTIONAL_FUNC(eventfd, eventfd, USE_EVENTFD)
@@ -298,7 +322,7 @@ else
 fi
 
 default_enable_daemon=yes
-if test x$host_is_android = xyes || test x$host_is_android = xyes; then
+if test x$host_is_android = xyes || test x$host_is_windows = xyes; then
 	default_enable_daemon=no
 fi
 AC_ARG_ENABLE(daemon,
@@ -326,16 +350,6 @@ AC_ARG_ENABLE(fifo,
 	AS_HELP_STRING([--disable-fifo],
 		[disable support for writing audio to a FIFO (default: enable)]),,
 	enable_fifo=yes)
-
-AC_ARG_ENABLE(sndio,
-	AS_HELP_STRING([--enable-sndio],
-		[enable support for sndio output plugin (default: auto)]),,
-	enable_sndio=auto)
-
-AC_ARG_ENABLE(haiku,
-	AS_HELP_STRING([--enable-haiku],
-		[enable the Haiku output plugin (default: auto)]),,
-	enable_haiku=auto)
 
 AC_ARG_ENABLE(httpd-output,
 	AS_HELP_STRING([--enable-httpd-output],
@@ -395,7 +409,7 @@ AC_ARG_ENABLE(recorder-output,
 
 AC_ARG_ENABLE(sidplay,
 	AS_HELP_STRING([--enable-sidplay],
-		[enable C64 SID support via libsidplay2]),,
+		[enable C64 SID support via libsidplayfp or libsidplay2]),,
 	enable_sidplay=auto)
 
 AC_ARG_ENABLE(shout,
@@ -447,7 +461,7 @@ dnl ---------------------------------------------------------------------------
 dnl Mandatory Libraries
 dnl ---------------------------------------------------------------------------
 
-AX_BOOST_BASE([1.46],, [AC_MSG_ERROR([Boost not found])])
+AX_BOOST_BASE([1.54],, [AC_MSG_ERROR([Boost not found])])
 
 AC_ARG_ENABLE(icu,
 	AS_HELP_STRING([--enable-icu],
@@ -485,7 +499,7 @@ if test x$enable_ipv6 = xyes; then
 	AC_EGREP_CPP([AP_maGiC_VALUE],
 	[
 #include <sys/types.h>
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
@@ -713,6 +727,19 @@ fi
 
 MPD_ENABLE_AUTO_PKG(mms, MMS, [libmms >= 0.4],
 	[libmms mms:// protocol support], [libmms not found])
+
+dnl ---------------------------------------------------------------------------
+dnl Storage Plugins
+dnl ---------------------------------------------------------------------------
+
+MPD_ENABLE_AUTO(webdav, WEBDAV, [WebDAV storage plugin],
+	[WebDAV requires libcurl and libexpat],
+	[auto],
+	[if test x$enable_curl = xyes && test x$enable_expat = xyes; then
+		found_webdav=yes
+	else
+		found_webdav=no
+	fi])
 
 dnl ---------------------------------------------------------------------------
 dnl Playlist Plugins
@@ -973,7 +1000,7 @@ AM_CONDITIONAL(ENABLE_VORBIS_DECODER, test x$enable_vorbis = xyes || test x$enab
 dnl --------------------------------- sidplay ---------------------------------
 if test x$enable_sidplay != xno; then
 	dnl Check for libsidplayfp first
-	PKG_CHECK_MODULES([SIDPLAY], [libsidplayfp libsidutils],
+	PKG_CHECK_MODULES([SIDPLAY], [libsidplayfp],
 		[found_sidplayfp=yes],
 		[found_sidplayfp=no])
 	found_sidplay=$found_sidplayfp
@@ -985,7 +1012,7 @@ if test x$enable_sidplay != xno && test x$found_sidplayfp = xno; then
 		[found_sidplay=no])
 
 	MPD_AUTO_PRE(sidplay, [sidplay decoder plugin],
-		[libsidplay2 not found])
+		[libsidplay2 or libsidutils not found])
 fi
 
 if test x$enable_sidplay != xno && test x$found_sidplayfp = xno; then
@@ -997,10 +1024,11 @@ if test x$enable_sidplay != xno && test x$found_sidplayfp = xno; then
 fi
 
 if test x$enable_sidplay = xyes; then
-	SIDPLAY_LIBS="$SIDPLAY_LIBS -lresid-builder"
-	AC_DEFINE(ENABLE_SIDPLAY, 1, [Define for libsidplay2 support])
+	AC_DEFINE(ENABLE_SIDPLAY, 1, [Define for libsidplayfp or libsidplay2 support])
 	if test x$found_sidplayfp = xyes; then
 		AC_DEFINE(HAVE_SIDPLAYFP, 1, [Define if libsidplayfp is used instead of libsidplay2])
+	else
+		SIDPLAY_LIBS="$SIDPLAY_LIBS -lresid-builder"
 	fi
 fi
 
@@ -1113,31 +1141,16 @@ MPD_DEFINE_CONDITIONAL(enable_fifo, HAVE_FIFO,
 	[support for writing audio to a FIFO])
 
 dnl ----------------------------------- SNDIO ----------------------------------
-if test x$enable_sndio = xauto; then
-	AC_CHECK_HEADER(sndio.h,
-		[enable_sndio=yes],
-		[enable_sndio=no;AC_MSG_WARN([sndio.h not found -- disabling support for sndio output])])
-fi
-
-if test x$enable_sndio = xyes; then
-	AC_DEFINE(HAVE_SNDIO,1,[Define for compiling sndio support])
-	LIBS="$LIBS -lsndio"
-fi
-
-AM_CONDITIONAL(HAVE_SNDIO, test x$enable_sndio = xyes)
+MPD_ENABLE_AUTO_HEADER([sndio], [SNDIO], [sndio.h],
+	[-lsndio], [],
+	[sndio output plugin],
+	[libsndio not found])
 
 dnl ----------------------------------- Haiku ---------------------------------
-if test x$enable_haiku = xauto; then
-	AC_CHECK_HEADER(media/MediaDefs.h,
-		[enable_haiku=yes],
-		[enable_haiku=no])
-fi
-if test x$enable_haiku = xyes; then
-	AC_DEFINE(HAVE_HAIKU,1,[Define for compiling Haiku support])
-	LIBS="$LIBS -lbe -lmedia"
-fi
-
-AM_CONDITIONAL(HAVE_HAIKU, test x$enable_haiku = xyes)
+MPD_ENABLE_AUTO_HEADER([haiku], [HAIKU], [media/MediaDefs.h],
+	[-lbe -lmedia], [],
+	[Haiku output plugin],
+	[Haiku headers not found])
 
 dnl ------------------------------- HTTPD Output ------------------------------
 if test x$enable_httpd_output = xauto; then
@@ -1380,6 +1393,11 @@ then
 	AX_APPEND_COMPILE_FLAGS([-Wcast-qual])
 	AX_APPEND_COMPILE_FLAGS([-Wwrite-strings])
 	AX_APPEND_COMPILE_FLAGS([-Wsign-compare])
+
+	dnl This GCC8 warning for C++17 ABI compatibility is of no
+	dnl interest for us, because we're not a shared library.
+	AX_APPEND_COMPILE_FLAGS([-Wno-noexcept-type])
+
 	AC_LANG_POP
 fi
 
@@ -1498,7 +1516,8 @@ dnl Generate files
 dnl ---------------------------------------------------------------------------
 AC_CONFIG_FILES(Makefile)
 AC_CONFIG_FILES(doc/doxygen.conf)
-AC_CONFIG_FILES(systemd/mpd.service)
+AC_CONFIG_FILES(systemd/system/mpd.service)
+AC_CONFIG_FILES(systemd/user/mpd.service)
 AC_OUTPUT
 
 echo 'MPD is ready for compilation, type "make" to begin.'

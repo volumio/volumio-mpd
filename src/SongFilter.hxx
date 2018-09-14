@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,10 @@
 #ifndef MPD_SONG_FILTER_HXX
 #define MPD_SONG_FILTER_HXX
 
-#include "util/AllocatedString.hxx"
+#include "lib/icu/Compare.hxx"
 #include "Compiler.h"
 
+#include <string>
 #include <list>
 
 #include <stdint.h>
@@ -48,9 +49,12 @@ public:
 	class Item {
 		uint8_t tag;
 
-		bool fold_case;
+		std::string value;
 
-		AllocatedString<> value;
+		/**
+		 * This value is only set if case folding is enabled.
+		 */
+		IcuCompare fold_case;
 
 		/**
 		 * For #LOCATE_TAG_MODIFIED_SINCE
@@ -61,11 +65,6 @@ public:
 		gcc_nonnull(3)
 		Item(unsigned tag, const char *value, bool fold_case=false);
 		Item(unsigned tag, time_t time);
-
-		Item(const Item &other) = delete;
-		Item(Item &&) = default;
-
-		Item &operator=(const Item &other) = delete;
 
 		unsigned GetTag() const {
 			return tag;
@@ -80,19 +79,19 @@ public:
 		}
 
 		gcc_pure gcc_nonnull(2)
-		bool StringMatch(const char *s) const;
+		bool StringMatch(const char *s) const noexcept;
 
 		gcc_pure
-		bool Match(const TagItem &tag_item) const;
+		bool Match(const TagItem &tag_item) const noexcept;
 
 		gcc_pure
-		bool Match(const Tag &tag) const;
+		bool Match(const Tag &tag) const noexcept;
 
 		gcc_pure
-		bool Match(const DetachedSong &song) const;
+		bool Match(const DetachedSong &song) const noexcept;
 
 		gcc_pure
-		bool Match(const LightSong &song) const;
+		bool Match(const LightSong &song) const noexcept;
 	};
 
 private:
@@ -112,20 +111,20 @@ public:
 	bool Parse(ConstBuffer<const char *> args, bool fold_case=false);
 
 	gcc_pure
-	bool Match(const Tag &tag) const;
+	bool Match(const Tag &tag) const noexcept;
 
 	gcc_pure
-	bool Match(const DetachedSong &song) const;
+	bool Match(const DetachedSong &song) const noexcept;
 
 	gcc_pure
-	bool Match(const LightSong &song) const;
+	bool Match(const LightSong &song) const noexcept;
 
-	const std::list<Item> &GetItems() const {
+	const std::list<Item> &GetItems() const noexcept {
 		return items;
 	}
 
 	gcc_pure
-	bool IsEmpty() const {
+	bool IsEmpty() const noexcept {
 		return items.empty();
 	}
 
@@ -133,7 +132,7 @@ public:
 	 * Is there at least one item with "fold case" enabled?
 	 */
 	gcc_pure
-	bool HasFoldCase() const {
+	bool HasFoldCase() const noexcept {
 		for (const auto &i : items)
 			if (i.GetFoldCase())
 				return true;
@@ -145,14 +144,21 @@ public:
 	 * Does this filter contain constraints other than "base"?
 	 */
 	gcc_pure
-	bool HasOtherThanBase() const;
+	bool HasOtherThanBase() const noexcept;
 
 	/**
 	 * Returns the "base" specification (if there is one) or
 	 * nullptr.
 	 */
 	gcc_pure
-	const char *GetBase() const;
+	const char *GetBase() const noexcept;
+
+	/**
+	 * Create a copy of the filter with the given prefix stripped
+	 * from all #LOCATE_TAG_BASE_TYPE items.  This is used to
+	 * filter songs in mounted databases.
+	 */
+	SongFilter WithoutBasePrefix(const char *prefix) const noexcept;
 };
 
 /**
@@ -160,6 +166,6 @@ public:
  */
 gcc_pure
 unsigned
-locate_parse_type(const char *str);
+locate_parse_type(const char *str) noexcept;
 
 #endif

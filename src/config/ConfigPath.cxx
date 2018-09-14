@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
 #include <assert.h>
 #include <string.h>
 
-#ifndef WIN32
+#ifndef _WIN32
 #include <pwd.h>
 
 /**
@@ -79,7 +79,7 @@ ParsePath(const char *path)
 {
 	assert(path != nullptr);
 
-#ifndef WIN32
+#ifndef _WIN32
 	if (path[0] == '~') {
 		++path;
 
@@ -119,7 +119,7 @@ ParsePath(const char *path)
 	} else {
 #endif
 		return AllocatedPath::FromUTF8Throw(path);
-#ifndef WIN32
+#ifndef _WIN32
 	}
 #endif
 }

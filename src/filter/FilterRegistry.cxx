@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@ static const FilterPlugin *const filter_plugins[] = {
 };
 
 const FilterPlugin *
-filter_plugin_by_name(const char *name)
+filter_plugin_by_name(const char *name) noexcept
 {
 	for (unsigned i = 0; filter_plugins[i] != nullptr; ++i)
 		if (strcmp(filter_plugins[i]->name, name) == 0)

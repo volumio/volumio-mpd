@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
 
 #include "config.h"
 #include "AsyncInputStream.hxx"
-#include "Domain.hxx"
 #include "tag/Tag.hxx"
 #include "thread/Cond.hxx"
 #include "IOThread.hxx"
@@ -52,14 +51,14 @@ AsyncInputStream::~AsyncInputStream()
 }
 
 void
-AsyncInputStream::SetTag(Tag *_tag)
+AsyncInputStream::SetTag(Tag *_tag) noexcept
 {
 	delete tag;
 	tag = _tag;
 }
 
 void
-AsyncInputStream::Pause()
+AsyncInputStream::Pause() noexcept
 {
 	assert(io_thread_inside());
 
@@ -89,7 +88,7 @@ AsyncInputStream::Check()
 }
 
 bool
-AsyncInputStream::IsEOF()
+AsyncInputStream::IsEOF() noexcept
 {
 	return (KnownSize() && offset >= size) ||
 		(!open && buffer.IsEmpty());
@@ -141,7 +140,7 @@ AsyncInputStream::Seek(offset_type new_offset)
 }
 
 void
-AsyncInputStream::SeekDone()
+AsyncInputStream::SeekDone() noexcept
 {
 	assert(io_thread_inside());
 	assert(IsSeekPending());
@@ -164,7 +163,7 @@ AsyncInputStream::ReadTag()
 }
 
 bool
-AsyncInputStream::IsAvailable()
+AsyncInputStream::IsAvailable() noexcept
 {
 	return postponed_exception ||
 		IsEOF() ||
@@ -201,7 +200,7 @@ AsyncInputStream::Read(void *ptr, size_t read_size)
 }
 
 void
-AsyncInputStream::CommitWriteBuffer(size_t nbytes)
+AsyncInputStream::CommitWriteBuffer(size_t nbytes) noexcept
 {
 	buffer.Append(nbytes);
 
@@ -212,7 +211,7 @@ AsyncInputStream::CommitWriteBuffer(size_t nbytes)
 }
 
 void
-AsyncInputStream::AppendToBuffer(const void *data, size_t append_size)
+AsyncInputStream::AppendToBuffer(const void *data, size_t append_size) noexcept
 {
 	auto w = buffer.Write();
 	assert(!w.IsEmpty());
@@ -238,9 +237,9 @@ AsyncInputStream::AppendToBuffer(const void *data, size_t append_size)
 }
 
 void
-AsyncInputStream::DeferredResume()
+AsyncInputStream::DeferredResume() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	try {
 		Resume();
@@ -251,9 +250,9 @@ AsyncInputStream::DeferredResume()
 }
 
 void
-AsyncInputStream::DeferredSeek()
+AsyncInputStream::DeferredSeek() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	if (seek_state != SeekState::SCHEDULED)
 		return;
 

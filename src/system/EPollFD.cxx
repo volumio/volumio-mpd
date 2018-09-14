@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,21 +21,6 @@
 #ifdef USE_EPOLL
 #include "EPollFD.hxx"
 #include "FatalError.hxx"
-
-#ifdef __BIONIC__
-
-#include <sys/syscall.h>
-#include <fcntl.h>
-
-#define EPOLL_CLOEXEC O_CLOEXEC
-
-static inline int
-epoll_create1(int flags)
-{
-    return syscall(__NR_epoll_create1, flags);
-}
-
-#endif
 
 EPollFD::EPollFD()
 	:fd(::epoll_create1(EPOLL_CLOEXEC))

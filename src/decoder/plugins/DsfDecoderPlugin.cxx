@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -358,6 +358,8 @@ static const char *const dsf_suffixes[] = {
 
 static const char *const dsf_mime_types[] = {
 	"application/x-dsf",
+	"audio/x-dsf",
+	"audio/x-dsd",
 	nullptr
 };
 

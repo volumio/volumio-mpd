@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #include "config.h"
 #include "ls.hxx"
 #include "client/Response.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 #include "util/UriUtil.hxx"
 
 #include <assert.h>
@@ -89,14 +89,15 @@ print_supported_uri_schemes(Response &r)
 	}
 }
 
-bool uri_supported_scheme(const char *uri)
+bool
+uri_supported_scheme(const char *uri) noexcept
 {
 	const char *const*urlPrefixes = remoteUrlPrefixes;
 
 	assert(uri_has_scheme(uri));
 
 	while (*urlPrefixes) {
-		if (StringStartsWith(uri, *urlPrefixes))
+		if (StringStartsWithCaseASCII(uri, *urlPrefixes))
 			return true;
 		urlPrefixes++;
 	}

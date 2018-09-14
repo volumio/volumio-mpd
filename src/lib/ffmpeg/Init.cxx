@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,6 +33,9 @@ FfmpegInit()
 {
 	av_log_set_callback(FfmpegLogCallback);
 
+#if LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58, 9, 100)
+	/* deprecated as of FFmpeg 4.0 */
 	av_register_all();
+#endif
 }
 

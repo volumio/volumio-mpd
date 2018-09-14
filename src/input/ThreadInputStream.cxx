@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,10 +26,14 @@
 #include <assert.h>
 #include <string.h>
 
-ThreadInputStream::~ThreadInputStream()
+void
+ThreadInputStream::Stop() noexcept
 {
+	if (!thread.IsDefined())
+		return;
+
 	{
-		const ScopeLock lock(mutex);
+		const std::lock_guard<Mutex> lock(mutex);
 		close = true;
 		wake_cond.signal();
 	}
@@ -42,6 +46,7 @@ ThreadInputStream::~ThreadInputStream()
 		buffer->Clear();
 		HugeFree(buffer->Write().data, buffer_size);
 		delete buffer;
+		buffer = nullptr;
 	}
 }
 
@@ -54,21 +59,21 @@ ThreadInputStream::Start()
 	assert(p != nullptr);
 
 	buffer = new CircularBuffer<uint8_t>((uint8_t *)p, buffer_size);
-	thread.Start(ThreadFunc, this);
+	thread.Start();
 }
 
-inline void
+void
 ThreadInputStream::ThreadFunc()
 {
 	FormatThreadName("input:%s", plugin);
 
-	const ScopeLock lock(mutex);
+	const std::lock_guard<Mutex> lock(mutex);
 
 	try {
 		Open();
 	} catch (...) {
 		postponed_exception = std::current_exception();
-		cond.broadcast();
+		SetReady();
 		return;
 	}
 
@@ -108,13 +113,6 @@ ThreadInputStream::ThreadFunc()
 }
 
 void
-ThreadInputStream::ThreadFunc(void *ctx)
-{
-	ThreadInputStream &tis = *(ThreadInputStream *)ctx;
-	tis.ThreadFunc();
-}
-
-void
 ThreadInputStream::Check()
 {
 	assert(!thread.IsInside());
@@ -124,7 +122,7 @@ ThreadInputStream::Check()
 }
 
 bool
-ThreadInputStream::IsAvailable()
+ThreadInputStream::IsAvailable() noexcept
 {
 	assert(!thread.IsInside());
 
@@ -158,7 +156,7 @@ ThreadInputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-ThreadInputStream::IsEOF()
+ThreadInputStream::IsEOF() noexcept
 {
 	assert(!thread.IsInside());
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,7 @@ HttpdClient::Close()
 void
 HttpdClient::LockClose()
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::lock_guard<Mutex> protect(httpd.mutex);
 	Close();
 }
 
@@ -122,15 +122,6 @@ HttpdClient::HandleLine(const char *line)
 			return true;
 		}
 
-		if (StringEqualsCaseASCII(line, "transferMode.dlna.org: Streaming", 32)) {
-			/* Send as dlna */
-			dlna_streaming_requested = true;
-			/* metadata is not supported by dlna streaming, so disable it */
-			metadata_supported = false;
-			metadata_requested = false;
-			return true;
-		}
-
 		/* expect more request headers */
 		return true;
 	}
@@ -148,22 +139,7 @@ HttpdClient::SendResponse()
 
 	assert(state == RESPONSE);
 
-	if (dlna_streaming_requested) {
-		snprintf(buffer, sizeof(buffer),
-			 "HTTP/1.1 206 OK\r\n"
-			 "Content-Type: %s\r\n"
-			 "Content-Length: 10000\r\n"
-			 "Content-RangeX: 0-1000000/1000000\r\n"
-			 "transferMode.dlna.org: Streaming\r\n"
-			 "Accept-Ranges: bytes\r\n"
-			 "Connection: close\r\n"
-			 "realTimeInfo.dlna.org: DLNA.ORG_TLAG=*\r\n"
-			 "contentFeatures.dlna.org: DLNA.ORG_OP=01;DLNA.ORG_CI=0\r\n"
-			 "\r\n",
-			 httpd.content_type);
-		response = buffer;
-
-	} else if (metadata_requested) {
+	if (metadata_requested) {
 		allocated =
 			icy_server_metadata_header(httpd.name, httpd.genre,
 						   httpd.website,
@@ -202,7 +178,6 @@ HttpdClient::HttpdClient(HttpdOutput &_httpd, int _fd, EventLoop &_loop,
 	 state(REQUEST),
 	 queue_size(0),
 	 head_method(false),
-	 dlna_streaming_requested(false),
 	 metadata_supported(_metadata_supported),
 	 metadata_requested(false), metadata_sent(true),
 	 metaint(8192), /*TODO: just a std value */
@@ -260,7 +235,7 @@ HttpdClient::TryWritePageN(const Page &page, size_t position, ssize_t n)
 }
 
 ssize_t
-HttpdClient::GetBytesTillMetaData() const
+HttpdClient::GetBytesTillMetaData() const noexcept
 {
 	if (metadata_requested &&
 	    current_page->size - current_position > metaint - metadata_fill)
@@ -272,7 +247,7 @@ HttpdClient::GetBytesTillMetaData() const
 inline bool
 HttpdClient::TryWrite()
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::lock_guard<Mutex> protect(httpd.mutex);
 
 	assert(state == RESPONSE);
 

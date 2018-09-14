@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #include "DirectoryReader.hxx"
 #include "system/Error.hxx"
 
-#ifdef WIN32
+#ifdef _WIN32
 
 DirectoryReader::DirectoryReader(Path dir)
 	:handle(FindFirstFile(MakeWildcardPath(dir.c_str()), &data))

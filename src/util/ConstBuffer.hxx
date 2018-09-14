@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -140,7 +140,7 @@ struct ConstBuffer {
 
 	template<typename U>
 	gcc_pure
-	bool Contains(U &&u) const {
+	bool Contains(U &&u) const noexcept {
 		for (const auto &i : *this)
 			if (u == i)
 				return true;

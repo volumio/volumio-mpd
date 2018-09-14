@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +27,7 @@ class SongFilter;
 
 void
 WalkMount(const char *base, const Database &db,
-	  bool recursive, const SongFilter *filter,
+	  const char* uri, bool recursive, const SongFilter *filter,
 	  const VisitDirectory &visit_directory, const VisitSong &visit_song,
 	  const VisitPlaylist &visit_playlist);
 

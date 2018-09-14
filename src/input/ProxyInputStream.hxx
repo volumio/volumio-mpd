@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,9 +46,9 @@ public:
 	void Check() override;
 	void Update() override;
 	void Seek(offset_type new_offset) override;
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	Tag *ReadTag() override;
-	bool IsAvailable() override;
+	bool IsAvailable() noexcept override;
 	size_t Read(void *ptr, size_t read_size) override;
 
 protected:

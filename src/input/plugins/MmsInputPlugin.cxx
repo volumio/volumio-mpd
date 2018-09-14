@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 #include "input/ThreadInputStream.hxx"
 #include "input/InputPlugin.hxx"
 #include "system/Error.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 #include <libmms/mmsx.h>
 
@@ -37,6 +37,10 @@ public:
 	MmsInputStream(const char *_uri, Mutex &_mutex, Cond &_cond)
 		:ThreadInputStream(input_plugin_mms.name, _uri, _mutex, _cond,
 				   MMS_BUFFER_SIZE) {
+	}
+
+	~MmsInputStream() noexcept override {
+		Stop();
 	}
 
 protected:
@@ -70,10 +74,10 @@ static InputStream *
 input_mms_open(const char *url,
 	       Mutex &mutex, Cond &cond)
 {
-	if (!StringStartsWith(url, "mms://") &&
-	    !StringStartsWith(url, "mmsh://") &&
-	    !StringStartsWith(url, "mmst://") &&
-	    !StringStartsWith(url, "mmsu://"))
+	if (!StringStartsWithCaseASCII(url, "mms://") &&
+	    !StringStartsWithCaseASCII(url, "mmsh://") &&
+	    !StringStartsWithCaseASCII(url, "mmst://") &&
+	    !StringStartsWithCaseASCII(url, "mmsu://"))
 		return nullptr;
 
 	auto m = new MmsInputStream(url, mutex, cond);

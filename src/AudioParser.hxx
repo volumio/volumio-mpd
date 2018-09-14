@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,6 @@
 #ifndef MPD_AUDIO_PARSER_HXX
 #define MPD_AUDIO_PARSER_HXX
 
-#include "Compiler.h"
-
 struct AudioFormat;
 
 /**
@@ -38,7 +36,6 @@ struct AudioFormat;
  * @param src the input string
  * @param mask if true, then "*" is allowed for any number of items
  */
-gcc_pure
 AudioFormat
 ParseAudioFormat(const char *src, bool mask);
 

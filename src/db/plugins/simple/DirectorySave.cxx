@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -40,7 +40,7 @@
 
 gcc_const
 static const char *
-DeviceToTypeString(unsigned device)
+DeviceToTypeString(unsigned device) noexcept
 {
 	switch (device) {
 	case DEVICE_INARCHIVE:
@@ -56,7 +56,7 @@ DeviceToTypeString(unsigned device)
 
 gcc_pure
 static unsigned
-ParseTypeString(const char *type)
+ParseTypeString(const char *type) noexcept
 {
 	if (strcmp(type, "archive") == 0)
 		return DEVICE_INARCHIVE;
@@ -82,10 +82,11 @@ directory_save(BufferedOutputStream &os, const Directory &directory)
 	}
 
 	for (const auto &child : directory.children) {
-		os.Format(DIRECTORY_DIR "%s\n", child.GetName());
+		if (child.IsMount())
+			continue;
 
-		if (!child.IsMount())
-			directory_save(os, child);
+		os.Format(DIRECTORY_DIR "%s\n", child.GetName());
+		directory_save(os, child);
 	}
 
 	for (const auto &song : directory.songs)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,18 +18,66 @@
  */
 
 #include "UriUtil.hxx"
-#include "StringCompare.hxx"
+#include "ASCII.hxx"
+#include "CharUtil.hxx"
 
 #include <assert.h>
 #include <string.h>
 
-bool uri_has_scheme(const char *uri)
+static constexpr bool
+IsValidSchemeStart(char ch)
+{
+	return IsLowerAlphaASCII(ch);
+}
+
+static constexpr bool
+IsValidSchemeChar(char ch)
+{
+	return IsLowerAlphaASCII(ch) || IsDigitASCII(ch) ||
+		ch == '+' || ch == '.' || ch == '-';
+}
+
+gcc_pure
+static bool
+IsValidScheme(StringView p) noexcept
+{
+	if (p.IsEmpty() || !IsValidSchemeStart(p.front()))
+		return false;
+
+	for (size_t i = 1; i < p.size; ++i)
+		if (!IsValidSchemeChar(p[i]))
+			return false;
+
+	return true;
+}
+
+/**
+ * Return the URI part after the scheme specification (and after the
+ * double slash).
+ */
+gcc_pure
+static const char *
+uri_after_scheme(const char *uri) noexcept
+{
+	if (uri[0] == '/' && uri[1] == '/' && uri[2] != '/')
+		return uri + 2;
+
+	const char *colon = strchr(uri, ':');
+	return colon != nullptr &&
+		IsValidScheme({uri, colon}) &&
+		colon[1] == '/' && colon[2] == '/'
+		? colon + 3
+		: nullptr;
+}
+
+bool
+uri_has_scheme(const char *uri) noexcept
 {
 	return strstr(uri, "://") != nullptr;
 }
 
 std::string
-uri_get_scheme(const char *uri)
+uri_get_scheme(const char *uri) noexcept
 {
 	const char *end = strstr(uri, "://");
 	if (end == nullptr)
@@ -38,9 +86,19 @@ uri_get_scheme(const char *uri)
 	return std::string(uri, end);
 }
 
+const char *
+uri_get_path(const char *uri) noexcept
+{
+	const char *ap = uri_after_scheme(uri);
+	if (ap != nullptr)
+		return strchr(ap, '/');
+
+	return uri;
+}
+
 /* suffixes should be ascii only characters */
 const char *
-uri_get_suffix(const char *uri)
+uri_get_suffix(const char *uri) noexcept
 {
 	const char *suffix = strrchr(uri, '.');
 	if (suffix == nullptr || suffix == uri ||
@@ -56,7 +114,7 @@ uri_get_suffix(const char *uri)
 }
 
 const char *
-uri_get_suffix(const char *uri, UriSuffixBuffer &buffer)
+uri_get_suffix(const char *uri, UriSuffixBuffer &buffer) noexcept
 {
 	const char *suffix = uri_get_suffix(uri);
 	if (suffix == nullptr)
@@ -73,7 +131,7 @@ uri_get_suffix(const char *uri, UriSuffixBuffer &buffer)
 }
 
 static const char *
-verify_uri_segment(const char *p)
+verify_uri_segment(const char *p) noexcept
 {
 	unsigned dots = 0;
 	while (*p == '.') {
@@ -89,7 +147,7 @@ verify_uri_segment(const char *p)
 }
 
 bool
-uri_safe_local(const char *uri)
+uri_safe_local(const char *uri) noexcept
 {
 	while (true) {
 		uri = verify_uri_segment(uri);
@@ -107,11 +165,11 @@ uri_safe_local(const char *uri)
 
 gcc_pure
 static const char *
-SkipUriScheme(const char *uri)
+SkipUriScheme(const char *uri) noexcept
 {
 	const char *const schemes[] = { "http://", "https://", "ftp://" };
 	for (auto scheme : schemes) {
-		auto result = StringAfterPrefix(uri, scheme);
+		auto result = StringAfterPrefixCaseASCII(uri, scheme);
 		if (result != nullptr)
 			return result;
 	}
@@ -120,7 +178,7 @@ SkipUriScheme(const char *uri)
 }
 
 std::string
-uri_remove_auth(const char *uri)
+uri_remove_auth(const char *uri) noexcept
 {
 	const char *auth = SkipUriScheme(uri);
 	if (auth == nullptr)
@@ -144,7 +202,7 @@ uri_remove_auth(const char *uri)
 }
 
 bool
-uri_is_child(const char *parent, const char *child)
+uri_is_child(const char *parent, const char *child) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */
@@ -159,13 +217,13 @@ uri_is_child(const char *parent, const char *child)
 
 
 bool
-uri_is_child_or_same(const char *parent, const char *child)
+uri_is_child_or_same(const char *parent, const char *child) noexcept
 {
 	return strcmp(parent, child) == 0 || uri_is_child(parent, child);
 }
 
 std::string
-uri_apply_base(const std::string &uri, const std::string &base)
+uri_apply_base(const std::string &uri, const std::string &base) noexcept
 {
 	if (uri.front() == '/') {
 		/* absolute path: replace the whole URI path in base */

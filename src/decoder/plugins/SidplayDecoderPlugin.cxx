@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,7 @@
 #include "fs/Path.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "util/Macros.hxx"
-#include "util/FormatString.hxx"
+#include "util/StringFormat.hxx"
 #include "util/Domain.hxx"
 #include "system/ByteOrder.hxx"
 #include "Log.hxx"
@@ -49,6 +49,10 @@
 
 #include <string.h>
 #include <stdio.h>
+
+#ifdef HAVE_SIDPLAYFP
+#define LIBSIDPLAYFP_VERSION GCC_MAKE_VERSION(LIBSIDPLAYFP_VERSION_MAJ, LIBSIDPLAYFP_VERSION_MIN, LIBSIDPLAYFP_VERSION_LEV)
+#endif
 
 #define SUBTUNE_PREFIX "tune_"
 
@@ -112,7 +116,7 @@ struct SidplayContainerPath {
 
 gcc_pure
 static unsigned
-ParseSubtuneName(const char *base)
+ParseSubtuneName(const char *base) noexcept
 {
 	if (memcmp(base, SUBTUNE_PREFIX, sizeof(SUBTUNE_PREFIX) - 1) != 0)
 		return 0;
@@ -285,7 +289,11 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 #endif
 
 #ifdef HAVE_SIDPLAYFP
+#if LIBSIDPLAYFP_VERSION >= GCC_MAKE_VERSION(1,8,0)
 	const bool stereo = tune.getInfo()->sidChips() >= 2;
+#else
+	const bool stereo = tune.getInfo()->isStereo();
+#endif
 #else
 	const bool stereo = tune.isStereo();
 #endif
@@ -382,7 +390,7 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 
 gcc_pure
 static const char *
-GetInfoString(const SidTuneInfo &info, unsigned i)
+GetInfoString(const SidTuneInfo &info, unsigned i) noexcept
 {
 #ifdef HAVE_SIDPLAYFP
 	return info.numberOfInfoStrings() > i
@@ -405,10 +413,9 @@ ScanSidTuneInfo(const SidTuneInfo &info, unsigned track, unsigned n_tracks,
 		title = "";
 
 	if (n_tracks > 1) {
-		char tag_title[1024];
-		snprintf(tag_title, sizeof(tag_title),
-			 "%s (%u/%u)",
-			 title, track, n_tracks);
+		const auto tag_title =
+			StringFormat<1024>("%s (%u/%u)",
+					   title, track, n_tracks);
 		tag_handler_invoke_tag(handler, handler_ctx,
 				       TAG_TITLE, tag_title);
 	} else
@@ -427,9 +434,8 @@ ScanSidTuneInfo(const SidTuneInfo &info, unsigned track, unsigned n_tracks,
 				       date);
 
 	/* track */
-	char track_buffer[16];
-	sprintf(track_buffer, "%d", track);
-	tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK, track_buffer);
+	tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK,
+			       StringFormat<16>("%u", track));
 }
 
 static bool

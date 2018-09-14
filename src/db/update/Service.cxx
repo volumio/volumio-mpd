@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2017 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,6 +29,7 @@
 #include "Idle.hxx"
 #include "Log.hxx"
 #include "thread/Thread.hxx"
+#include "thread/Name.hxx"
 #include "thread/Util.hxx"
 
 #ifndef NDEBUG
@@ -43,6 +44,7 @@ UpdateService::UpdateService(EventLoop &_loop, SimpleDatabase &_db,
 	:DeferredMonitor(_loop),
 	 db(_db), storage(_storage),
 	 listener(_listener),
+	 update_thread(BIND_THIS_METHOD(Task)),
 	 update_task_id(0),
 	 walk(nullptr)
 {
@@ -112,6 +114,8 @@ UpdateService::Task()
 {
 	assert(walk != nullptr);
 
+	SetThreadName("update");
+
 	if (!next.path_utf8.empty())
 		FormatDebug(update_domain, "starting: %s",
 			    next.path_utf8.c_str());
@@ -141,13 +145,6 @@ UpdateService::Task()
 }
 
 void
-UpdateService::Task(void *ctx)
-{
-	UpdateService &service = *(UpdateService *)ctx;
-	return service.Task();
-}
-
-void
 UpdateService::StartThread(UpdateQueueItem &&i)
 {
 	assert(GetEventLoop().IsInsideOrNull());
@@ -158,7 +155,7 @@ UpdateService::StartThread(UpdateQueueItem &&i)
 	next = std::move(i);
 	walk = new UpdateWalk(GetEventLoop(), listener, *next.storage);
 
-	update_thread.Start(Task, this);
+	update_thread.Start();
 
 	FormatDebug(update_domain,
 		    "spawned thread for update job id %i", next.id);
@@ -258,7 +255,7 @@ UpdateService::RunDeferred()
 	delete walk;
 	walk = nullptr;
 
-	next = UpdateQueueItem();
+	next.Clear();
 
 	idle_add(IDLE_UPDATE);
 
