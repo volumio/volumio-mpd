@@ -8,8 +8,6 @@ apt-get install -y build-essential automake autoconf libtool pkg-config libcurl4
 apt-get build-dep -y mpd
 
 echo "Creating Package"
-debuild -i -us -uc -b
-
-#or debuild -us -uc
+debuild -i -us -uc -b -d
 
 echo "Done"
