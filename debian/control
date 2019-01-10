@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: mpd maintainers <pkg-mpd-maintainers@lists.alioth.debian.org>
 Uploaders: Florian Schlichting <fsfs@debian.org>
 Build-Depends: debhelper-compat (= 12),
-               meson (>= 0.47.2),
+               meson (>= 0.21.0),
                libadplug-dev,
                libao-dev,
                libasound2-dev  [linux-any],
