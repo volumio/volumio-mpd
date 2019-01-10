@@ -119,7 +119,7 @@ ENABLE_STREAMING=-Dcdio_paranoia=enabled \
 		-Dmms=enabled
 
 # Sphinx documentation
-ENABLE_DOCUMENTATION=-Ddocumentation=true
+ENABLE_DOCUMENTATION=-Ddocumentation=false
 
 ###############################################################
 
@@ -128,7 +128,6 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 LDFLAGS += -Wl,--as-needed
 
 %:
-	dh $@ --with sphinxdoc
 
 override_dh_auto_configure:
 	dh_auto_configure -- $(WITH_SHINE) $(WITH_SYSTEMD) \
