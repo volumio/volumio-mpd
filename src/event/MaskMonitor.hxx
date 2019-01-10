@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_EVENT_MASK_MONITOR_HXX
 #define MPD_EVENT_MASK_MONITOR_HXX
 
-#include "check.h"
-#include "DeferredMonitor.hxx"
+#include "DeferEvent.hxx"
 #include "util/BindMethod.hxx"
 
 #include <atomic>
@@ -32,7 +31,9 @@
  *
  * This class is thread-safe.
  */
-class MaskMonitor final : DeferredMonitor {
+class MaskMonitor final {
+	DeferEvent defer;
+
 	typedef BoundMethod<void(unsigned)> Callback;
 	const Callback callback;
 
@@ -40,16 +41,22 @@ class MaskMonitor final : DeferredMonitor {
 
 public:
 	MaskMonitor(EventLoop &_loop, Callback _callback)
-		:DeferredMonitor(_loop), callback(_callback), pending_mask(0) {}
+		:defer(_loop, BIND_THIS_METHOD(RunDeferred)),
+		 callback(_callback), pending_mask(0) {}
 
-	using DeferredMonitor::GetEventLoop;
-	using DeferredMonitor::Cancel;
+	EventLoop &GetEventLoop() {
+		return defer.GetEventLoop();
+	}
+
+	void Cancel() {
+		defer.Cancel();
+	}
 
 	void OrMask(unsigned new_mask);
 
 protected:
-	/* virtual methode from class DeferredMonitor */
-	void RunDeferred() override;
+	/* DeferEvent callback */
+	void RunDeferred() noexcept;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #include "config.h"
 #include "JackOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "../Wrapper.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Domain.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/IterableSplitString.hxx"
@@ -42,9 +41,7 @@ static constexpr unsigned MAX_PORTS = 16;
 
 static constexpr size_t jack_sample_size = sizeof(jack_default_audio_sample_t);
 
-struct JackOutput {
-	AudioOutput base;
-
+struct JackOutput final : AudioOutput {
 	/**
 	 * libjack options passed to jack_client_open().
 	 */
@@ -93,33 +90,24 @@ struct JackOutput {
 	/**
 	 * Disconnect the JACK client.
 	 */
-	void Disconnect();
+	void Disconnect() noexcept;
 
-	void Shutdown() {
+	void Shutdown() noexcept {
 		shutdown = true;
-	}
-
-	void Enable();
-	void Disable();
-
-	void Open(AudioFormat &new_audio_format);
-
-	void Close() {
-		Stop();
 	}
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
 	void Start();
-	void Stop();
+	void Stop() noexcept;
 
 	/**
 	 * Determine the number of frames guaranteed to be available
 	 * on all channels.
 	 */
 	gcc_pure
-	jack_nframes_t GetAvailable() const;
+	jack_nframes_t GetAvailable() const noexcept;
 
 	void Process(jack_nframes_t nframes);
 
@@ -128,15 +116,26 @@ struct JackOutput {
 	 */
 	size_t WriteSamples(const float *src, size_t n_frames);
 
-	unsigned Delay() const {
-		return base.pause && pause && !shutdown
-			? 1000
-			: 0;
+	/* virtual methods from class AudioOutput */
+
+	void Enable() override;
+	void Disable() noexcept override;
+
+	void Open(AudioFormat &new_audio_format) override;
+
+	void Close() noexcept override {
+		Stop();
 	}
 
-	size_t Play(const void *chunk, size_t size);
+	std::chrono::steady_clock::duration Delay() const noexcept override {
+		return pause && !shutdown
+			? std::chrono::seconds(1)
+			: std::chrono::steady_clock::duration::zero();
+	}
 
-	bool Pause();
+	size_t Play(const void *chunk, size_t size) override;
+
+	bool Pause() override;
 };
 
 static constexpr Domain jack_output_domain("jack_output");
@@ -162,7 +161,7 @@ parse_port_list(const char *source, std::string dest[])
 }
 
 JackOutput::JackOutput(const ConfigBlock &block)
-	:base(jack_output_plugin, block),
+	:AudioOutput(FLAG_ENABLE_DISABLE|FLAG_PAUSE),
 	 name(block.GetBlockValue("client_name", nullptr)),
 	 server_name(block.GetBlockValue("server_name", nullptr))
 {
@@ -211,11 +210,11 @@ JackOutput::JackOutput(const ConfigBlock &block)
 			      num_source_ports, num_destination_ports,
 			      block.line);
 
-	ringbuffer_size = block.GetBlockValue("ringbuffer_size", 32768u);
+	ringbuffer_size = block.GetPositiveValue("ringbuffer_size", 32768u);
 }
 
 inline jack_nframes_t
-JackOutput::GetAvailable() const
+JackOutput::GetAvailable() const noexcept
 {
 	size_t min = jack_ringbuffer_read_space(ringbuffer[0]);
 
@@ -378,7 +377,7 @@ mpd_jack_info(const char *msg)
 #endif
 
 void
-JackOutput::Disconnect()
+JackOutput::Disconnect() noexcept
 {
 	assert(client != nullptr);
 
@@ -430,7 +429,7 @@ JackOutput::Enable()
 }
 
 inline void
-JackOutput::Disable()
+JackOutput::Disable() noexcept
 {
 	if (client != nullptr)
 		Disconnect();
@@ -444,7 +443,7 @@ JackOutput::Disable()
 }
 
 static AudioOutput *
-mpd_jack_init(const ConfigBlock &block)
+mpd_jack_init(EventLoop &, const ConfigBlock &block)
 {
 	jack_set_error_function(mpd_jack_error);
 
@@ -452,15 +451,14 @@ mpd_jack_init(const ConfigBlock &block)
 	jack_set_info_function(mpd_jack_info);
 #endif
 
-	auto *jd = new JackOutput(block);
-	return &jd->base;
+	return new JackOutput(block);
 }
 
 /**
  * Stops the playback on the JACK connection.
  */
 void
-JackOutput::Stop()
+JackOutput::Stop() noexcept
 {
 	if (client == nullptr)
 		return;
@@ -673,22 +671,9 @@ JackOutput::Pause()
 	return true;
 }
 
-typedef AudioOutputWrapper<JackOutput> Wrapper;
-
 const struct AudioOutputPlugin jack_output_plugin = {
 	"jack",
 	mpd_jack_test_default_device,
 	mpd_jack_init,
-	&Wrapper::Finish,
-	&Wrapper::Enable,
-	&Wrapper::Disable,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	&Wrapper::Delay,
-	nullptr,
-	&Wrapper::Play,
-	nullptr,
-	nullptr,
-	&Wrapper::Pause,
 	nullptr,
 };

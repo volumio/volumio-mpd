@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "output/MultipleOutputs.hxx"
 #include "MixerControl.hxx"
 #include "MixerInternal.hxx"
 #include "MixerList.hxx"
-#include "output/Internal.hxx"
+#include "output/Filtered.hxx"
 #include "pcm/Volume.hxx"
 #include "Log.hxx"
 
@@ -30,33 +29,34 @@
 
 #include <assert.h>
 
+gcc_pure
 static int
-output_mixer_get_volume(const AudioOutput &ao)
+output_mixer_get_volume(const AudioOutputControl &ao) noexcept
 {
-	if (!ao.enabled)
+	if (!ao.IsEnabled())
 		return -1;
 
-	Mixer *mixer = ao.mixer;
+	auto *mixer = ao.GetMixer();
 	if (mixer == nullptr)
 		return -1;
 
 	try {
 		return mixer_get_volume(mixer);
-	} catch (const std::runtime_error &e) {
-		FormatError(e,
+	} catch (...) {
+		FormatError(std::current_exception(),
 			    "Failed to read mixer for '%s'",
-			    ao.name);
+			    ao.GetName());
 		return -1;
 	}
 }
 
 int
-MultipleOutputs::GetVolume() const
+MultipleOutputs::GetVolume() const noexcept
 {
 	unsigned ok = 0;
 	int total = 0;
 
-	for (auto ao : outputs) {
+	for (auto *ao : outputs) {
 		int volume = output_mixer_get_volume(*ao);
 		if (volume >= 0) {
 			total += volume;
@@ -71,35 +71,35 @@ MultipleOutputs::GetVolume() const
 }
 
 static bool
-output_mixer_set_volume(AudioOutput &ao, unsigned volume)
+output_mixer_set_volume(AudioOutputControl &ao, unsigned volume) noexcept
 {
 	assert(volume <= 100);
 
-	if (!ao.enabled)
+	if (!ao.IsEnabled())
 		return false;
 
-	Mixer *mixer = ao.mixer;
+	auto *mixer = ao.GetMixer();
 	if (mixer == nullptr)
 		return false;
 
 	try {
 		mixer_set_volume(mixer, volume);
 		return true;
-	} catch (const std::runtime_error &e) {
-		FormatError(e,
+	} catch (...) {
+		FormatError(std::current_exception(),
 			    "Failed to set mixer for '%s'",
-			    ao.name);
+			    ao.GetName());
 		return false;
 	}
 }
 
 bool
-MultipleOutputs::SetVolume(unsigned volume)
+MultipleOutputs::SetVolume(unsigned volume) noexcept
 {
 	assert(volume <= 100);
 
 	bool success = false;
-	for (auto ao : outputs)
+	for (auto *ao : outputs)
 		success = output_mixer_set_volume(*ao, volume)
 			|| success;
 
@@ -107,12 +107,12 @@ MultipleOutputs::SetVolume(unsigned volume)
 }
 
 static int
-output_mixer_get_software_volume(const AudioOutput &ao)
+output_mixer_get_software_volume(const AudioOutputControl &ao) noexcept
 {
-	if (!ao.enabled)
+	if (!ao.IsEnabled())
 		return -1;
 
-	Mixer *mixer = ao.mixer;
+	auto *mixer = ao.GetMixer();
 	if (mixer == nullptr || !mixer->IsPlugin(software_mixer_plugin))
 		return -1;
 
@@ -120,12 +120,12 @@ output_mixer_get_software_volume(const AudioOutput &ao)
 }
 
 int
-MultipleOutputs::GetSoftwareVolume() const
+MultipleOutputs::GetSoftwareVolume() const noexcept
 {
 	unsigned ok = 0;
 	int total = 0;
 
-	for (auto ao : outputs) {
+	for (auto *ao : outputs) {
 		int volume = output_mixer_get_software_volume(*ao);
 		if (volume >= 0) {
 			total += volume;
@@ -140,12 +140,12 @@ MultipleOutputs::GetSoftwareVolume() const
 }
 
 void
-MultipleOutputs::SetSoftwareVolume(unsigned volume)
+MultipleOutputs::SetSoftwareVolume(unsigned volume) noexcept
 {
 	assert(volume <= PCM_VOLUME_1);
 
-	for (auto ao : outputs) {
-		const auto mixer = ao->mixer;
+	for (auto *ao : outputs) {
+		auto *mixer = ao->GetMixer();
 
 		if (mixer != nullptr &&
 		    (&mixer->plugin == &software_mixer_plugin ||

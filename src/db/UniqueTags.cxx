@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,35 +19,39 @@
 
 #include "UniqueTags.hxx"
 #include "Interface.hxx"
-#include "LightSong.hxx"
-#include "tag/Set.hxx"
-
-#include <functional>
-
-#include <assert.h>
+#include "song/LightSong.hxx"
+#include "tag/VisitFallback.hxx"
 
 static void
-CollectTags(TagSet &set, TagType tag_type, tag_mask_t group_mask,
-	    const LightSong &song)
+CollectTags(std::set<std::string> &result,
+	    const Tag &tag,
+	    TagType tag_type) noexcept
 {
-	assert(song.tag != nullptr);
-	const Tag &tag = *song.tag;
-
-	set.InsertUnique(tag, tag_type, group_mask);
+	VisitTagWithFallbackOrEmpty(tag, tag_type, [&result](const char *value){
+			result.emplace(value);
+		});
 }
 
-void
-VisitUniqueTags(const Database &db, const DatabaseSelection &selection,
-		TagType tag_type, tag_mask_t group_mask,
-		VisitTag visit_tag)
+static void
+CollectGroupTags(std::map<std::string, std::set<std::string>> &result,
+		 const Tag &tag,
+		 TagType tag_type,
+		 TagType group) noexcept
 {
-	TagSet set;
+	VisitTagWithFallbackOrEmpty(tag, group, [&](const char *group_name){
+			CollectTags(result[group_name], tag, tag_type);
+		});
+}
 
-	using namespace std::placeholders;
-	const auto f = std::bind(CollectTags, std::ref(set),
-				 tag_type, group_mask, _1);
-	db.Visit(selection, f);
+std::map<std::string, std::set<std::string>>
+CollectUniqueTags(const Database &db, const DatabaseSelection &selection,
+		  TagType tag_type, TagType group)
+{
+	std::map<std::string, std::set<std::string>> result;
 
-	for (const auto &value : set)
-		visit_tag(value);
+	db.Visit(selection, [&result, tag_type, group](const LightSong &song){
+			CollectGroupTags(result, song.tag, tag_type, group);
+		});
+
+	return result;
 }

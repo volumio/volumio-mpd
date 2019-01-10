@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,42 +26,43 @@
 #define MPD_OUTPUT_HTTPD_INTERNAL_H
 
 #include "HttpdClient.hxx"
-#include "output/Internal.hxx"
+#include "output/Interface.hxx"
 #include "output/Timer.hxx"
 #include "thread/Mutex.hxx"
+#include "thread/Cond.hxx"
 #include "event/ServerSocket.hxx"
-#include "event/DeferredMonitor.hxx"
+#include "event/DeferEvent.hxx"
 #include "util/Cast.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <boost/intrusive/list.hpp>
 
 #include <queue>
 #include <list>
+#include <memory>
 
 struct ConfigBlock;
 class EventLoop;
 class ServerSocket;
 class HttpdClient;
-class Page;
 class PreparedEncoder;
 class Encoder;
 struct Tag;
 
-class HttpdOutput final : ServerSocket, DeferredMonitor {
-	AudioOutput base;
-
+class HttpdOutput final : AudioOutput, ServerSocket {
 	/**
 	 * True if the audio output is open and accepts client
 	 * connections.
 	 */
 	bool open;
 
+	bool pause;
+
 	/**
 	 * The configured encoder plugin.
 	 */
-	PreparedEncoder *prepared_encoder = nullptr;
-	Encoder *encoder;
+	std::unique_ptr<PreparedEncoder> prepared_encoder;
+	Encoder *encoder = nullptr;
 
 	/**
 	 * Number of bytes which were fed into the encoder, without
@@ -69,7 +70,7 @@ class HttpdOutput final : ServerSocket, DeferredMonitor {
 	 * whether MPD should manually flush the encoder, to avoid
 	 * buffer underruns in the client.
 	 */
-	size_t unflushed_input;
+	size_t unflushed_input = 0;
 
 public:
 	/**
@@ -99,12 +100,12 @@ private:
 	/**
 	 * The header page, which is sent to every client on connect.
 	 */
-	Page *header;
+	PagePtr header;
 
 	/**
 	 * The metadata, which is sent to every client.
 	 */
-	Page *metadata;
+	PagePtr metadata;
 
 	/**
 	 * The page queue, i.e. pages from the encoder to be
@@ -112,7 +113,9 @@ private:
 	 * pass pages from the OutputThread to the IOThread.  It is
 	 * protected by #mutex, and removing signals #cond.
 	 */
-	std::queue<Page *, std::list<Page *>> pages;
+	std::queue<PagePtr, std::list<PagePtr>> pages;
+
+	DeferEvent defer_broadcast;
 
  public:
 	/**
@@ -150,23 +153,24 @@ private:
 
 public:
 	HttpdOutput(EventLoop &_loop, const ConfigBlock &block);
-	~HttpdOutput();
 
-	operator AudioOutput *() {
-		return &base;
+	static AudioOutput *Create(EventLoop &event_loop,
+				   const ConfigBlock &block) {
+		return new HttpdOutput(event_loop, block);
 	}
 
-#if CLANG_OR_GCC_VERSION(4,7)
-	constexpr
-#endif
-	static HttpdOutput *Cast(AudioOutput *ao) {
-		return &ContainerCast(*ao, &HttpdOutput::base);
-	}
-
-	using DeferredMonitor::GetEventLoop;
+	using ServerSocket::GetEventLoop;
 
 	void Bind();
-	void Unbind();
+	void Unbind() noexcept;
+
+	void Enable() override {
+		Bind();
+	}
+
+	void Disable() noexcept override {
+		Unbind();
+	}
 
 	/**
 	 * Caller must lock the mutex.
@@ -178,12 +182,12 @@ public:
 	/**
 	 * Caller must lock the mutex.
 	 */
-	void Open(AudioFormat &audio_format);
+	void Open(AudioFormat &audio_format) override;
 
 	/**
 	 * Caller must lock the mutex.
 	 */
-	void Close();
+	void Close() noexcept override;
 
 	/**
 	 * Check whether there is at least one client.
@@ -191,7 +195,7 @@ public:
 	 * Caller must lock the mutex.
 	 */
 	gcc_pure
-	bool HasClients() const {
+	bool HasClients() const noexcept {
 		return !clients.empty();
 	}
 
@@ -199,39 +203,39 @@ public:
 	 * Check whether there is at least one client.
 	 */
 	gcc_pure
-	bool LockHasClients() const {
-		const ScopeLock protect(mutex);
+	bool LockHasClients() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		return HasClients();
 	}
 
-	void AddClient(int fd);
+	void AddClient(UniqueSocketDescriptor fd) noexcept;
 
 	/**
 	 * Removes a client from the httpd_output.clients linked list.
 	 */
-	void RemoveClient(HttpdClient &client);
+	void RemoveClient(HttpdClient &client) noexcept;
 
 	/**
 	 * Sends the encoder header to the client.  This is called
 	 * right after the response headers have been sent.
 	 */
-	void SendHeader(HttpdClient &client) const;
+	void SendHeader(HttpdClient &client) const noexcept;
 
 	gcc_pure
-	unsigned Delay() const;
+	std::chrono::steady_clock::duration Delay() const noexcept override;
 
 	/**
 	 * Reads data from the encoder (as much as available) and
 	 * returns it as a new #page object.
 	 */
-	Page *ReadPage();
+	PagePtr ReadPage();
 
 	/**
 	 * Broadcasts a page struct to all clients.
 	 *
 	 * Mutext must not be locked.
 	 */
-	void BroadcastPage(Page *page);
+	void BroadcastPage(PagePtr page) noexcept;
 
 	/**
 	 * Broadcasts data from the encoder to all clients.
@@ -243,16 +247,21 @@ public:
 	 */
 	void EncodeAndPlay(const void *chunk, size_t size);
 
-	void SendTag(const Tag &tag);
+	void SendTag(const Tag &tag) override;
 
-	size_t Play(const void *chunk, size_t size);
+	size_t Play(const void *chunk, size_t size) override;
 
-	void CancelAllClients();
+	void CancelAllClients() noexcept;
+
+	void Cancel() noexcept override;
+	bool Pause() override;
 
 private:
-	virtual void RunDeferred() override;
+	/* DeferEvent callback */
+	void OnDeferredBroadcast() noexcept;
 
-	void OnAccept(int fd, SocketAddress address, int uid) override;
+	void OnAccept(UniqueSocketDescriptor fd,
+		      SocketAddress address, int uid) noexcept override;
 };
 
 extern const class Domain httpd_output_domain;

@@ -1,0 +1,94 @@
+Source: mpd
+Section: sound
+Priority: optional
+Maintainer: mpd maintainers <pkg-mpd-maintainers@lists.alioth.debian.org>
+Uploaders: Florian Schlichting <fsfs@debian.org>
+Build-Depends: debhelper-compat (= 12),
+               meson (>= 0.47.2),
+               libadplug-dev,
+               libao-dev,
+               libasound2-dev  [linux-any],
+               libaudiofile-dev,
+               libavahi-client-dev,
+               libavcodec-dev,
+               libavformat-dev,
+               libboost-dev,
+               libbz2-dev,
+               libcdio-paranoia-dev,
+               libchromaprint-dev,
+               libcppunit-dev,
+               libcurl4-gnutls-dev | libcurl-dev,
+               libexpat1-dev,
+               libfaad-dev,
+               libflac-dev,
+               libfluidsynth-dev,
+               libgcrypt20-dev,
+               libgme-dev,
+               libicu-dev,
+               libid3tag0-dev,
+               libiso9660-dev,
+               libjack-jackd2-dev,
+               libmad0-dev,
+               libmikmod-dev,
+               libmms-dev,
+               libmodplug-dev,
+               libmp3lame-dev,
+               libmpcdec-dev,
+               libmpdclient-dev,
+               libmpg123-dev,
+               libnfs-dev,
+               libogg-dev,
+               libopenal-dev,
+               libopus-dev,
+               libpcre3-dev,
+               libpulse-dev,
+               libresid-builder-dev,
+               libsamplerate0-dev,
+               libshine-dev [arm armel armeb],
+               libshout3-dev,
+               libsidplayfp-dev,
+               libsidutils-dev,
+               libsmbclient-dev [!hurd-i386],
+               libsndfile1-dev,
+               libsoxr-dev,
+               libsqlite3-dev,
+               libsystemd-dev [linux-any],
+               libupnp-dev,
+               libvorbis-dev [!arm !armel !armeb],
+               libvorbisidec-dev [arm armel armeb],
+               libwavpack-dev,
+               libwildmidi-dev,
+               libyajl-dev,
+               libzzip-dev,
+# for docs:
+               python3-sphinx,
+# for tests:
+               libgtest-dev
+Standards-Version: 4.3.0
+Homepage: https://www.musicpd.org/
+Vcs-Browser: https://salsa.debian.org/mpd-team/mpd
+Vcs-Git: https://salsa.debian.org/mpd-team/mpd.git
+
+Package: mpd
+Architecture: any
+Pre-Depends: ${misc:Pre-Depends}
+Depends: adduser, lsb-base, ${misc:Depends}, ${shlibs:Depends}, ${sphinxdoc:Depends}
+Suggests: avahi-daemon, icecast2, mpd-client, pulseaudio
+Breaks: avahi-daemon (<< 0.6.31-3)
+Built-Using: ${sphinxdoc:Built-Using}
+Description: Music Player Daemon
+ Music Player Daemon (MPD) is a server that allows remote access for
+ playing audio files (Ogg-Vorbis, FLAC, MP3, Wave, and AIFF), streams
+ (Ogg-Vorbis, MP3) and managing playlists.  Gapless playback, buffered
+ output, and crossfading support is also included.  The design focus is
+ on integrating a computer into a stereo system that provides control
+ for music playback over a TCP/IP network.  The goals are to be easy to
+ install and use, to have minimal resource requirements (it has been
+ reported to run fine on a Pentium 75), and to remain stable and
+ flexible.
+ .
+ The daemon is controlled through a client which need not run on the
+ same computer mpd runs on.  The separate client and server design
+ allows users to choose a user interface that best suites their tastes
+ independently of the underlying daemon (this package) which actually
+ plays music.

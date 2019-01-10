@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "NeighborCommands.hxx"
 #include "Request.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "Instance.hxx"
-#include "Partition.hxx"
 #include "neighbor/Glue.hxx"
 #include "neighbor/Info.hxx"
 
 #include <string>
 
 bool
-neighbor_commands_available(const Instance &instance)
+neighbor_commands_available(const Instance &instance) noexcept
 {
 	return instance.neighbors != nullptr;
 }
@@ -39,7 +37,7 @@ CommandResult
 handle_listneighbors(Client &client, gcc_unused Request args, Response &r)
 {
 	const NeighborGlue *const neighbors =
-		client.partition.instance.neighbors;
+		client.GetInstance().neighbors;
 	if (neighbors == nullptr) {
 		r.Error(ACK_ERROR_UNKNOWN, "No neighbor plugin configured");
 		return CommandResult::ERROR;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_DATABASE_PLAYLIST_HXX
 #define MPD_DATABASE_PLAYLIST_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 class Database;
 class Storage;
@@ -28,7 +28,7 @@ class SongFilter;
 
 gcc_nonnull(3,4)
 void
-search_add_to_playlist(const Database &db, const Storage &storage,
+search_add_to_playlist(const Database &db, const Storage *storage,
 		       const char *uri, const char *path_utf8,
 		       const SongFilter *filter);
 

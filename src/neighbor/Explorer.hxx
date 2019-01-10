@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -40,7 +40,7 @@ class NeighborExplorer {
 protected:
 	NeighborListener &listener;
 
-	explicit NeighborExplorer(NeighborListener &_listener)
+	explicit NeighborExplorer(NeighborListener &_listener) noexcept
 		:listener(_listener) {}
 
 public:
@@ -49,7 +49,7 @@ public:
 	/**
 	 * Free instance data.
          */
-	virtual ~NeighborExplorer() {}
+	virtual ~NeighborExplorer() noexcept {}
 
 	/**
          * Start exploring the neighborhood.
@@ -61,12 +61,12 @@ public:
 	/**
          * Stop exploring.
 	 */
-	virtual void Close() = 0;
+	virtual void Close() noexcept = 0;
 
 	/**
 	 * Obtain a list of currently known neighbors.
 	 */
-	virtual List GetList() const = 0;
+	virtual List GetList() const noexcept = 0;
 };
 
 #endif

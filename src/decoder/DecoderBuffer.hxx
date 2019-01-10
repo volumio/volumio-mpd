@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_DECODER_BUFFER_HXX
 #define MPD_DECODER_BUFFER_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 #include "util/DynamicFifoBuffer.hxx"
 #include "util/ConstBuffer.hxx"
 
@@ -54,11 +54,11 @@ public:
 		      size_t _size)
 		:client(_client), is(_is), buffer(_size) {}
 
-	const InputStream &GetStream() const {
+	const InputStream &GetStream() const noexcept {
 		return is;
 	}
 
-	void Clear() {
+	void Clear() noexcept {
 		buffer.Clear();
 	}
 
@@ -75,7 +75,7 @@ public:
 	 * How many bytes are stored in the buffer?
 	 */
 	gcc_pure
-	size_t GetAvailable() const {
+	size_t GetAvailable() const noexcept {
 		return buffer.GetAvailable();
 	}
 
@@ -84,7 +84,7 @@ public:
 	 * you have to call Consume() to do that.  The returned buffer
 	 * becomes invalid after a Fill() or a Consume() call.
 	 */
-	ConstBuffer<void> Read() const {
+	ConstBuffer<void> Read() const noexcept {
 		auto r = buffer.Read();
 		return { r.data, r.size };
 	}
@@ -102,7 +102,7 @@ public:
 	 *
 	 * @param nbytes the number of bytes to consume
 	 */
-	void Consume(size_t nbytes) {
+	void Consume(size_t nbytes) noexcept {
 		buffer.Consume(nbytes);
 	}
 

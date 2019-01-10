@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,18 +20,18 @@
 #ifndef MPD_INPUT_STREAM_HXX
 #define MPD_INPUT_STREAM_HXX
 
-#include "check.h"
 #include "Offset.hxx"
 #include "Ptr.hxx"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
+#include <memory>
 
 #include <assert.h>
 
-class Cond;
 struct Tag;
+class InputStreamHandler;
 
 class InputStream {
 public:
@@ -41,7 +41,7 @@ private:
 	/**
 	 * The absolute URI which was used to open this stream.
 	 */
-	std::string uri;
+	const std::string uri;
 
 public:
 	/**
@@ -54,39 +54,40 @@ public:
 	 */
 	Mutex &mutex;
 
+private:
 	/**
 	 * A cond that gets signalled when the state of this object
 	 * changes from the I/O thread.  The client of this object may
-	 * wait on it.  Optional, may be nullptr.
+	 * wait on it.
 	 *
 	 * This object is allocated by the client, and the client is
 	 * responsible for freeing it.
 	 */
-	Cond &cond;
+	InputStreamHandler *handler = nullptr;
 
 protected:
 	/**
 	 * indicates whether the stream is ready for reading and
 	 * whether the other attributes in this struct are valid
 	 */
-	bool ready;
+	bool ready = false;
 
 	/**
 	 * if true, then the stream is fully seekable
 	 */
-	bool seekable;
+	bool seekable = false;
 
 	static constexpr offset_type UNKNOWN_SIZE = -1;
 
 	/**
 	 * the size of the resource, or #UNKNOWN_SIZE if unknown
 	 */
-	offset_type size;
+	offset_type size = UNKNOWN_SIZE;
 
 	/**
 	 * the current offset within the stream
 	 */
-	offset_type offset;
+	offset_type offset = 0;
 
 private:
 	/**
@@ -95,11 +96,9 @@ private:
 	std::string mime;
 
 public:
-	InputStream(const char *_uri, Mutex &_mutex, Cond &_cond)
+	InputStream(const char *_uri, Mutex &_mutex) noexcept
 		:uri(_uri),
-		 mutex(_mutex), cond(_cond),
-		 ready(false), seekable(false),
-		 size(UNKNOWN_SIZE), offset(0) {
+		 mutex(_mutex) {
 		assert(_uri != nullptr);
 	}
 
@@ -108,7 +107,7 @@ public:
 	 *
 	 * The caller must not lock the mutex.
 	 */
-	virtual ~InputStream();
+	virtual ~InputStream() noexcept;
 
 	/**
 	 * Opens a new input stream.  You may not access it until the "ready"
@@ -123,32 +122,41 @@ public:
 	 * notifications
 	 * @return an #InputStream object on success
 	 */
-	gcc_nonnull_all
-	static InputStreamPtr Open(const char *uri, Mutex &mutex, Cond &cond);
+	gcc_nonnull(1)
+	static InputStreamPtr Open(const char *uri, Mutex &mutex);
 
 	/**
 	 * Just like Open(), but waits for the stream to become ready.
 	 * It is a wrapper for Open(), WaitReady() and Check().
 	 */
-	gcc_nonnull_all
-	static InputStreamPtr OpenReady(const char *uri,
-					Mutex &mutex, Cond &cond);
+	gcc_nonnull(1)
+	static InputStreamPtr OpenReady(const char *uri, Mutex &mutex);
+
+	/**
+	 * Install a new handler.
+	 *
+	 * The caller must lock the mutex.
+	 */
+	void SetHandler(InputStreamHandler *new_handler) noexcept {
+		handler = new_handler;
+	}
+
+	/**
+	 * Install a new handler and return the old one.
+	 *
+	 * The caller must lock the mutex.
+	 */
+	InputStreamHandler *ExchangeHandler(InputStreamHandler *new_handler) noexcept {
+		return std::exchange(handler, new_handler);
+	}
 
 	/**
 	 * The absolute URI which was used to open this stream.
 	 *
 	 * No lock necessary for this method.
 	 */
-	const char *GetURI() const {
+	const char *GetURI() const noexcept {
 		return uri.c_str();
-	}
-
-	void Lock() {
-		mutex.lock();
-	}
-
-	void Unlock() {
-		mutex.unlock();
 	}
 
 	/**
@@ -161,9 +169,9 @@ public:
 	 * Update the public attributes.  Call before accessing attributes
 	 * such as "ready" or "offset".
 	 */
-	virtual void Update();
+	virtual void Update() noexcept;
 
-	void SetReady();
+	void SetReady() noexcept;
 
 	/**
 	 * Return whether the stream is ready for reading and whether
@@ -175,75 +183,67 @@ public:
 		return ready;
 	}
 
-	void WaitReady();
-
-	/**
-	 * Wrapper for WaitReady() which locks and unlocks the mutex;
-	 * the caller must not be holding it already.
-	 */
-	void LockWaitReady();
-
 	gcc_pure
-	bool HasMimeType() const {
+	bool HasMimeType() const noexcept {
 		assert(ready);
 
 		return !mime.empty();
 	}
 
 	gcc_pure
-	const char *GetMimeType() const {
+	const char *GetMimeType() const noexcept {
 		assert(ready);
 
 		return mime.empty() ? nullptr : mime.c_str();
 	}
 
-	void ClearMimeType() {
+	void ClearMimeType() noexcept {
 		mime.clear();
 	}
 
 	gcc_nonnull_all
-	void SetMimeType(const char *_mime) {
+	void SetMimeType(const char *_mime) noexcept {
 		assert(!ready);
 
 		mime = _mime;
 	}
 
-	void SetMimeType(std::string &&_mime) {
+	void SetMimeType(std::string &&_mime) noexcept {
 		assert(!ready);
 
 		mime = std::move(_mime);
 	}
 
 	gcc_pure
-	bool KnownSize() const {
+	bool KnownSize() const noexcept {
 		assert(ready);
 
 		return size != UNKNOWN_SIZE;
 	}
 
 	gcc_pure
-	offset_type GetSize() const {
+	offset_type GetSize() const noexcept {
 		assert(ready);
 		assert(KnownSize());
 
 		return size;
 	}
 
-	void AddOffset(offset_type delta) {
+	void AddOffset(offset_type delta) noexcept {
 		assert(ready);
 
 		offset += delta;
 	}
 
 	gcc_pure
-	offset_type GetOffset() const {
+	offset_type GetOffset() const noexcept {
 		assert(ready);
 
 		return offset;
 	}
 
 	gcc_pure
-	offset_type GetRest() const {
+	offset_type GetRest() const noexcept {
 		assert(ready);
 		assert(KnownSize());
 
@@ -251,7 +251,7 @@ public:
 	}
 
 	gcc_pure
-	bool IsSeekable() const {
+	bool IsSeekable() const noexcept {
 		assert(ready);
 
 		return seekable;
@@ -261,7 +261,7 @@ public:
 	 * Determines whether seeking is cheap.  This is true for local files.
 	 */
 	gcc_pure
-	bool CheapSeeking() const;
+	bool CheapSeeking() const noexcept;
 
 	/**
 	 * Seeks to the specified position in the stream.  This will most
@@ -308,32 +308,30 @@ public:
 	 * The caller must lock the mutex.
 	 */
 	gcc_pure
-	virtual bool IsEOF() = 0;
+	virtual bool IsEOF() noexcept = 0;
 
 	/**
 	 * Wrapper for IsEOF() which locks and unlocks the mutex; the
 	 * caller must not be holding it already.
 	 */
 	gcc_pure
-	bool LockIsEOF();
+	bool LockIsEOF() noexcept;
 
 	/**
 	 * Reads the tag from the stream.
 	 *
 	 * The caller must lock the mutex.
 	 *
-	 * @return a tag object which must be freed by the caller, or
-	 * nullptr if the tag has not changed since the last call
+	 * @return a tag object or nullptr if the tag has not changed
+	 * since the last call
 	 */
-	gcc_malloc
-	virtual Tag *ReadTag();
+	virtual std::unique_ptr<Tag> ReadTag();
 
 	/**
 	 * Wrapper for ReadTag() which locks and unlocks the mutex;
 	 * the caller must not be holding it already.
 	 */
-	gcc_malloc
-	Tag *LockReadTag();
+	std::unique_ptr<Tag> LockReadTag();
 
 	/**
 	 * Returns true if the next read operation will not block: either data
@@ -343,7 +341,7 @@ public:
 	 * The caller must lock the mutex.
 	 */
 	gcc_pure
-	virtual bool IsAvailable();
+	virtual bool IsAvailable() noexcept;
 
 	/**
 	 * Reads data from the stream into the caller-supplied buffer.
@@ -391,6 +389,30 @@ public:
 	 */
 	gcc_nonnull_all
 	void LockReadFull(void *ptr, size_t size);
+
+protected:
+	void InvokeOnReady() noexcept;
+	void InvokeOnAvailable() noexcept;
+};
+
+/**
+ * Install an #InputStreamHandler during the scope in which this
+ * variable lives, and restore the old handler afterwards.
+ */
+class ScopeExchangeInputStreamHandler {
+	InputStream &is;
+	InputStreamHandler *const old_handler;
+
+public:
+	ScopeExchangeInputStreamHandler(InputStream &_is,
+					InputStreamHandler *new_handler) noexcept
+		:is(_is), old_handler(is.ExchangeHandler(new_handler)) {}
+
+	ScopeExchangeInputStreamHandler(const ScopeExchangeInputStreamHandler &) = delete;
+
+	~ScopeExchangeInputStreamHandler() noexcept {
+		is.SetHandler(old_handler);
+	}
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,12 +22,14 @@
 
 #include "Client.hxx"
 #include "ReplayGainInfo.hxx"
+#include "MusicChunkPtr.hxx"
 
 #include <exception>
+#include <memory>
 
 class PcmConvert;
 struct MusicChunk;
-struct DecoderControl;
+class DecoderControl;
 struct Tag;
 
 /**
@@ -47,7 +49,12 @@ public:
 	/**
 	 * The time stamp of the next data chunk, in seconds.
 	 */
-	double timestamp = 0;
+	FloatDuration timestamp = FloatDuration::zero();
+
+	/**
+	 * The time stamp of the next data chunk, in PCM frames.
+	 */
+	uint64_t absolute_frame = 0;
 
 	/**
 	 * Is the initial seek (to the start position of the sub-song)
@@ -74,16 +81,16 @@ public:
 	 * files, because we expect the stream server to send us a new
 	 * tag each time we play it.
 	 */
-	Tag *song_tag;
+	std::unique_ptr<Tag> song_tag;
 
 	/** the last tag received from the stream */
-	Tag *stream_tag = nullptr;
+	std::unique_ptr<Tag> stream_tag;
 
 	/** the last tag received from the decoder plugin */
-	Tag *decoder_tag = nullptr;
+	std::unique_ptr<Tag> decoder_tag;
 
 	/** the chunk currently being written to */
-	MusicChunk *current_chunk = nullptr;
+	MusicChunkPtr current_chunk;
 
 	ReplayGainInfo replay_gain_info;
 
@@ -100,10 +107,10 @@ public:
 	std::exception_ptr error;
 
 	DecoderBridge(DecoderControl &_dc, bool _initial_seek_pending,
-		      Tag *_tag)
+		      std::unique_ptr<Tag> _tag)
 		:dc(_dc),
 		 initial_seek_pending(_initial_seek_pending),
-		 song_tag(_tag) {}
+		 song_tag(std::move(_tag)) {}
 
 	~DecoderBridge();
 
@@ -114,7 +121,7 @@ public:
 	 * Caller must lock the #DecoderControl object.
 	 */
 	gcc_pure
-	bool CheckCancelRead() const;
+	bool CheckCancelRead() const noexcept;
 
 	/**
 	 * Returns the current chunk the decoder writes to, or allocates a new
@@ -122,7 +129,7 @@ public:
 	 *
 	 * @return the chunk, or NULL if we have received a decoder command
 	 */
-	MusicChunk *GetChunk();
+	MusicChunk *GetChunk() noexcept;
 
 	/**
 	 * Flushes the current chunk.
@@ -134,14 +141,14 @@ public:
 	/* virtual methods from DecoderClient */
 	void Ready(AudioFormat audio_format,
 		   bool seekable, SignedSongTime duration) override;
-	DecoderCommand GetCommand() override;
+	DecoderCommand GetCommand() noexcept override;
 	void CommandFinished() override;
-	SongTime GetSeekTime() override;
-	uint64_t GetSeekFrame() override;
+	SongTime GetSeekTime() noexcept override;
+	uint64_t GetSeekFrame() noexcept override;
 	void SeekError() override;
 	InputStreamPtr OpenUri(const char *uri) override;
 	size_t Read(InputStream &is, void *buffer, size_t length) override;
-	void SubmitTimestamp(double t) override;
+	void SubmitTimestamp(FloatDuration t) override;
 	DecoderCommand SubmitData(InputStream *is,
 				  const void *data, size_t length,
 				  uint16_t kbit_rate) override;
@@ -161,8 +168,8 @@ private:
 	 * "virtual" synthesized command, e.g. to seek to the
 	 * beginning of the CUE track.
 	 */
-	DecoderCommand GetVirtualCommand();
-	DecoderCommand LockGetVirtualCommand();
+	DecoderCommand GetVirtualCommand() noexcept;
+	DecoderCommand LockGetVirtualCommand() noexcept;
 
 	/**
 	 * Sends a #Tag as-is to the #MusicPipe.  Flushes the current

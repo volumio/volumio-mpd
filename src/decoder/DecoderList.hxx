@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,9 @@
 #ifndef MPD_DECODER_LIST_HXX
 #define MPD_DECODER_LIST_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
+struct ConfigData;
 struct DecoderPlugin;
 
 extern const struct DecoderPlugin *const decoder_plugins[];
@@ -31,11 +32,11 @@ extern bool decoder_plugins_enabled[];
 
 gcc_pure
 const struct DecoderPlugin *
-decoder_plugin_from_name(const char *name);
+decoder_plugin_from_name(const char *name) noexcept;
 
 /* this is where we "load" all the "plugins" ;-) */
 void
-decoder_plugin_init_all();
+decoder_plugin_init_all(const ConfigData &config);
 
 /* this is where we "unload" all the "plugins" */
 void
@@ -86,6 +87,6 @@ decoder_plugins_for_each_enabled(F f)
  */
 gcc_pure gcc_nonnull_all
 bool
-decoder_plugins_supports_suffix(const char *suffix);
+decoder_plugins_supports_suffix(const char *suffix) noexcept;
 
 #endif

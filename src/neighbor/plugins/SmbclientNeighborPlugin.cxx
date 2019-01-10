@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SmbclientNeighborPlugin.hxx"
 #include "lib/smbclient/Init.hxx"
 #include "lib/smbclient/Domain.hxx"
@@ -48,12 +47,12 @@ class SmbclientNeighborExplorer final : public NeighborExplorer {
 		Server(const Server &) = delete;
 
 		gcc_pure
-		bool operator==(const Server &other) const {
+		bool operator==(const Server &other) const noexcept {
 			return name == other.name;
 		}
 
 		gcc_pure
-		NeighborInfo Export() const {
+		NeighborInfo Export() const noexcept {
 			return { "smb://" + name + "/", comment };
 		}
 	};
@@ -69,28 +68,28 @@ class SmbclientNeighborExplorer final : public NeighborExplorer {
 
 public:
 	SmbclientNeighborExplorer(NeighborListener &_listener)
-		:NeighborExplorer(_listener) {}
+		:NeighborExplorer(_listener),
+		 thread(BIND_THIS_METHOD(ThreadFunc)) {}
 
 	/* virtual methods from class NeighborExplorer */
 	void Open() override;
-	virtual void Close() override;
-	virtual List GetList() const override;
+	void Close() noexcept override;
+	List GetList() const noexcept override;
 
 private:
 	void Run();
 	void ThreadFunc();
-	static void ThreadFunc(void *ctx);
 };
 
 void
 SmbclientNeighborExplorer::Open()
 {
 	quit = false;
-	thread.Start(ThreadFunc, this);
+	thread.Start();
 }
 
 void
-SmbclientNeighborExplorer::Close()
+SmbclientNeighborExplorer::Close() noexcept
 {
 	mutex.lock();
 	quit = true;
@@ -101,9 +100,9 @@ SmbclientNeighborExplorer::Close()
 }
 
 NeighborExplorer::List
-SmbclientNeighborExplorer::GetList() const
+SmbclientNeighborExplorer::GetList() const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 	/*
 	List list;
 	for (const auto &i : servers)
@@ -169,10 +168,10 @@ ReadServers(NeighborExplorer::List &list, const char *uri)
 
 gcc_pure
 static NeighborExplorer::List
-DetectServers()
+DetectServers() noexcept
 {
 	NeighborExplorer::List list;
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 	ReadServers(list, "smb://");
 	return list;
 }
@@ -181,7 +180,7 @@ gcc_pure
 static NeighborExplorer::List::const_iterator
 FindBeforeServerByURI(NeighborExplorer::List::const_iterator prev,
 		      NeighborExplorer::List::const_iterator end,
-		      const std::string &uri)
+		      const std::string &uri) noexcept
 {
 	for (auto i = std::next(prev); i != end; prev = i, i = std::next(prev))
 		if (i->uri == uri)
@@ -212,14 +211,7 @@ SmbclientNeighborExplorer::Run()
 			prev = i;
 		} else {
 			/* can't see it anymore: move to "lost" */
-#if CLANG_OR_GCC_VERSION(4,7)
 			lost.splice_after(lost.before_begin(), list, prev);
-#else
-			/* the forward_list::splice_after() lvalue
-			   reference overload is missing in gcc 4.6 */
-			lost.emplace_front(std::move(*i));
-			list.erase_after(prev);
-#endif
 		}
 	}
 
@@ -239,6 +231,8 @@ SmbclientNeighborExplorer::Run()
 inline void
 SmbclientNeighborExplorer::ThreadFunc()
 {
+	SetThreadName("smbclient");
+
 	mutex.lock();
 
 	while (!quit) {
@@ -251,29 +245,20 @@ SmbclientNeighborExplorer::ThreadFunc()
 			break;
 
 		// TODO: sleep for how long?
-		cond.timed_wait(mutex, 10000);
+		cond.timed_wait(mutex, std::chrono::seconds(10));
 	}
 
 	mutex.unlock();
 }
 
-void
-SmbclientNeighborExplorer::ThreadFunc(void *ctx)
-{
-	SetThreadName("smbclient");
-
-	SmbclientNeighborExplorer &e = *(SmbclientNeighborExplorer *)ctx;
-	e.ThreadFunc();
-}
-
-static NeighborExplorer *
+static std::unique_ptr<NeighborExplorer>
 smbclient_neighbor_create(gcc_unused EventLoop &loop,
 			  NeighborListener &listener,
 			  gcc_unused const ConfigBlock &block)
 {
 	SmbclientInit();
 
-	return new SmbclientNeighborExplorer(listener);
+	return std::make_unique<SmbclientNeighborExplorer>(listener);
 }
 
 const NeighborPlugin smbclient_neighbor_plugin = {

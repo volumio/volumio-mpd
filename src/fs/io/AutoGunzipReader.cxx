@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AutoGunzipReader.hxx"
 #include "GunzipReader.hxx"
 
@@ -28,7 +27,7 @@ AutoGunzipReader::~AutoGunzipReader()
 
 gcc_pure
 static bool
-IsGzip(const uint8_t data[4])
+IsGzip(const uint8_t data[4]) noexcept
 {
 	return data[0] == 0x1f && data[1] == 0x8b && data[2] == 0x08 &&
 		(data[3] & 0xe0) == 0;

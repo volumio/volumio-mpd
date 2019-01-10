@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,9 +21,10 @@
 #define MPD_PLAYLIST_REGISTRY_HXX
 
 #include "input/Ptr.hxx"
+#include "util/Compiler.h"
 
+struct ConfigData;
 class Mutex;
-class Cond;
 class SongEnumerator;
 
 extern const struct playlist_plugin *const playlist_plugins[];
@@ -38,21 +39,21 @@ extern const struct playlist_plugin *const playlist_plugins[];
  * Initializes all playlist plugins.
  */
 void
-playlist_list_global_init();
+playlist_list_global_init(const ConfigData &config);
 
 /**
  * Deinitializes all playlist plugins.
  */
 void
-playlist_list_global_finish();
+playlist_list_global_finish() noexcept;
 
 /**
  * Opens a playlist by its URI.
  */
-SongEnumerator *
-playlist_list_open_uri(const char *uri, Mutex &mutex, Cond &cond);
+std::unique_ptr<SongEnumerator>
+playlist_list_open_uri(const char *uri, Mutex &mutex);
 
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix);
 
 /**
@@ -62,14 +63,15 @@ playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix);
  * @param uri optional URI which was used to open the stream; may be
  * used to select the appropriate playlist plugin
  */
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_list_open_stream(InputStreamPtr &&is, const char *uri);
 
 /**
  * Determines if there is a playlist plugin which can handle the
  * specified file name suffix.
  */
+gcc_pure
 bool
-playlist_suffix_supported(const char *suffix);
+playlist_suffix_supported(const char *suffix) noexcept;
 
 #endif

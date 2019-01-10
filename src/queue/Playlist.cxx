@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Playlist.hxx"
 #include "Listener.hxx"
 #include "PlaylistError.hxx"
 #include "player/Control.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
+#include "SingleMode.hxx"
 #include "Log.hxx"
 
 #include <assert.h>
@@ -43,6 +43,24 @@ playlist::TagModified(DetachedSong &&song)
 	OnModified();
 }
 
+void
+playlist::TagModified(const char *uri, const Tag &tag) noexcept
+{
+	bool modified = false;
+
+	for (unsigned i = 0; i < queue.length; ++i) {
+		auto &song = *queue.items[i].song;
+		if (song.IsURI(uri)) {
+			song.SetTag(tag);
+			queue.ModifyAtPosition(i);
+			modified = true;
+		}
+	}
+
+	if (modified)
+		OnModified();
+}
+
 inline void
 playlist::QueueSongOrder(PlayerControl &pc, unsigned order)
 
@@ -56,7 +74,7 @@ playlist::QueueSongOrder(PlayerControl &pc, unsigned order)
 	FormatDebug(playlist_domain, "queue song %i:\"%s\"",
 		    queued, song.GetURI());
 
-	pc.LockEnqueueSong(new DetachedSong(song));
+	pc.LockEnqueueSong(std::make_unique<DetachedSong>(song));
 }
 
 void
@@ -72,7 +90,7 @@ playlist::SongStarted()
 inline void
 playlist::QueuedSongStarted(PlayerControl &pc)
 {
-	assert(pc.next_song == nullptr);
+	assert(!pc.LockGetSyncInfo().has_next_song);
 	assert(queued >= -1);
 	assert(current >= 0);
 
@@ -92,7 +110,7 @@ playlist::QueuedSongStarted(PlayerControl &pc)
 }
 
 const DetachedSong *
-playlist::GetQueuedSong() const
+playlist::GetQueuedSong() const noexcept
 {
 	return playing && queued >= 0
 		? &queue.GetOrder(queued)
@@ -118,7 +136,7 @@ playlist::UpdateQueuedSong(PlayerControl &pc, const DetachedSong *prev)
 		? queue.GetNextOrder(current)
 		: 0;
 
-	if (next_order == 0 && queue.random && !queue.single) {
+	if (next_order == 0 && queue.random && queue.single == SingleMode::OFF) {
 		/* shuffle the song order again, so we get a different
 		   order each time the playlist is played
 		   completely */
@@ -163,7 +181,7 @@ playlist::PlayOrder(PlayerControl &pc, unsigned order)
 
 	current = order;
 
-	pc.Play(new DetachedSong(song));
+	pc.Play(std::make_unique<DetachedSong>(song));
 
 	SongStarted();
 }
@@ -176,12 +194,9 @@ playlist::SyncWithPlayer(PlayerControl &pc)
 		   playing anymore; ignore the event */
 		return;
 
-	pc.Lock();
-	const PlayerState pc_state = pc.GetState();
-	const DetachedSong *pc_next_song = pc.next_song;
-	pc.Unlock();
+	const auto i = pc.LockGetSyncInfo();
 
-	if (pc_state == PlayerState::STOP)
+	if (i.state == PlayerState::STOP)
 		/* the player thread has stopped: check if playback
 		   should be restarted with the next song.  That can
 		   happen if the playlist isn't filling the queue fast
@@ -190,16 +205,12 @@ playlist::SyncWithPlayer(PlayerControl &pc)
 	else {
 		/* check if the player thread has already started
 		   playing the queued song */
-		if (pc_next_song == nullptr && queued != -1)
+		if (!i.has_next_song && queued != -1)
 			QueuedSongStarted(pc);
-
-		pc.Lock();
-		pc_next_song = pc.next_song;
-		pc.Unlock();
 
 		/* make sure the queued song is always set (if
 		   possible) */
-		if (pc_next_song == nullptr && queued < 0)
+		if (!pc.LockGetSyncInfo().has_next_song && queued < 0)
 			UpdateQueuedSong(pc, nullptr);
 	}
 }
@@ -239,7 +250,7 @@ playlist::SetRepeat(PlayerControl &pc, bool status)
 
 	queue.repeat = status;
 
-	pc.LockSetBorderPause(queue.single && !queue.repeat);
+	pc.LockSetBorderPause(queue.single != SingleMode::OFF && !queue.repeat);
 
 	/* if the last song is currently being played, the "next song"
 	   might change when repeat mode is toggled */
@@ -259,14 +270,15 @@ playlist_order(playlist &playlist)
 }
 
 void
-playlist::SetSingle(PlayerControl &pc, bool status)
+playlist::SetSingle(PlayerControl &pc, SingleMode status)
 {
 	if (status == queue.single)
 		return;
 
 	queue.single = status;
 
-	pc.LockSetBorderPause(queue.single && !queue.repeat);
+
+	pc.LockSetBorderPause(queue.single != SingleMode::OFF && !queue.repeat);
 
 	/* if the last song is currently being played, the "next song"
 	   might change when single mode is toggled */
@@ -310,8 +322,7 @@ playlist::SetRandom(PlayerControl &pc, bool status)
 			   playlist is played after that */
 			unsigned current_order =
 				queue.PositionToOrder(current_position);
-			queue.SwapOrders(0, current_order);
-			current = 0;
+			current = queue.MoveOrder(current_order, 0);
 		} else
 			current = -1;
 	} else
@@ -323,7 +334,7 @@ playlist::SetRandom(PlayerControl &pc, bool status)
 }
 
 int
-playlist::GetCurrentPosition() const
+playlist::GetCurrentPosition() const noexcept
 {
 	return current >= 0
 		? queue.OrderToPosition(current)
@@ -331,12 +342,12 @@ playlist::GetCurrentPosition() const
 }
 
 int
-playlist::GetNextPosition() const
+playlist::GetNextPosition() const noexcept
 {
 	if (current < 0)
 		return -1;
 
-	if (queue.single && queue.repeat)
+	if (queue.single != SingleMode::OFF && queue.repeat)
 		return queue.OrderToPosition(current);
 	else if (queue.IsValidOrder(current + 1))
 		return queue.OrderToPosition(current + 1);
@@ -344,4 +355,15 @@ playlist::GetNextPosition() const
 		return queue.OrderToPosition(0);
 
 	return -1;
+}
+
+void
+playlist::BorderPause(PlayerControl &pc)
+{
+	if (queue.single == SingleMode::ONE_SHOT) {
+		queue.single = SingleMode::OFF;
+		pc.LockSetBorderPause(false);
+
+		listener.OnQueueOptionsChanged();
+	}
 }

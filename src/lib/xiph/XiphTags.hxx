@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_XIPH_TAGS_HXX
 #define MPD_XIPH_TAGS_HXX
 
-#include "check.h"
-#include "tag/TagTable.hxx"
+#include "tag/Table.hxx"
 
 extern const struct tag_table xiph_tags[];
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlaylistSong.hxx"
 #include "SongLoader.hxx"
 #include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 #include "fs/Traits.hxx"
 #include "util/UriUtil.hxx"
-#include "DetachedSong.hxx"
-
-#include <stdexcept>
+#include "song/DetachedSong.hxx"
 
 #include <string.h>
 
 static void
-merge_song_metadata(DetachedSong &add, const DetachedSong &base)
+merge_song_metadata(DetachedSong &add, const DetachedSong &base) noexcept
 {
 	if (base.GetTag().IsDefined()) {
 		TagBuilder builder(add.GetTag());
@@ -43,31 +40,23 @@ merge_song_metadata(DetachedSong &add, const DetachedSong &base)
 }
 
 static bool
-playlist_check_load_song(DetachedSong &song, const SongLoader &loader)
-{
-	DetachedSong *tmp;
+playlist_check_load_song(DetachedSong &song, const SongLoader &loader) noexcept
+try {
+	DetachedSong tmp = loader.LoadSong(song.GetURI());
 
-	try {
-		tmp = loader.LoadSong(song.GetURI());
-	} catch (const std::runtime_error &) {
-		return false;
-	}
+	song.SetURI(tmp.GetURI());
+	if (!song.HasRealURI() && tmp.HasRealURI())
+		song.SetRealURI(tmp.GetRealURI());
 
-	if (tmp == nullptr)
-		return false;
-
-	song.SetURI(tmp->GetURI());
-	if (!song.HasRealURI() && tmp->HasRealURI())
-		song.SetRealURI(tmp->GetRealURI());
-
-	merge_song_metadata(song, *tmp);
-	delete tmp;
+	merge_song_metadata(song, tmp);
 	return true;
+} catch (...) {
+	return false;
 }
 
 bool
 playlist_check_translate_song(DetachedSong &song, const char *base_uri,
-			      const SongLoader &loader)
+			      const SongLoader &loader) noexcept
 {
 	if (base_uri != nullptr && strcmp(base_uri, ".") == 0)
 		/* PathTraitsUTF8::GetParent() returns "." when there

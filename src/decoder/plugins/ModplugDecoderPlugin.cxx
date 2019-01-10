@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ModplugDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "util/WritableBuffer.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
@@ -66,12 +65,12 @@ mod_loadfile(DecoderClient *client, InputStream &is)
 
 		if (size == 0) {
 			LogWarning(modplug_domain, "file is empty");
-			return { nullptr, 0 };
+			return nullptr;
 		}
 
 		if (size > MODPLUG_FILE_LIMIT) {
 			LogWarning(modplug_domain, "file too large");
-			return { nullptr, 0 };
+			return nullptr;
 		}
 
 		buffer.size = size;
@@ -175,20 +174,17 @@ mod_decode(DecoderClient &client, InputStream &is)
 }
 
 static bool
-modplug_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+modplug_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	ModPlugFile *f = LoadModPlugFile(nullptr, is);
 	if (f == nullptr)
 		return false;
 
-	tag_handler_invoke_duration(handler, handler_ctx,
-				    SongTime::FromMS(ModPlug_GetLength(f)));
+	handler.OnDuration(SongTime::FromMS(ModPlug_GetLength(f)));
 
 	const char *title = ModPlug_GetName(f);
 	if (title != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_TITLE, title);
+		handler.OnTag(TAG_TITLE, title);
 
 	ModPlug_Unload(f);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,22 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagSave.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "playlist/SongEnumerator.hxx"
 #include "input/InputStream.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "config/File.hxx"
+#include "config/Migrate.hxx"
+#include "config/Data.hxx"
 #include "decoder/DecoderList.hxx"
 #include "input/Init.hxx"
-#include "ScopeIOThread.hxx"
+#include "event/Thread.hxx"
 #include "playlist/PlaylistRegistry.hxx"
 #include "playlist/PlaylistPlugin.hxx"
 #include "fs/Path.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "fs/io/StdioOutputStream.hxx"
 #include "thread/Cond.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -60,27 +61,27 @@ try {
 
 	/* initialize MPD */
 
-	config_global_init();
+	ConfigData config;
+	ReadConfigFile(config, config_path);
+	Migrate(config);
 
-	ReadConfigFile(config_path);
+	EventThread io_thread;
+	io_thread.Start();
 
-	const ScopeIOThread io_thread;
-
-	input_stream_global_init();
-	playlist_list_global_init();
-	decoder_plugin_init_all();
+	input_stream_global_init(config, io_thread.GetEventLoop());
+	playlist_list_global_init(config);
+	decoder_plugin_init_all(config);
 
 	/* open the playlist */
 
 	Mutex mutex;
-	Cond cond;
 
 	InputStreamPtr is;
-	auto playlist = playlist_list_open_uri(uri, mutex, cond);
+	auto playlist = playlist_list_open_uri(uri, mutex);
 	if (playlist == NULL) {
 		/* open the stream and wait until it becomes ready */
 
-		is = InputStream::OpenReady(uri, mutex, cond);
+		is = InputStream::OpenReady(uri, mutex);
 
 		/* open the playlist */
 
@@ -116,16 +117,15 @@ try {
 
 	/* deinitialize everything */
 
-	delete playlist;
+	playlist.reset();
 	is.reset();
 
 	decoder_plugin_deinit_all();
 	playlist_list_global_finish();
 	input_stream_global_finish();
-	config_global_finish();
 
 	return EXIT_SUCCESS;
- } catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
- }
+}

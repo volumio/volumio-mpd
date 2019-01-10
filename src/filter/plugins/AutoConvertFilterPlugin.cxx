@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AutoConvertFilterPlugin.hxx"
 #include "ConvertFilterPlugin.hxx"
 #include "filter/FilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
 #include "filter/FilterRegistry.hxx"
 #include "AudioFormat.hxx"
 #include "util/ConstBuffer.hxx"
@@ -45,7 +45,15 @@ class AutoConvertFilter final : public Filter {
 public:
 	AutoConvertFilter(std::unique_ptr<Filter> &&_filter,
 			  std::unique_ptr<Filter> &&_convert)
-		:filter(std::move(_filter)), convert(std::move(_convert)) {}
+		:Filter(_filter->GetOutAudioFormat()),
+		 filter(std::move(_filter)), convert(std::move(_convert)) {}
+
+	void Reset() noexcept override {
+		filter->Reset();
+
+		if (convert)
+			convert->Reset();
+	}
 
 	ConstBuffer<void> FilterPCM(ConstBuffer<void> src) override;
 };
@@ -54,18 +62,16 @@ class PreparedAutoConvertFilter final : public PreparedFilter {
 	/**
 	 * The underlying filter.
 	 */
-	PreparedFilter *const filter;
+	std::unique_ptr<PreparedFilter> filter;
 
 public:
-	PreparedAutoConvertFilter(PreparedFilter *_filter):filter(_filter) {}
-	~PreparedAutoConvertFilter() {
-		delete filter;
-	}
+	PreparedAutoConvertFilter(std::unique_ptr<PreparedFilter> _filter) noexcept
+		:filter(std::move(_filter)) {}
 
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
-Filter *
+std::unique_ptr<Filter>
 PreparedAutoConvertFilter::Open(AudioFormat &in_audio_format)
 {
 	assert(in_audio_format.IsValid());
@@ -73,7 +79,7 @@ PreparedAutoConvertFilter::Open(AudioFormat &in_audio_format)
 	/* open the "real" filter */
 
 	AudioFormat child_audio_format = in_audio_format;
-	std::unique_ptr<Filter> new_filter(filter->Open(child_audio_format));
+	auto new_filter = filter->Open(child_audio_format);
 
 	/* need to convert? */
 
@@ -85,24 +91,21 @@ PreparedAutoConvertFilter::Open(AudioFormat &in_audio_format)
 						 child_audio_format));
 	}
 
-	return new AutoConvertFilter(std::move(new_filter),
-				     std::move(convert));
+	return std::make_unique<AutoConvertFilter>(std::move(new_filter),
+						   std::move(convert));
 }
 
 ConstBuffer<void>
 AutoConvertFilter::FilterPCM(ConstBuffer<void> src)
 {
-	if (convert != nullptr) {
+	if (convert != nullptr)
 		src = convert->FilterPCM(src);
-		if (src.IsNull())
-			return nullptr;
-	}
 
 	return filter->FilterPCM(src);
 }
 
-PreparedFilter *
-autoconvert_filter_new(PreparedFilter *filter)
+std::unique_ptr<PreparedFilter>
+autoconvert_filter_new(std::unique_ptr<PreparedFilter> filter) noexcept
 {
-	return new PreparedAutoConvertFilter(filter);
+	return std::make_unique<PreparedAutoConvertFilter>(std::move(filter));
 }

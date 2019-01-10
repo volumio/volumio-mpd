@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,20 +28,19 @@
 #include <stdint.h>
 
 struct Queue;
-struct Partition;
 class SongFilter;
 class Response;
 
 void
-queue_print_info(Response &r, Partition &partition, const Queue &queue,
+queue_print_info(Response &r, const Queue &queue,
 		 unsigned start, unsigned end);
 
 void
-queue_print_uris(Response &r, Partition &partition, const Queue &queue,
+queue_print_uris(Response &r, const Queue &queue,
 		 unsigned start, unsigned end);
 
 void
-queue_print_changes_info(Response &r, Partition &partition, const Queue &queue,
+queue_print_changes_info(Response &r, const Queue &queue,
 			 uint32_t version,
 			 unsigned start, unsigned end);
 
@@ -51,7 +50,7 @@ queue_print_changes_position(Response &r, const Queue &queue,
 			     unsigned start, unsigned end);
 
 void
-queue_find(Response &response, Partition &partition, const Queue &queue,
+queue_find(Response &response, const Queue &queue,
 	   const SongFilter &filter);
 
 #endif

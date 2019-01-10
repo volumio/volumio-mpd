@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_STORAGE_PLUGIN_HXX
 #define MPD_STORAGE_PLUGIN_HXX
 
-#include "check.h"
+#include <memory>
 
 class Storage;
 class EventLoop;
@@ -31,7 +31,8 @@ struct StoragePlugin {
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
-	Storage *(*create_uri)(EventLoop &event_loop, const char *uri);
+	std::unique_ptr<Storage> (*create_uri)(EventLoop &event_loop,
+					       const char *uri);
 };
 
 #endif

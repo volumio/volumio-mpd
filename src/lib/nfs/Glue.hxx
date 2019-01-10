@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,19 +20,26 @@
 #ifndef MPD_NFS_GLUE_HXX
 #define MPD_NFS_GLUE_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
+class EventLoop;
 class NfsConnection;
 
 void
-nfs_init();
+nfs_init(EventLoop &event_loop);
 
 void
-nfs_finish();
+nfs_finish() noexcept;
+
+/**
+ * Return the EventLoop that was passed to nfs_init().
+ */
+gcc_const
+EventLoop &
+nfs_get_event_loop() noexcept;
 
 gcc_pure
 NfsConnection &
-nfs_get_connection(const char *server, const char *export_name);
+nfs_get_connection(const char *server, const char *export_name) noexcept;
 
 #endif

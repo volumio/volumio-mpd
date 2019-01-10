@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,47 +20,15 @@
 #ifndef MPD_AUDIO_FORMAT_HXX
 #define MPD_AUDIO_FORMAT_HXX
 
-#include "Compiler.h"
+#include "pcm/SampleFormat.hxx"
+#include "util/Compiler.h"
+
+#include <chrono>
 
 #include <stdint.h>
-#include <assert.h>
+#include <stddef.h>
 
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
-/* on WIN32, "FLOAT" is already defined, and this triggers -Wshadow */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshadow"
-#endif
-
-enum class SampleFormat : uint8_t {
-	UNDEFINED = 0,
-
-	S8,
-	S16,
-
-	/**
-	 * Signed 24 bit integer samples, packed in 32 bit integers
-	 * (the most significant byte is filled with the sign bit).
-	 */
-	S24_P32,
-
-	S32,
-
-	/**
-	 * 32 bit floating point samples in the host's format.  The
-	 * range is -1.0f to +1.0f.
-	 */
-	FLOAT,
-
-	/**
-	 * Direct Stream Digital.  1-bit samples; each frame has one
-	 * byte (8 samples) per channel.
-	 */
-	DSD,
-};
-
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
-#pragma GCC diagnostic pop
-#endif
+template<size_t CAPACITY> class StringBuffer;
 
 static constexpr unsigned MAX_CHANNELS = 8;
 
@@ -157,7 +125,19 @@ struct AudioFormat {
 		return !(*this == other);
 	}
 
-	void ApplyMask(AudioFormat mask);
+	void ApplyMask(AudioFormat mask) noexcept;
+
+	gcc_pure
+	AudioFormat WithMask(AudioFormat mask) const noexcept {
+		AudioFormat result = *this;
+		result.ApplyMask(mask);
+		return result;
+	}
+
+	gcc_pure
+	bool MatchMask(AudioFormat mask) const noexcept {
+		return WithMask(mask) == *this;
+	}
 
 	/**
 	 * Returns the size of each (mono) sample in bytes.
@@ -169,18 +149,28 @@ struct AudioFormat {
 	 */
 	unsigned GetFrameSize() const;
 
-	/**
-	 * Returns the floating point factor which converts a time
-	 * span to a storage size in bytes.
-	 */
-	double GetTimeToSize() const;
-};
+	template<typename D>
+	constexpr auto TimeToFrames(D t) const noexcept {
+		using Period = typename D::period;
+		return ((t.count() * sample_rate) / Period::den) * Period::num;
+	}
 
-/**
- * Buffer for audio_format_string().
- */
-struct audio_format_string {
-	char buffer[24];
+	template<typename D>
+	constexpr size_t TimeToSize(D t) const noexcept {
+		return size_t(size_t(TimeToFrames(t)) * GetFrameSize());
+	}
+
+	template<typename D>
+	constexpr D FramesToTime(std::uintmax_t size) const noexcept {
+		using Rep = typename D::rep;
+		using Period = typename D::period;
+		return D(((Rep(1) * size / Period::num) * Period::den) / sample_rate);
+	}
+
+	template<typename D>
+	constexpr D SizeToTime(std::uintmax_t size) const noexcept {
+		return FramesToTime<D>(size / GetFrameSize());
+	}
 };
 
 /**
@@ -192,28 +182,6 @@ static constexpr inline bool
 audio_valid_sample_rate(unsigned sample_rate)
 {
 	return sample_rate > 0 && sample_rate < (1 << 30);
-}
-
-/**
- * Checks whether the sample format is valid.
- */
-static inline bool
-audio_valid_sample_format(SampleFormat format)
-{
-	switch (format) {
-	case SampleFormat::S8:
-	case SampleFormat::S16:
-	case SampleFormat::S24_P32:
-	case SampleFormat::S32:
-	case SampleFormat::FLOAT:
-	case SampleFormat::DSD:
-		return true;
-
-	case SampleFormat::UNDEFINED:
-		break;
-	}
-
-	return false;
 }
 
 /**
@@ -251,34 +219,6 @@ AudioFormat::IsMaskValid() const
 		(channels == 0 || audio_valid_channel_count(channels));
 }
 
-gcc_const
-static inline unsigned
-sample_format_size(SampleFormat format)
-{
-	switch (format) {
-	case SampleFormat::S8:
-		return 1;
-
-	case SampleFormat::S16:
-		return 2;
-
-	case SampleFormat::S24_P32:
-	case SampleFormat::S32:
-	case SampleFormat::FLOAT:
-		return 4;
-
-	case SampleFormat::DSD:
-		/* each frame has 8 samples per channel */
-		return 1;
-
-	case SampleFormat::UNDEFINED:
-		return 0;
-	}
-
-	assert(false);
-	gcc_unreachable();
-}
-
 inline unsigned
 AudioFormat::GetSampleSize() const
 {
@@ -291,34 +231,15 @@ AudioFormat::GetFrameSize() const
 	return GetSampleSize() * channels;
 }
 
-inline double
-AudioFormat::GetTimeToSize() const
-{
-	return sample_rate * GetFrameSize();
-}
-
-/**
- * Renders a #SampleFormat enum into a string, e.g. for printing it
- * in a log file.
- *
- * @param format a #SampleFormat enum value
- * @return the string
- */
-gcc_pure gcc_malloc
-const char *
-sample_format_to_string(SampleFormat format);
-
 /**
  * Renders the #AudioFormat object into a string, e.g. for printing
  * it in a log file.
  *
  * @param af the #AudioFormat object
- * @param s a buffer to print into
- * @return the string, or nullptr if the #AudioFormat object is invalid
+ * @return the string buffer
  */
-gcc_pure gcc_malloc
-const char *
-audio_format_to_string(AudioFormat af,
-		       struct audio_format_string *s);
+gcc_const
+StringBuffer<24>
+ToString(AudioFormat af) noexcept;
 
 #endif

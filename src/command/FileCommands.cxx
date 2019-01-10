@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #include "client/Response.hxx"
 #include "util/CharUtil.hxx"
 #include "util/UriUtil.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
 #include "TagStream.hxx"
 #include "TagFile.hxx"
@@ -36,15 +36,17 @@
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileInfo.hxx"
 #include "fs/DirectoryReader.hxx"
+#include "input/InputStream.hxx"
 #include "LocateUri.hxx"
 #include "TimePrint.hxx"
+#include "thread/Mutex.hxx"
 
 #include <assert.h>
 #include <inttypes.h> /* for PRIu64 */
 
 gcc_pure
 static bool
-SkipNameFS(PathTraitsFS::const_pointer_type name_fs)
+SkipNameFS(PathTraitsFS::const_pointer_type name_fs) noexcept
 {
 	return name_fs[0] == '.' &&
 		(name_fs[1] == 0 ||
@@ -53,12 +55,12 @@ SkipNameFS(PathTraitsFS::const_pointer_type name_fs)
 
 gcc_pure
 static bool
-skip_path(Path name_fs)
+skip_path(Path name_fs) noexcept
 {
 	return name_fs.HasNewline();
 }
 
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
+#if defined(_WIN32) && GCC_CHECK_VERSION(4,6)
 /* PRIu64 causes bogus compiler warning */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat"
@@ -79,8 +81,7 @@ handle_listfiles_local(Response &r, Path path_fs)
 		if (name_utf8.empty())
 			continue;
 
-		const AllocatedPath full_fs =
-			AllocatedPath::Build(path_fs, name_fs);
+		const auto full_fs = path_fs / name_fs;
 		FileInfo fi;
 		if (!GetFileInfo(full_fs, fi, false))
 			continue;
@@ -101,13 +102,13 @@ handle_listfiles_local(Response &r, Path path_fs)
 	return CommandResult::OK;
 }
 
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
+#if defined(_WIN32) && GCC_CHECK_VERSION(4,6)
 #pragma GCC diagnostic pop
 #endif
 
 gcc_pure
 static bool
-IsValidName(const char *p)
+IsValidName(const char *p) noexcept
 {
 	if (!IsAlphaASCII(*p))
 		return false;
@@ -123,7 +124,7 @@ IsValidName(const char *p)
 
 gcc_pure
 static bool
-IsValidValue(const char *p)
+IsValidValue(const char *p) noexcept
 {
 	while (*p) {
 		const char ch = *p++;
@@ -135,25 +136,24 @@ IsValidValue(const char *p)
 	return true;
 }
 
-static void
-print_pair(const char *key, const char *value, void *ctx)
-{
-	auto &r = *(Response *)ctx;
+class PrintCommentHandler final : public NullTagHandler {
+	Response &response;
 
-	if (IsValidName(key) && IsValidValue(value))
-		r.Format("%s: %s\n", key, value);
-}
+public:
+	explicit PrintCommentHandler(Response &_response) noexcept
+		:NullTagHandler(WANT_PAIR), response(_response) {}
 
-static constexpr TagHandler print_comment_handler = {
-	nullptr,
-	nullptr,
-	print_pair,
+	void OnPair(const char *key, const char *value) noexcept override {
+		if (IsValidName(key) && IsValidValue(value))
+			response.Format("%s: %s\n", key, value);
+	}
 };
 
 static CommandResult
 read_stream_comments(Response &r, const char *uri)
 {
-	if (!tag_stream_scan(uri, print_comment_handler, &r)) {
+	PrintCommentHandler h(r);
+	if (!tag_stream_scan(uri, h)) {
 		r.Error(ACK_ERROR_NO_EXIST, "Failed to load file");
 		return CommandResult::ERROR;
 	}
@@ -165,12 +165,13 @@ read_stream_comments(Response &r, const char *uri)
 static CommandResult
 read_file_comments(Response &r, const Path path_fs)
 {
-	if (!tag_file_scan(path_fs, print_comment_handler, &r)) {
+	PrintCommentHandler h(r);
+	if (!ScanFileTagsNoGeneric(path_fs, h)) {
 		r.Error(ACK_ERROR_NO_EXIST, "Failed to load file");
 		return CommandResult::ERROR;
 	}
 
-	ScanGenericTags(path_fs, print_comment_handler, &r);
+	ScanGenericTags(path_fs, h);
 
 	return CommandResult::OK;
 
@@ -233,3 +234,113 @@ handle_read_comments(Client &client, Request args, Response &r)
 
 	gcc_unreachable();
 }
+
+/**
+ * Searches for the files listed in #artnames in the UTF8 folder
+ * URI #directory. This can be a local path or protocol-based
+ * URI that #InputStream supports. Returns the first successfully
+ * opened file or #nullptr on failure.
+ */
+static InputStreamPtr
+find_stream_art(const char *directory, Mutex &mutex)
+{
+	static constexpr char const * art_names[] = {
+		"cover.png",
+		"cover.jpg",
+		"cover.tiff",
+		"cover.bmp"
+	};
+
+	for(const auto name: art_names) {
+		std::string art_file = PathTraitsUTF8::Build(directory, name);
+
+		try {
+			return InputStream::OpenReady(art_file.c_str(), mutex);
+		} catch (const std::exception &e) {}
+	}
+	return nullptr;
+}
+
+static CommandResult
+read_stream_art(Response &r, const char *uri, size_t offset)
+{
+	std::string art_directory = PathTraitsUTF8::GetParent(uri);
+
+	Mutex mutex;
+
+	InputStreamPtr is = find_stream_art(art_directory.c_str(), mutex);
+
+	if (is == nullptr) {
+		r.Error(ACK_ERROR_NO_EXIST, "No file exists");
+		return CommandResult::ERROR;
+	}
+	if (!is->KnownSize()) {
+		r.Error(ACK_ERROR_NO_EXIST, "Cannot get size for stream");
+		return CommandResult::ERROR;
+	}
+
+	const offset_type art_file_size = is->GetSize();
+
+	constexpr size_t CHUNK_SIZE = 8192;
+	uint8_t buffer[CHUNK_SIZE];
+	size_t read_size;
+
+	is->Seek(offset);
+	read_size = is->Read(&buffer, CHUNK_SIZE);
+
+	r.Format("size: %" PRIoffset "\n"
+			 "binary: %u\n",
+			 art_file_size,
+			 read_size
+			 );
+
+	r.Write(buffer, read_size);
+	r.Write("\n");
+
+	return CommandResult::OK;
+}
+
+#ifdef ENABLE_DATABASE
+static CommandResult
+read_db_art(Client &client, Response &r, const char *uri, const uint64_t offset)
+{
+	const Storage *storage = client.GetStorage();
+	if (storage == nullptr) {
+		r.Error(ACK_ERROR_NO_EXIST, "No database");
+		return CommandResult::ERROR;
+	}
+	std::string uri2 = storage->MapUTF8(uri);
+	return read_stream_art(r, uri2.c_str(), offset);
+}
+#endif
+
+CommandResult
+handle_album_art(Client &client, Request args, Response &r)
+{
+	assert(args.size == 2);
+
+	const char *uri = args.front();
+	size_t offset = args.ParseUnsigned(1);
+
+	const auto located_uri = LocateUri(uri, &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
+
+	switch (located_uri.type) {
+	case LocatedUri::Type::ABSOLUTE:
+	case LocatedUri::Type::PATH:
+		return read_stream_art(r, located_uri.canonical_uri, offset);
+	case LocatedUri::Type::RELATIVE:
+#ifdef ENABLE_DATABASE
+		return read_db_art(client, r, located_uri.canonical_uri, offset);
+#else
+		r.Error(ACK_ERROR_NO_EXIST, "Database disabled");
+		return CommandResult::ERROR;
+#endif
+	}
+	r.Error(ACK_ERROR_NO_EXIST, "No art file exists");
+	return CommandResult::ERROR;
+}
+

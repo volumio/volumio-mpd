@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_DATABASE_REGISTRY_HXX
 #define MPD_DATABASE_REGISTRY_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct DatabasePlugin;
 
@@ -32,6 +32,6 @@ extern const DatabasePlugin *const database_plugins[];
 
 gcc_pure
 const DatabasePlugin *
-GetDatabasePluginByName(const char *name);
+GetDatabasePluginByName(const char *name) noexcept;
 
 #endif

@@ -1,0 +1,16 @@
+Description: source $MPDCONF from /etc/default/mpd
+Author: Florian Schlichting <fsfs@debian.org>
+Forwarded: not-needed
+
+--- a/systemd/system/mpd.service.in
++++ b/systemd/system/mpd.service.in
+@@ -5,7 +5,8 @@
+ 
+ [Service]
+ Type=notify
+-ExecStart=@prefix@/bin/mpd --no-daemon
++EnvironmentFile=/etc/default/mpd
++ExecStart=@prefix@/bin/mpd --no-daemon $MPDCONF
+ 
+ # Enable this setting to ask systemd to watch over MPD, see
+ # systemd.service(5).  This is disabled by default because it causes

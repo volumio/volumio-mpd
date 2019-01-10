@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,26 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "Internal.hxx"
+#include "Filtered.hxx"
 #include "Registry.hxx"
 #include "Domain.hxx"
 #include "OutputAPI.hxx"
-#include "filter/FilterConfig.hxx"
+#include "Defaults.hxx"
 #include "AudioParser.hxx"
 #include "mixer/MixerList.hxx"
 #include "mixer/MixerType.hxx"
 #include "mixer/MixerControl.hxx"
 #include "mixer/plugins/SoftwareMixerPlugin.hxx"
-#include "filter/FilterPlugin.hxx"
-#include "filter/FilterRegistry.hxx"
+#include "filter/LoadChain.hxx"
+#include "filter/Prepared.hxx"
 #include "filter/plugins/AutoConvertFilterPlugin.hxx"
+#include "filter/plugins/ConvertFilterPlugin.hxx"
 #include "filter/plugins/ReplayGainFilterPlugin.hxx"
 #include "filter/plugins/ChainFilterPlugin.hxx"
-#include "config/ConfigError.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "filter/plugins/VolumeFilterPlugin.hxx"
+#include "filter/plugins/NormalizeFilterPlugin.hxx"
+#include "config/Domain.hxx"
+#include "config/Option.hxx"
 #include "config/Block.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/StringFormat.hxx"
 #include "Log.hxx"
 
 #include <stdexcept>
@@ -49,16 +52,14 @@
 #define AUDIO_OUTPUT_FORMAT	"format"
 #define AUDIO_FILTERS		"filters"
 
-AudioOutput::AudioOutput(const AudioOutputPlugin &_plugin,
-			 const ConfigBlock &block)
-	:plugin(_plugin)
+FilteredAudioOutput::FilteredAudioOutput(const char *_plugin_name,
+					 std::unique_ptr<AudioOutput> &&_output,
+					 const ConfigBlock &block,
+					 const AudioOutputDefaults &defaults,
+					 FilterFactory *filter_factory)
+	:plugin_name(_plugin_name), output(std::move(_output))
 {
-	assert(plugin.finish != nullptr);
-	assert(plugin.open != nullptr);
-	assert(plugin.close != nullptr);
-	assert(plugin.play != nullptr);
-
-	Configure(block);
+	Configure(block, defaults, filter_factory);
 }
 
 static const AudioOutputPlugin *
@@ -87,9 +88,9 @@ audio_output_detect()
  * This handles the deprecated options mixer_type (global) and
  * mixer_enabled, if the mixer_type setting is not configured.
  */
-gcc_pure
 static MixerType
-audio_output_mixer_type(const ConfigBlock &block)
+audio_output_mixer_type(const ConfigBlock &block,
+			const AudioOutputDefaults &defaults)
 {
 	/* read the local "mixer_type" setting */
 	const char *p = block.GetBlockValue("mixer_type");
@@ -102,49 +103,44 @@ audio_output_mixer_type(const ConfigBlock &block)
 
 	/* fall back to the global "mixer_type" setting (also
 	   deprecated) */
-	return mixer_type_parse(config_get_string(ConfigOption::MIXER_TYPE,
-						  "hardware"));
-}
-
-static PreparedFilter *
-CreateVolumeFilter()
-{
-	return filter_new(&volume_filter_plugin, ConfigBlock());
+	return defaults.mixer_type;
 }
 
 static Mixer *
-audio_output_load_mixer(EventLoop &event_loop, AudioOutput &ao,
+audio_output_load_mixer(EventLoop &event_loop, FilteredAudioOutput &ao,
 			const ConfigBlock &block,
+			const AudioOutputDefaults &defaults,
 			const MixerPlugin *plugin,
 			PreparedFilter &filter_chain,
 			MixerListener &listener)
 {
 	Mixer *mixer;
 
-	switch (audio_output_mixer_type(block)) {
+	switch (audio_output_mixer_type(block, defaults)) {
 	case MixerType::NONE:
-	case MixerType::UNKNOWN:
 		return nullptr;
 
 	case MixerType::NULL_:
-		return mixer_new(event_loop, null_mixer_plugin, ao, listener,
+		return mixer_new(event_loop, null_mixer_plugin,
+				 *ao.output, listener,
 				 block);
 
 	case MixerType::HARDWARE:
 		if (plugin == nullptr)
 			return nullptr;
 
-		return mixer_new(event_loop, *plugin, ao, listener,
+		return mixer_new(event_loop, *plugin,
+				 *ao.output, listener,
 				 block);
 
 	case MixerType::SOFTWARE:
-		mixer = mixer_new(event_loop, software_mixer_plugin, ao,
-				  listener,
+		mixer = mixer_new(event_loop, software_mixer_plugin,
+				  *ao.output, listener,
 				  ConfigBlock());
 		assert(mixer != nullptr);
 
 		filter_chain_append(filter_chain, "software_mixer",
-				    ao.volume_filter.Set(CreateVolumeFilter()));
+				    ao.volume_filter.Set(volume_filter_prepare()));
 		return mixer;
 	}
 
@@ -153,7 +149,9 @@ audio_output_load_mixer(EventLoop &event_loop, AudioOutput &ao,
 }
 
 void
-AudioOutput::Configure(const ConfigBlock &block)
+FilteredAudioOutput::Configure(const ConfigBlock &block,
+			       const AudioOutputDefaults &defaults,
+			       FilterFactory *filter_factory)
 {
 	if (!block.IsNull()) {
 		name = block.GetBlockValue(AUDIO_OUTPUT_NAME);
@@ -171,9 +169,7 @@ AudioOutput::Configure(const ConfigBlock &block)
 		config_audio_format.Clear();
 	}
 
-	tags = block.GetBlockValue("tags", true);
-	always_on = block.GetBlockValue("always_on", false);
-	enabled = block.GetBlockValue("enabled", true);
+	log_name = StringFormat<256>("\"%s\" (%s)", name, plugin_name);
 
 	/* set up the filter chain */
 
@@ -182,35 +178,36 @@ AudioOutput::Configure(const ConfigBlock &block)
 
 	/* create the normalization filter (if configured) */
 
-	if (config_get_bool(ConfigOption::VOLUME_NORMALIZATION, false)) {
-		auto *normalize_filter =
-			filter_new(&normalize_filter_plugin, ConfigBlock());
-		assert(normalize_filter != nullptr);
-
+	if (defaults.normalize) {
 		filter_chain_append(*prepared_filter, "normalize",
-				    autoconvert_filter_new(normalize_filter));
+				    autoconvert_filter_new(normalize_filter_prepare()));
 	}
 
 	try {
-		filter_chain_parse(*prepared_filter,
-				   block.GetBlockValue(AUDIO_FILTERS, ""));
-	} catch (const std::runtime_error &e) {
+		if (filter_factory != nullptr)
+			filter_chain_parse(*prepared_filter, *filter_factory,
+					   block.GetBlockValue(AUDIO_FILTERS, ""));
+	} catch (...) {
 		/* It's not really fatal - Part of the filter chain
 		   has been set up already and even an empty one will
 		   work (if only with unexpected behaviour) */
-		FormatError(e,
+		FormatError(std::current_exception(),
 			    "Failed to initialize filter chain for '%s'",
 			    name);
 	}
 }
 
-static void
-audio_output_setup(EventLoop &event_loop,
-		   const ReplayGainConfig &replay_gain_config,
-		   AudioOutput &ao,
-		   MixerListener &mixer_listener,
-		   const ConfigBlock &block)
+inline void
+FilteredAudioOutput::Setup(EventLoop &event_loop,
+			   const ReplayGainConfig &replay_gain_config,
+			   const MixerPlugin *mixer_plugin,
+			   MixerListener &mixer_listener,
+			   const ConfigBlock &block,
+			   const AudioOutputDefaults &defaults)
 {
+	if (output->GetNeedFullyDefinedAudioFormat() &&
+	    !config_audio_format.IsFullyDefined())
+		throw std::runtime_error("Need full audio format specification");
 
 	/* create the replay_gain filter */
 
@@ -218,64 +215,56 @@ audio_output_setup(EventLoop &event_loop,
 		block.GetBlockValue("replay_gain_handler", "software");
 
 	if (strcmp(replay_gain_handler, "none") != 0) {
-		ao.prepared_replay_gain_filter =
+		prepared_replay_gain_filter =
 			NewReplayGainFilter(replay_gain_config);
-		assert(ao.prepared_replay_gain_filter != nullptr);
+		assert(prepared_replay_gain_filter != nullptr);
 
-		ao.replay_gain_serial = 0;
-
-		ao.prepared_other_replay_gain_filter =
+		prepared_other_replay_gain_filter =
 			NewReplayGainFilter(replay_gain_config);
-		assert(ao.prepared_other_replay_gain_filter != nullptr);
-
-		ao.other_replay_gain_serial = 0;
-	} else {
-		ao.prepared_replay_gain_filter = nullptr;
-		ao.prepared_other_replay_gain_filter = nullptr;
+		assert(prepared_other_replay_gain_filter != nullptr);
 	}
 
 	/* set up the mixer */
 
 	try {
-		ao.mixer = audio_output_load_mixer(event_loop, ao, block,
-						   ao.plugin.mixer_plugin,
-						   *ao.prepared_filter,
-						   mixer_listener);
-	} catch (const std::runtime_error &e) {
-		FormatError(e,
+		mixer = audio_output_load_mixer(event_loop, *this, block,
+						defaults,
+						mixer_plugin,
+						*prepared_filter,
+						mixer_listener);
+	} catch (...) {
+		FormatError(std::current_exception(),
 			    "Failed to initialize hardware mixer for '%s'",
-			    ao.name);
+			    name);
 	}
 
 	/* use the hardware mixer for replay gain? */
 
 	if (strcmp(replay_gain_handler, "mixer") == 0) {
-		if (ao.mixer != nullptr)
-			replay_gain_filter_set_mixer(*ao.prepared_replay_gain_filter,
-						     ao.mixer, 100);
+		if (mixer != nullptr)
+			replay_gain_filter_set_mixer(*prepared_replay_gain_filter,
+						     mixer, 100);
 		else
 			FormatError(output_domain,
-				    "No such mixer for output '%s'", ao.name);
+				    "No such mixer for output '%s'", name);
 	} else if (strcmp(replay_gain_handler, "software") != 0 &&
-		   ao.prepared_replay_gain_filter != nullptr) {
+		   prepared_replay_gain_filter != nullptr) {
 		throw std::runtime_error("Invalid \"replay_gain_handler\" value");
 	}
 
 	/* the "convert" filter must be the last one in the chain */
 
-	auto *f = filter_new(&convert_filter_plugin, ConfigBlock());
-	assert(f != nullptr);
-
-	filter_chain_append(*ao.prepared_filter, "convert",
-			    ao.convert_filter.Set(f));
+	filter_chain_append(*prepared_filter, "convert",
+			    convert_filter.Set(convert_filter_prepare()));
 }
 
-AudioOutput *
+std::unique_ptr<FilteredAudioOutput>
 audio_output_new(EventLoop &event_loop,
 		 const ReplayGainConfig &replay_gain_config,
 		 const ConfigBlock &block,
-		 MixerListener &mixer_listener,
-		 PlayerControl &pc)
+		 const AudioOutputDefaults &defaults,
+		 FilterFactory *filter_factory,
+		 MixerListener &mixer_listener)
 {
 	const AudioOutputPlugin *plugin;
 
@@ -291,7 +280,7 @@ audio_output_new(EventLoop &event_loop,
 			throw FormatRuntimeError("No such audio output plugin: %s", p);
 	} else {
 		LogWarning(output_domain,
-			   "No 'AudioOutput' defined in config file");
+			   "No 'audio_output' defined in config file");
 
 		plugin = audio_output_detect();
 
@@ -300,17 +289,16 @@ audio_output_new(EventLoop &event_loop,
 			      plugin->name);
 	}
 
-	AudioOutput *ao = ao_plugin_init(plugin, block);
+	std::unique_ptr<AudioOutput> ao(ao_plugin_init(event_loop, *plugin,
+						       block));
 	assert(ao != nullptr);
 
-	try {
-		audio_output_setup(event_loop, replay_gain_config,
-				   *ao, mixer_listener, block);
-	} catch (...) {
-		ao_plugin_finish(ao);
-		throw;
-	}
-
-	ao->player_control = &pc;
-	return ao;
+	auto f = std::make_unique<FilteredAudioOutput>(plugin->name,
+						       std::move(ao), block,
+						       defaults,
+						       filter_factory);
+	f->Setup(event_loop, replay_gain_config,
+		 plugin->mixer_plugin,
+		 mixer_listener, block, defaults);
+	return f;
 }

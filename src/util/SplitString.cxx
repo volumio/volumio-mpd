@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,12 +29,12 @@
 
 #include "SplitString.hxx"
 #include "IterableSplitString.hxx"
-#include "StringUtil.hxx"
+#include "StringStrip.hxx"
 
 #include <string.h>
 
 std::forward_list<std::string>
-SplitString(const char *s, char separator, bool strip)
+SplitString(const char *s, char separator, bool strip) noexcept
 {
 	if (strip)
 		s = StripLeft(s);

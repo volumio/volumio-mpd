@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,15 +23,15 @@
 #include "PlaylistError.hxx"
 #include "db/PlaylistInfo.hxx"
 #include "db/PlaylistVector.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongLoader.hxx"
 #include "Mapper.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/FileOutputStream.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "config/ConfigDefaults.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "config/Defaults.hxx"
 #include "Idle.hxx"
 #include "fs/Limits.hxx"
 #include "fs/AllocatedPath.hxx"
@@ -55,15 +55,15 @@ static unsigned playlist_max_length;
 bool playlist_saveAbsolutePaths = DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS;
 
 void
-spl_global_init(void)
+spl_global_init(const ConfigData &config)
 {
 	playlist_max_length =
-		config_get_positive(ConfigOption::MAX_PLAYLIST_LENGTH,
-				    DEFAULT_PLAYLIST_MAX_LENGTH);
+		config.GetPositive(ConfigOption::MAX_PLAYLIST_LENGTH,
+				   DEFAULT_PLAYLIST_MAX_LENGTH);
 
 	playlist_saveAbsolutePaths =
-		config_get_bool(ConfigOption::SAVE_ABSOLUTE_PATHS,
-				DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS);
+		config.GetBool(ConfigOption::SAVE_ABSOLUTE_PATHS,
+			       DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS);
 }
 
 bool
@@ -138,16 +138,18 @@ LoadPlaylistFileInfo(PlaylistInfo &info,
 		return false;
 
 	FileInfo fi;
-	if (!GetFileInfo(AllocatedPath::Build(parent_path_fs, name_fs), fi) ||
+	if (!GetFileInfo(parent_path_fs / name_fs, fi) ||
 	    !fi.IsRegular())
 		return false;
 
 	const auto name = AllocatedPath::FromFS(name_fs_str, name_fs_end);
-	std::string name_utf8 = name.ToUTF8();
-	if (name_utf8.empty())
-		return false;
 
-	info.name = std::move(name_utf8);
+	try {
+		info.name = name.ToUTF8Throw();
+	} catch (...) {
+		return false;
+	}
+
 	info.mtime = fi.GetModificationTime();
 	return true;
 }
@@ -207,13 +209,12 @@ try {
 			continue;
 
 #ifdef _UNICODE
-		wchar_t buffer[MAX_PATH];
-		auto result = MultiByteToWideChar(CP_ACP, 0, s, -1,
-						  buffer, ARRAY_SIZE(buffer));
-		if (result <= 0)
+		/* on Windows, playlists always contain UTF-8, because
+		   its "narrow" charset (i.e. CP_ACP) is incapable of
+		   storing all Unicode paths */
+		const auto path = AllocatedPath::FromUTF8(s);
+		if (path.IsNull())
 			continue;
-
-		const Path path = Path::FromFS(buffer);
 #else
 		const Path path = Path::FromFS(s);
 #endif
@@ -335,7 +336,7 @@ try {
 	const auto path_fs = spl_map_to_fs(utf8path);
 	assert(!path_fs.IsNull());
 
-	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_EXISTING);
+	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_OR_CREATE);
 
 	if (fos.Tell() / (MPD_PATH_MAX + 1) >= playlist_max_length)
 		throw PlaylistError(PlaylistResult::TOO_LARGE,
@@ -359,8 +360,7 @@ void
 spl_append_uri(const char *utf8file,
 	       const SongLoader &loader, const char *url)
 {
-	std::unique_ptr<DetachedSong> song(loader.LoadSong(url));
-	spl_append_song(utf8file, *song);
+	spl_append_song(utf8file, loader.LoadSong(url));
 }
 
 static void

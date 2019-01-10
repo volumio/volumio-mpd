@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,43 +17,49 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MultiSocketMonitor.hxx"
 #include "Loop.hxx"
 
 #include <algorithm>
 
-#ifndef WIN32
+#ifndef _WIN32
 #include <poll.h>
 #endif
 
-MultiSocketMonitor::MultiSocketMonitor(EventLoop &_loop)
-	:IdleMonitor(_loop), TimeoutMonitor(_loop), ready(false) {
-}
-
-MultiSocketMonitor::~MultiSocketMonitor()
-{
-	// TODO
+MultiSocketMonitor::MultiSocketMonitor(EventLoop &_loop) noexcept
+	:IdleMonitor(_loop),
+	 timeout_event(_loop, BIND_THIS_METHOD(OnTimeout)) {
 }
 
 void
-MultiSocketMonitor::ClearSocketList()
+MultiSocketMonitor::Reset() noexcept
 {
-	assert(GetEventLoop().IsInsideOrNull());
+	assert(GetEventLoop().IsInside());
+
+	fds.clear();
+	IdleMonitor::Cancel();
+	timeout_event.Cancel();
+	ready = refresh = false;
+}
+
+void
+MultiSocketMonitor::ClearSocketList() noexcept
+{
+	assert(GetEventLoop().IsInside());
 
 	fds.clear();
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 
 void
-MultiSocketMonitor::ReplaceSocketList(pollfd *pfds, unsigned n)
+MultiSocketMonitor::ReplaceSocketList(pollfd *pfds, unsigned n) noexcept
 {
 	pollfd *const end = pfds + n;
 
-	UpdateSocketList([pfds, end](int fd) -> unsigned {
+	UpdateSocketList([pfds, end](SocketDescriptor fd) -> unsigned {
 			auto i = std::find_if(pfds, end, [fd](const struct pollfd &pfd){
-					return pfd.fd == fd;
+					return pfd.fd == fd.Get();
 				});
 			if (i == end)
 				return 0;
@@ -65,24 +71,24 @@ MultiSocketMonitor::ReplaceSocketList(pollfd *pfds, unsigned n)
 
 	for (auto i = pfds; i != end; ++i)
 		if (i->events != 0)
-			AddSocket(i->fd, i->events);
+			AddSocket(SocketDescriptor(i->fd), i->events);
 }
 
 #endif
 
 void
-MultiSocketMonitor::Prepare()
+MultiSocketMonitor::Prepare() noexcept
 {
-	int timeout_ms = PrepareSockets();
-	if (timeout_ms >= 0)
-		TimeoutMonitor::Schedule(timeout_ms);
+	const auto timeout = PrepareSockets();
+	if (timeout >= timeout.zero())
+		timeout_event.Schedule(timeout);
 	else
-		TimeoutMonitor::Cancel();
+		timeout_event.Cancel();
 
 }
 
 void
-MultiSocketMonitor::OnIdle()
+MultiSocketMonitor::OnIdle() noexcept
 {
 	if (ready) {
 		ready = false;

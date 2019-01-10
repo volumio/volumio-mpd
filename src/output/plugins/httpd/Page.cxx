@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,54 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Page.hxx"
-#include "util/Alloc.hxx"
 
-#include <new>
-
-#include <assert.h>
 #include <string.h>
-#include <stdlib.h>
 
-Page *
-Page::Create(size_t size)
+Page::Page(const void *data, size_t size) noexcept
+	:buffer(size)
 {
-	void *p = xalloc(sizeof(Page) + size -
-			 sizeof(Page::data));
-	return ::new(p) Page(size);
-}
-
-Page *
-Page::Copy(const void *data, size_t size)
-{
-	assert(data != nullptr);
-
-	Page *page = Create(size);
-	memcpy(page->data, data, size);
-	return page;
-}
-
-Page *
-Page::Concat(const Page &a, const Page &b)
-{
-	Page *page = Create(a.size + b.size);
-
-	memcpy(page->data, a.data, a.size);
-	memcpy(page->data + a.size, b.data, b.size);
-
-	return page;
-}
-
-bool
-Page::Unref()
-{
-	bool unused = ref.Decrement();
-
-	if (unused) {
-		this->Page::~Page();
-		free(this);
-	}
-
-	return unused;
+	memcpy(&buffer.front(), data, size);
 }

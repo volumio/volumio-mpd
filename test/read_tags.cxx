@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,18 +18,19 @@
  */
 
 #include "config.h"
-#include "ScopeIOThread.hxx"
+#include "config/Data.hxx"
+#include "event/Thread.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
 #include "input/Init.hxx"
 #include "input/InputStream.hxx"
-#include "AudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
 #include "fs/Path.hxx"
-#include "thread/Cond.hxx"
-#include "Log.hxx"
+#include "AudioFormat.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdexcept>
 
@@ -42,31 +43,33 @@
 #include <locale.h>
 #endif
 
-static bool empty = true;
+class DumpTagHandler final : public NullTagHandler {
+	bool empty = true;
 
-static void
-print_duration(SongTime duration, gcc_unused void *ctx)
-{
-	printf("duration=%f\n", duration.ToDoubleS());
-}
+public:
+	DumpTagHandler() noexcept
+		:NullTagHandler(WANT_DURATION|WANT_TAG|WANT_PAIR) {}
 
-static void
-print_tag(TagType type, const char *value, gcc_unused void *ctx)
-{
-	printf("[%s]=%s\n", tag_item_names[type], value);
-	empty = false;
-}
+	bool IsEmpty() const noexcept {
+		return empty;
+	}
 
-static void
-print_pair(const char *name, const char *value, gcc_unused void *ctx)
-{
-	printf("\"%s\"=%s\n", name, value);
-}
+	void OnDuration(SongTime duration) noexcept override {
+		printf("duration=%f\n", duration.ToDoubleS());
+	}
 
-static constexpr TagHandler print_handler = {
-	print_duration,
-	print_tag,
-	print_pair,
+	void OnTag(TagType type, const char *value) noexcept override {
+		printf("[%s]=%s\n", tag_item_names[type], value);
+		empty = false;
+	}
+
+	void OnPair(const char *key, const char *value) noexcept override {
+		printf("\"%s\"=%s\n", key, value);
+	}
+
+	void OnAudioFormat(AudioFormat af) noexcept override {
+		printf("%s\n", ToString(af).c_str());
+	}
 };
 
 int main(int argc, char **argv)
@@ -87,12 +90,13 @@ try {
 	decoder_name = argv[1];
 	const Path path = Path::FromFS(argv[2]);
 
-	const ScopeIOThread io_thread;
+	EventThread io_thread;
+	io_thread.Start();
 
-	input_stream_global_init();
+	input_stream_global_init(ConfigData(), io_thread.GetEventLoop());
 	AtScopeExit() { input_stream_global_finish(); };
 
-	decoder_plugin_init_all();
+	decoder_plugin_init_all(ConfigData());
 	AtScopeExit() { decoder_plugin_deinit_all(); };
 
 	plugin = decoder_plugin_from_name(decoder_name);
@@ -101,21 +105,21 @@ try {
 		return EXIT_FAILURE;
 	}
 
+	DumpTagHandler h;
 	bool success;
 	try {
-		success = plugin->ScanFile(path, print_handler, nullptr);
-	} catch (const std::exception &e) {
-		LogError(e);
+		success = plugin->ScanFile(path, h);
+	} catch (...) {
+		PrintException(std::current_exception());
 		success = false;
 	}
 
 	Mutex mutex;
-	Cond cond;
 	InputStreamPtr is;
 
 	if (!success && plugin->scan_stream != NULL) {
-		is = InputStream::OpenReady(path.c_str(), mutex, cond);
-		success = plugin->ScanStream(*is, print_handler, nullptr);
+		is = InputStream::OpenReady(path.c_str(), mutex);
+		success = plugin->ScanStream(*is, h);
 	}
 
 	if (!success) {
@@ -123,15 +127,15 @@ try {
 		return EXIT_FAILURE;
 	}
 
-	if (empty) {
+	if (h.IsEmpty()) {
 		if (is)
-			ScanGenericTags(*is, print_handler, nullptr);
+			ScanGenericTags(*is, h);
 		else
-			ScanGenericTags(path, print_handler, nullptr);
+			ScanGenericTags(path, h);
 	}
 
 	return 0;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

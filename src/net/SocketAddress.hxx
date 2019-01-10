@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2012-2017 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,22 +30,26 @@
 #ifndef SOCKET_ADDRESS_HXX
 #define SOCKET_ADDRESS_HXX
 
-#include "Compiler.h"
+#include "Features.hxx"
+#include "util/Compiler.h"
 
 #include <cstddef>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
 #endif
+
+template<typename T> struct ConstBuffer;
+struct StringView;
 
 /**
  * An OO wrapper for struct sockaddr.
  */
 class SocketAddress {
 public:
-#ifdef WIN32
+#ifdef _WIN32
 	typedef int size_type;
 #else
 	typedef socklen_t size_type;
@@ -58,29 +62,30 @@ private:
 public:
 	SocketAddress() = default;
 
-	constexpr SocketAddress(std::nullptr_t):address(nullptr), size(0) {}
+	constexpr SocketAddress(std::nullptr_t) noexcept
+		:address(nullptr), size(0) {}
 
 	constexpr SocketAddress(const struct sockaddr *_address,
-				size_type _size)
+				size_type _size) noexcept
 		:address(_address), size(_size) {}
 
-	static constexpr SocketAddress Null() {
+	static constexpr SocketAddress Null() noexcept {
 		return nullptr;
 	}
 
-	constexpr bool IsNull() const {
+	constexpr bool IsNull() const noexcept {
 		return address == nullptr;
 	}
 
-	const struct sockaddr *GetAddress() const {
+	constexpr const struct sockaddr *GetAddress() const noexcept {
 		return address;
 	}
 
-	constexpr size_type GetSize() const {
+	constexpr size_type GetSize() const noexcept {
 		return size;
 	}
 
-	constexpr int GetFamily() const {
+	constexpr int GetFamily() const noexcept {
 		return address->sa_family;
 	}
 
@@ -88,14 +93,55 @@ public:
 	 * Does the object have a well-defined address?  Check !IsNull()
 	 * before calling this method.
 	 */
-	bool IsDefined() const {
+	bool IsDefined() const noexcept {
 		return GetFamily() != AF_UNSPEC;
 	}
 
+#ifdef HAVE_UN
+	/**
+	 * Extract the local socket path (which may begin with a null
+	 * byte, denoting an "abstract" socket).  The return value's
+	 * "size" attribute includes the null terminator.  Returns
+	 * nullptr if not applicable.
+	 */
 	gcc_pure
-	bool operator==(const SocketAddress other) const;
+	StringView GetLocalRaw() const noexcept;
+#endif
 
-	bool operator!=(const SocketAddress other) const {
+#ifdef HAVE_TCP
+	/**
+	 * Is this the IPv6 wildcard address (in6addr_any)?
+	 */
+	gcc_pure
+	bool IsV6Any() const noexcept;
+
+	/**
+	 * Is this an IPv4 address mapped inside struct sockaddr_in6?
+	 */
+	gcc_pure
+	bool IsV4Mapped() const noexcept;
+
+	/**
+	 * Extract the port number.  Returns 0 if not applicable.
+	 */
+	gcc_pure
+	unsigned GetPort() const noexcept;
+#endif
+
+	/**
+	 * Return a buffer pointing to the "steady" portion of the
+	 * address, i.e. without volatile parts like the port number.
+	 * This buffer is useful for hashing the address, but not so
+	 * much for anything else.  Returns nullptr if the address is
+	 * not supported.
+	 */
+	gcc_pure
+	ConstBuffer<void> GetSteadyPart() const noexcept;
+
+	gcc_pure
+	bool operator==(const SocketAddress other) const noexcept;
+
+	bool operator!=(const SocketAddress other) const noexcept {
 		return !(*this == other);
 	}
 };

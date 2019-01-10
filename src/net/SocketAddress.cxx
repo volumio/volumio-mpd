@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2012-2017 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,121 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "config.h"
 #include "SocketAddress.hxx"
+#include "IPv4Address.hxx"
+#include "IPv6Address.hxx"
+#include "util/StringView.hxx"
 
 #include <string.h>
 
+#ifdef HAVE_UN
+#include <sys/un.h>
+#endif
+
+#ifdef HAVE_TCP
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#endif
+#endif
+
 bool
-SocketAddress::operator==(SocketAddress other) const
+SocketAddress::operator==(SocketAddress other) const noexcept
 {
 	return size == other.size && memcmp(address, other.address, size) == 0;
+}
+
+#ifdef HAVE_UN
+
+StringView
+SocketAddress::GetLocalRaw() const noexcept
+{
+	if (IsNull() || GetFamily() != AF_LOCAL)
+		/* not applicable */
+		return nullptr;
+
+	const auto sun = (const struct sockaddr_un *)GetAddress();
+	const auto start = (const char *)sun;
+	const auto path = sun->sun_path;
+	const size_t header_size = path - start;
+	if (size < size_type(header_size))
+		/* malformed address */
+		return nullptr;
+
+	return {path, size - header_size};
+}
+
+#endif
+
+#ifdef HAVE_TCP
+
+bool
+SocketAddress::IsV6Any() const noexcept
+{
+	return GetFamily() == AF_INET6 && IPv6Address(*this).IsAny();
+}
+
+bool
+SocketAddress::IsV4Mapped() const noexcept
+{
+	return GetFamily() == AF_INET6 && IPv6Address(*this).IsV4Mapped();
+}
+
+unsigned
+SocketAddress::GetPort() const noexcept
+{
+	if (IsNull())
+		return 0;
+
+	switch (GetFamily()) {
+	case AF_INET:
+		return IPv4Address(*this).GetPort();
+
+	case AF_INET6:
+		return IPv6Address(*this).GetPort();
+
+	default:
+		return 0;
+	}
+}
+
+static constexpr ConstBuffer<void>
+GetSteadyPart(const struct sockaddr_in &address) noexcept
+{
+	return {&address.sin_addr, sizeof(address.sin_addr)};
+}
+
+static constexpr ConstBuffer<void>
+GetSteadyPart(const struct sockaddr_in6 &address) noexcept
+{
+	return {&address.sin6_addr, sizeof(address.sin6_addr)};
+}
+
+#endif
+
+ConstBuffer<void>
+SocketAddress::GetSteadyPart() const noexcept
+{
+	if (IsNull())
+		return nullptr;
+
+	switch (GetFamily()) {
+#ifdef HAVE_UN
+	case AF_LOCAL:
+		return GetLocalRaw().ToVoid();
+#endif
+
+#ifdef HAVE_TCP
+	case AF_INET:
+		return ::GetSteadyPart(*(const struct sockaddr_in *)(const void *)GetAddress());
+
+	case AF_INET6:
+		return ::GetSteadyPart(*(const struct sockaddr_in6 *)(const void *)GetAddress());
+#endif
+
+	default:
+		return nullptr;
+	}
 }

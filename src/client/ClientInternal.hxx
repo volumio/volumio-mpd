@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,17 @@
 #ifndef MPD_CLIENT_INTERNAL_HXX
 #define MPD_CLIENT_INTERNAL_HXX
 
-#include "check.h"
 #include "Client.hxx"
 #include "command/CommandResult.hxx"
+
+#include <chrono>
 
 static constexpr unsigned CLIENT_MAX_SUBSCRIPTIONS = 16;
 static constexpr unsigned CLIENT_MAX_MESSAGES = 64;
 
 extern const class Domain client_domain;
 
-extern int client_timeout;
+extern std::chrono::steady_clock::duration client_timeout;
 extern size_t client_max_command_list_size;
 extern size_t client_max_output_buffer_size;
 

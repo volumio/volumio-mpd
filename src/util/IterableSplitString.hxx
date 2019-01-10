@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,23 +42,28 @@
  *
  * An empty input string returns one empty string.
  */
-class IterableSplitString {
-	StringView s;
+template<typename T>
+class BasicIterableSplitString {
+	typedef BasicStringView<T> StringView;
 
-	char separator;
+	typedef typename StringView::value_type value_type;
+
+	StringView s;
+	value_type separator;
 
 public:
-	constexpr IterableSplitString(StringView _s, char _separator)
+	constexpr BasicIterableSplitString(StringView _s,
+					   value_type _separator)
 		:s(_s), separator(_separator) {}
 
 	class Iterator final {
-		friend class IterableSplitString;
+		friend class BasicIterableSplitString;
 
 		StringView current, rest;
 
-		char separator;
+		value_type separator;
 
-		Iterator(StringView _s, char _separator)
+		Iterator(StringView _s, value_type _separator)
 			:rest(_s), separator(_separator) {
 			Next();
 		}
@@ -67,10 +72,10 @@ public:
 			:current(n), rest(n), separator(0) {}
 
 		void Next() {
-			if (rest.IsNull())
+			if (rest == nullptr)
 				current = nullptr;
 			else {
-				const char *i = rest.Find(separator);
+				const auto *i = rest.Find(separator);
 				if (i == nullptr) {
 					current = rest;
 					rest.data = nullptr;
@@ -119,5 +124,14 @@ public:
 		return {nullptr};
 	}
 };
+
+using IterableSplitString = BasicIterableSplitString<char>;
+
+#ifdef _UNICODE
+using WIterableSplitString = BasicIterableSplitString<wchar_t>;
+using TIterableSplitString = WIterableSplitString;
+#else
+using TIterableSplitString = IterableSplitString;
+#endif
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,13 +23,12 @@
  *
  */
 
-#include "config.h"
 #include "AudioParser.hxx"
 #include "AudioFormat.hxx"
 #include "pcm/PcmConvert.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/StaticFifoBuffer.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <assert.h>
 #include <stddef.h>
@@ -49,20 +48,20 @@ try {
 	const auto in_audio_format = ParseAudioFormat(argv[1], false);
 	const auto out_audio_format_mask = ParseAudioFormat(argv[2], false);
 
-	auto out_audio_format = in_audio_format;
-	out_audio_format.ApplyMask(out_audio_format_mask);
+	const auto out_audio_format =
+		in_audio_format.WithMask(out_audio_format_mask);
 
 	const size_t in_frame_size = in_audio_format.GetFrameSize();
 
 	PcmConvert state;
-	state.Open(in_audio_format, out_audio_format_mask);
+	state.Open(in_audio_format, out_audio_format);
 
 	StaticFifoBuffer<uint8_t, 4096> buffer;
 
 	while (true) {
 		{
 			const auto dest = buffer.Write();
-			assert(!dest.IsEmpty());
+			assert(!dest.empty());
 
 			ssize_t nbytes = read(0, dest.data, dest.size);
 			if (nbytes <= 0)
@@ -72,10 +71,10 @@ try {
 		}
 
 		auto src = buffer.Read();
-		assert(!src.IsEmpty());
+		assert(!src.empty());
 
 		src.size -= src.size % in_frame_size;
-		if (src.IsEmpty())
+		if (src.empty())
 			continue;
 
 		buffer.Consume(src.size);
@@ -86,10 +85,19 @@ try {
 						   output.size);
 	}
 
+	while (true) {
+		auto output = state.Flush();
+		if (output.IsNull())
+			break;
+
+		gcc_unused ssize_t ignored = write(1, output.data,
+						   output.size);
+	}
+
 	state.Close();
 
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -90,7 +90,7 @@ public:
 		return capacity;
 	}
 
-	constexpr bool IsEmpty() const {
+	constexpr bool empty() const {
 		return head == tail;
 	}
 

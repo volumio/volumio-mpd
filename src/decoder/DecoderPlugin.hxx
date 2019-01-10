@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,13 @@
 #ifndef MPD_DECODER_PLUGIN_HXX
 #define MPD_DECODER_PLUGIN_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <forward_list>
 
 struct ConfigBlock;
 class InputStream;
-struct TagHandler;
+class TagHandler;
 class Path;
 class DecoderClient;
 class DetachedSong;
@@ -48,7 +48,7 @@ struct DecoderPlugin {
 	 * Deinitialize a decoder plugin which was initialized
 	 * successfully.  Optional method.
 	 */
-	void (*finish)();
+	void (*finish)() noexcept;
 
 	/**
 	 * Decode a stream (data read from an #InputStream object).
@@ -71,18 +71,14 @@ struct DecoderPlugin {
 	 *
 	 * @return false if the operation has failed
 	 */
-	bool (*scan_file)(Path path_fs,
-			  const TagHandler &handler,
-			  void *handler_ctx);
+	bool (*scan_file)(Path path_fs, TagHandler &handler) noexcept;
 
 	/**
 	 * Scan metadata of a file.
 	 *
 	 * @return false if the operation has failed
 	 */
-	bool (*scan_stream)(InputStream &is,
-			    const TagHandler &handler,
-			    void *handler_ctx);
+	bool (*scan_stream)(InputStream &is, TagHandler &handler) noexcept;
 
 	/**
 	 * @brief Return a "virtual" filename for subtracks in
@@ -139,20 +135,18 @@ struct DecoderPlugin {
 	 * Read the tag of a file.
 	 */
 	template<typename P>
-	bool ScanFile(P path_fs,
-		      const TagHandler &handler, void *handler_ctx) const {
+	bool ScanFile(P path_fs, TagHandler &handler) const noexcept {
 		return scan_file != nullptr
-			? scan_file(path_fs, handler, handler_ctx)
+			? scan_file(path_fs, handler)
 			: false;
 	}
 
 	/**
 	 * Read the tag of a stream.
 	 */
-	bool ScanStream(InputStream &is,
-			const TagHandler &handler, void *handler_ctx) const {
+	bool ScanStream(InputStream &is, TagHandler &handler) const noexcept {
 		return scan_stream != nullptr
-			? scan_stream(is, handler, handler_ctx)
+			? scan_stream(is, handler)
 			: false;
 	}
 
@@ -168,13 +162,13 @@ struct DecoderPlugin {
 	 * Does the plugin announce the specified file name suffix?
 	 */
 	gcc_pure gcc_nonnull_all
-	bool SupportsSuffix(const char *suffix) const;
+	bool SupportsSuffix(const char *suffix) const noexcept;
 
 	/**
 	 * Does the plugin announce the specified MIME type?
 	 */
 	gcc_pure gcc_nonnull_all
-	bool SupportsMimeType(const char *mime_type) const;
+	bool SupportsMimeType(const char *mime_type) const noexcept;
 };
 
 #endif

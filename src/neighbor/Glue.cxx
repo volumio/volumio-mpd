@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,27 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Glue.hxx"
 #include "Registry.hxx"
 #include "Explorer.hxx"
 #include "NeighborPlugin.hxx"
 #include "Info.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Data.hxx"
+#include "config/Domain.hxx"
 #include "config/Block.hxx"
 #include "util/RuntimeError.hxx"
 
 #include <stdexcept>
 
-NeighborGlue::Explorer::~Explorer()
-{
-	delete explorer;
-}
+NeighborGlue::NeighborGlue() noexcept {}
+NeighborGlue::~NeighborGlue() noexcept {}
 
-NeighborGlue::~NeighborGlue() {}
-
-static NeighborExplorer *
+static std::unique_ptr<NeighborExplorer>
 CreateNeighborExplorer(EventLoop &loop, NeighborListener &listener,
 		       const ConfigBlock &block)
 {
@@ -54,17 +49,19 @@ CreateNeighborExplorer(EventLoop &loop, NeighborListener &listener,
 }
 
 void
-NeighborGlue::Init(EventLoop &loop, NeighborListener &listener)
+NeighborGlue::Init(const ConfigData &config,
+		   EventLoop &loop, NeighborListener &listener)
 {
-	for (const auto *block = config_get_block(ConfigBlockOption::NEIGHBORS);
-	     block != nullptr; block = block->next) {
+	for (const auto &block : config.GetBlockList(ConfigBlockOption::NEIGHBORS)) {
+		block.SetUsed();
+
 		try {
-			auto *explorer =
-				CreateNeighborExplorer(loop, listener, *block);
-			explorers.emplace_front(explorer);
+			explorers.emplace_front(CreateNeighborExplorer(loop,
+								       listener,
+								       block));
 		} catch (...) {
 			std::throw_with_nested(FormatRuntimeError("Line %i: ",
-								  block->line));
+								  block.line));
 		}
 	}
 }
@@ -86,14 +83,14 @@ NeighborGlue::Open()
 }
 
 void
-NeighborGlue::Close()
+NeighborGlue::Close() noexcept
 {
 	for (auto i = explorers.begin(), end = explorers.end(); i != end; ++i)
 		i->explorer->Close();
 }
 
 NeighborGlue::List
-NeighborGlue::GetList() const
+NeighborGlue::GetList() const noexcept
 {
 	List result;
 

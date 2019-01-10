@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,10 +21,11 @@
 #include "MadDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "tag/TagId3.hxx"
-#include "tag/TagRva2.hxx"
-#include "tag/TagHandler.hxx"
+#include "config/Block.hxx"
+#include "tag/Id3Scan.hxx"
+#include "tag/Id3ReplayGain.hxx"
+#include "tag/Rva2.hxx"
+#include "tag/Handler.hxx"
 #include "tag/ReplayGain.hxx"
 #include "tag/MixRamp.hxx"
 #include "CheckAudioFormat.hxx"
@@ -35,6 +36,7 @@
 #include <mad.h>
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Unique.hxx"
 #include <id3tag.h>
 #endif
 
@@ -71,7 +73,7 @@ static bool gapless_playback;
 
 gcc_const
 static SongTime
-ToSongTime(mad_timer_t t)
+ToSongTime(mad_timer_t t) noexcept
 {
 	return SongTime::FromMS(mad_timer_count(t, MAD_UNITS_MILLISECONDS));
 }
@@ -107,10 +109,10 @@ mad_fixed_to_24_buffer(int32_t *dest, const struct mad_synth *synth,
 }
 
 static bool
-mp3_plugin_init(gcc_unused const ConfigBlock &block)
+mp3_plugin_init(const ConfigBlock &block)
 {
-	gapless_playback = config_get_bool(ConfigOption::GAPLESS_MP3_PLAYBACK,
-					   DEFAULT_GAPLESS_MP3_PLAYBACK);
+	gapless_playback = block.GetBlockValue("gapless",
+					       DEFAULT_GAPLESS_MP3_PLAYBACK);
 	return true;
 }
 
@@ -150,22 +152,22 @@ struct MadDecoder {
 
 	bool Seek(long offset);
 	bool FillBuffer();
-	void ParseId3(size_t tagsize, Tag **mpd_tag);
-	enum mp3_action DecodeNextFrameHeader(Tag **tag);
+	void ParseId3(size_t tagsize, Tag *tag);
+	enum mp3_action DecodeNextFrameHeader(Tag *tag);
 	enum mp3_action DecodeNextFrame();
 
 	gcc_pure
-	offset_type ThisFrameOffset() const;
+	offset_type ThisFrameOffset() const noexcept;
 
 	gcc_pure
-	offset_type RestIncludingThisFrame() const;
+	offset_type RestIncludingThisFrame() const noexcept;
 
 	/**
 	 * Attempt to calulcate the length of the song from filesize
 	 */
 	void FileSizeToSongLength();
 
-	bool DecodeFirstFrame(Tag **tag);
+	bool DecodeFirstFrame(Tag *tag);
 
 	void AllocateBuffers() {
 		assert(max_frames > 0);
@@ -177,7 +179,7 @@ struct MadDecoder {
 	}
 
 	gcc_pure
-	long TimeToFrame(SongTime t) const;
+	long TimeToFrame(SongTime t) const noexcept;
 
 	void UpdateTimerNextFrame();
 
@@ -212,7 +214,7 @@ MadDecoder::Seek(long offset)
 {
 	try {
 		input_stream.LockSeek(offset);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 
@@ -255,43 +257,9 @@ MadDecoder::FillBuffer()
 }
 
 #ifdef ENABLE_ID3TAG
-static bool
-parse_id3_replay_gain_info(ReplayGainInfo &rgi,
-			   struct id3_tag *tag)
-{
-	bool found = false;
-
-	rgi.Clear();
-
-	struct id3_frame *frame;
-	for (unsigned i = 0; (frame = id3_tag_findframe(tag, "TXXX", i)); i++) {
-		if (frame->nfields < 3)
-			continue;
-
-		char *const key = (char *)
-		    id3_ucs4_latin1duplicate(id3_field_getstring
-					     (&frame->fields[1]));
-		char *const value = (char *)
-		    id3_ucs4_latin1duplicate(id3_field_getstring
-					     (&frame->fields[2]));
-
-		if (ParseReplayGainTag(rgi, key, value))
-			found = true;
-
-		free(key);
-		free(value);
-	}
-
-	return found ||
-		/* fall back on RVA2 if no replaygain tags found */
-		tag_rva2_parse(tag, rgi);
-}
-#endif
-
-#ifdef ENABLE_ID3TAG
 gcc_pure
 static MixRampInfo
-parse_id3_mixramp(struct id3_tag *tag)
+parse_id3_mixramp(struct id3_tag *tag) noexcept
 {
 	MixRampInfo result;
 
@@ -318,10 +286,10 @@ parse_id3_mixramp(struct id3_tag *tag)
 #endif
 
 inline void
-MadDecoder::ParseId3(size_t tagsize, Tag **mpd_tag)
+MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag)
 {
 #ifdef ENABLE_ID3TAG
-	id3_byte_t *allocated = nullptr;
+	std::unique_ptr<id3_byte_t[]> allocated;
 
 	const id3_length_t count = stream.bufend - stream.this_frame;
 
@@ -330,48 +298,37 @@ MadDecoder::ParseId3(size_t tagsize, Tag **mpd_tag)
 		id3_data = stream.this_frame;
 		mad_stream_skip(&(stream), tagsize);
 	} else {
-		allocated = new id3_byte_t[tagsize];
-		memcpy(allocated, stream.this_frame, count);
+		allocated.reset(new id3_byte_t[tagsize]);
+		memcpy(allocated.get(), stream.this_frame, count);
 		mad_stream_skip(&(stream), count);
 
 		if (!decoder_read_full(client, input_stream,
-				       allocated + count, tagsize - count)) {
+				       allocated.get() + count, tagsize - count)) {
 			LogDebug(mad_domain, "error parsing ID3 tag");
-			delete[] allocated;
 			return;
 		}
 
-		id3_data = allocated;
+		id3_data = allocated.get();
 	}
 
-	struct id3_tag *const id3_tag = id3_tag_parse(id3_data, tagsize);
-	if (id3_tag == nullptr) {
-		delete[] allocated;
+	const UniqueId3Tag id3_tag(id3_tag_parse(id3_data, tagsize));
+	if (id3_tag == nullptr)
 		return;
-	}
 
-	if (mpd_tag) {
-		Tag *tmp_tag = tag_id3_import(id3_tag);
-		if (tmp_tag != nullptr) {
-			delete *mpd_tag;
-			*mpd_tag = tmp_tag;
-		}
-	}
+	if (mpd_tag != nullptr)
+		*mpd_tag = tag_id3_import(id3_tag.get());
 
 	if (client != nullptr) {
 		ReplayGainInfo rgi;
 
-		if (parse_id3_replay_gain_info(rgi, id3_tag)) {
+		if (Id3ToReplayGainInfo(rgi, id3_tag.get())) {
 			client->SubmitReplayGain(&rgi);
 			found_replay_gain = true;
 		}
 
-		client->SubmitMixRamp(parse_id3_mixramp(id3_tag));
+		client->SubmitMixRamp(parse_id3_mixramp(id3_tag.get()));
 	}
 
-	id3_tag_delete(id3_tag);
-
-	delete[] allocated;
 #else /* !ENABLE_ID3TAG */
 	(void)mpd_tag;
 
@@ -422,7 +379,7 @@ RecoverFrameError(struct mad_stream &stream)
 }
 
 enum mp3_action
-MadDecoder::DecodeNextFrameHeader(Tag **tag)
+MadDecoder::DecodeNextFrameHeader(Tag *tag)
 {
 	if ((stream.buffer == nullptr || stream.error == MAD_ERROR_BUFLEN) &&
 	    !FillBuffer())
@@ -435,11 +392,7 @@ MadDecoder::DecodeNextFrameHeader(Tag **tag)
 							    stream.this_frame);
 
 			if (tagsize > 0) {
-				if (tag && !(*tag)) {
-					ParseId3((size_t)tagsize, tag);
-				} else {
-					mad_stream_skip(&stream, tagsize);
-				}
+				ParseId3((size_t)tagsize, tag);
 				return DECODE_CONT;
 			}
 		}
@@ -493,18 +446,12 @@ static constexpr unsigned NG_MAGIC = (('n' << 8) | 'g');
 static constexpr unsigned IN_MAGIC = (('I' << 8) | 'n');
 static constexpr unsigned FO_MAGIC = (('f' << 8) | 'o');
 
-enum xing_magic {
-	XING_MAGIC_XING, /* VBR */
-	XING_MAGIC_INFO  /* CBR */
-};
-
 struct xing {
 	long flags;             /* valid fields (see below) */
 	unsigned long frames;   /* total number of frames */
 	unsigned long bytes;    /* total number of bytes */
 	unsigned char toc[100]; /* 100-point seek table */
 	long scale;             /* VBR quality */
-	enum xing_magic magic;  /* header magic */
 };
 
 static constexpr unsigned XING_FRAMES = 1;
@@ -547,7 +494,6 @@ parse_xing(struct xing *xing, struct mad_bitptr *ptr, int *oldbitlen)
 			return false;
 
 		bitlen -= 16;
-		xing->magic = XING_MAGIC_XING;
 	} else if (bits == IN_MAGIC) {
 		if (bitlen < 16)
 			return false;
@@ -556,11 +502,8 @@ parse_xing(struct xing *xing, struct mad_bitptr *ptr, int *oldbitlen)
 			return false;
 
 		bitlen -= 16;
-		xing->magic = XING_MAGIC_INFO;
 	}
-	else if (bits == NG_MAGIC) xing->magic = XING_MAGIC_XING;
-	else if (bits == FO_MAGIC) xing->magic = XING_MAGIC_INFO;
-	else
+	else if (bits != NG_MAGIC && bits != FO_MAGIC)
 		return false;
 
 	if (bitlen < 32)
@@ -603,7 +546,7 @@ parse_xing(struct xing *xing, struct mad_bitptr *ptr, int *oldbitlen)
 	if (bitsleft < 0)
 		return false;
 	else if (bitsleft > 0) {
-		mad_bit_read(ptr, bitsleft);
+		mad_bit_skip(ptr, bitsleft);
 		bitlen -= bitsleft;
 	}
 
@@ -651,7 +594,7 @@ parse_lame(struct lame *lame, struct mad_bitptr *ptr, int *bitlen)
 	    (lame->version.major == 3 && lame->version.minor < 95))
 		adj = 6;
 
-	mad_bit_read(ptr, 16);
+	mad_bit_skip(ptr, 16);
 
 	lame->peak = mad_f_todouble(mad_bit_read(ptr, 32) << 5); /* peak */
 	FormatDebug(mad_domain, "LAME peak found: %f", lame->peak);
@@ -683,10 +626,10 @@ parse_lame(struct lame *lame, struct mad_bitptr *ptr, int *bitlen)
 			    lame->track_gain);
 	}
 #else
-	mad_bit_read(ptr, 16);
+	mad_bit_skip(ptr, 16);
 #endif
 
-	mad_bit_read(ptr, 16);
+	mad_bit_skip(ptr, 16);
 
 	lame->encoder_delay = mad_bit_read(ptr, 12);
 	lame->encoder_padding = mad_bit_read(ptr, 12);
@@ -694,7 +637,7 @@ parse_lame(struct lame *lame, struct mad_bitptr *ptr, int *bitlen)
 	FormatDebug(mad_domain, "encoder delay is %i, encoder padding is %i",
 		    lame->encoder_delay, lame->encoder_padding);
 
-	mad_bit_read(ptr, 80);
+	mad_bit_skip(ptr, 80);
 
 	lame->crc = mad_bit_read(ptr, 16);
 
@@ -710,7 +653,7 @@ mp3_frame_duration(const struct mad_frame *frame)
 }
 
 inline offset_type
-MadDecoder::ThisFrameOffset() const
+MadDecoder::ThisFrameOffset() const noexcept
 {
 	auto offset = input_stream.GetOffset();
 
@@ -723,7 +666,7 @@ MadDecoder::ThisFrameOffset() const
 }
 
 inline offset_type
-MadDecoder::RestIncludingThisFrame() const
+MadDecoder::RestIncludingThisFrame() const noexcept
 {
 	return input_stream.GetSize() - ThisFrameOffset();
 }
@@ -751,10 +694,9 @@ MadDecoder::FileSizeToSongLength()
 }
 
 inline bool
-MadDecoder::DecodeFirstFrame(Tag **tag)
+MadDecoder::DecodeFirstFrame(Tag *tag)
 {
 	struct xing xing;
-	xing.frames = 0;
 
 	while (true) {
 		enum mp3_action ret;
@@ -835,18 +777,8 @@ MadDecoder::~MadDecoder()
 	delete[] times;
 }
 
-/* this is primarily used for getting total time for tags */
-static std::pair<bool, SignedSongTime>
-mad_decoder_total_file_time(InputStream &is)
-{
-	MadDecoder data(nullptr, is);
-	return data.DecodeFirstFrame(nullptr)
-		? std::make_pair(true, data.total_time)
-		: std::make_pair(false, SignedSongTime::Negative());
-}
-
 long
-MadDecoder::TimeToFrame(SongTime t) const
+MadDecoder::TimeToFrame(SongTime t) const noexcept
 {
 	unsigned long i;
 
@@ -1006,15 +938,13 @@ MadDecoder::Read()
 	while (true) {
 		enum mp3_action ret;
 		do {
-			Tag *tag = nullptr;
+			Tag tag;
 
 			ret = DecodeNextFrameHeader(&tag);
 
-			if (tag != nullptr) {
+			if (!tag.IsEmpty())
 				client->SubmitTag(input_stream,
-						  std::move(*tag));
-				delete tag;
-			}
+						  std::move(tag));
 		} while (ret == DECODE_CONT);
 		if (ret == DECODE_BREAK)
 			return false;
@@ -1039,10 +969,8 @@ mp3_decode(DecoderClient &client, InputStream &input_stream)
 {
 	MadDecoder data(&client, input_stream);
 
-	Tag *tag = nullptr;
+	Tag tag;
 	if (!data.DecodeFirstFrame(&tag)) {
-		delete tag;
-
 		if (client.GetCommand() == DecoderCommand::NONE)
 			LogError(mad_domain,
 				 "input/Input does not appear to be a mp3 bit stream");
@@ -1057,25 +985,29 @@ mp3_decode(DecoderClient &client, InputStream &input_stream)
 		     input_stream.IsSeekable(),
 		     data.total_time);
 
-	if (tag != nullptr) {
-		client.SubmitTag(input_stream, std::move(*tag));
-		delete tag;
-	}
+	if (!tag.IsEmpty())
+		client.SubmitTag(input_stream, std::move(tag));
 
 	while (data.Read()) {}
 }
 
 static bool
-mad_decoder_scan_stream(InputStream &is,
-			const TagHandler &handler, void *handler_ctx)
+mad_decoder_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
-	const auto result = mad_decoder_total_file_time(is);
-	if (!result.first)
+	MadDecoder data(nullptr, is);
+	if (!data.DecodeFirstFrame(nullptr))
 		return false;
 
-	if (!result.second.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx,
-					    SongTime(result.second));
+	if (!data.total_time.IsNegative())
+		handler.OnDuration(SongTime(data.total_time));
+
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(data.frame.header.samplerate,
+						       SampleFormat::S24_P32,
+						       MAD_NCHANNELS(&data.frame.header)));
+	} catch (...) {
+	}
+
 	return true;
 }
 

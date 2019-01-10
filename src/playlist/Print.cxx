@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,18 +23,17 @@
 #include "PlaylistSong.hxx"
 #include "SongEnumerator.hxx"
 #include "SongPrint.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "fs/Traits.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
 
 static void
-playlist_provider_print(Response &r, Partition &partition,
+playlist_provider_print(Response &r,
 			const SongLoader &loader,
 			const char *uri,
-			SongEnumerator &e, bool detail)
+			SongEnumerator &e, bool detail) noexcept
 {
 	const std::string base_uri = uri != nullptr
 		? PathTraitsUTF8::GetParent(uri)
@@ -45,11 +44,11 @@ playlist_provider_print(Response &r, Partition &partition,
 		if (playlist_check_translate_song(*song, base_uri.c_str(),
 						  loader) &&
 		    detail)
-			song_print_info(r, partition, *song);
+			song_print_info(r, *song);
 		else
 			/* fallback if no detail was requested or no
 			   detail was available */
-			song_print_uri(r, partition, *song);
+			song_print_uri(r, *song);
 	}
 }
 
@@ -59,17 +58,19 @@ playlist_file_print(Response &r, Partition &partition,
 		    const char *uri, bool detail)
 {
 	Mutex mutex;
-	Cond cond;
 
-	SongEnumerator *playlist = playlist_open_any(uri,
-#ifdef ENABLE_DATABASE
-						     partition.instance.storage,
+#ifndef ENABLE_DATABASE
+	(void)partition;
 #endif
-						     mutex, cond);
+
+	auto playlist = playlist_open_any(uri,
+#ifdef ENABLE_DATABASE
+					  partition.instance.storage,
+#endif
+					  mutex);
 	if (playlist == nullptr)
 		return false;
 
-	playlist_provider_print(r, partition, loader, uri, *playlist, detail);
-	delete playlist;
+	playlist_provider_print(r, loader, uri, *playlist, detail);
 	return true;
 }

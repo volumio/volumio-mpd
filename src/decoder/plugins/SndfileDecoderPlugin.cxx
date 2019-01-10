@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SndfileDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "util/Domain.hxx"
+#include "util/ScopeExit.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 #include <sndfile.h>
 
@@ -93,8 +93,8 @@ sndfile_vio_seek(sf_count_t _offset, int whence, void *user_data)
 	try {
 		is.LockSeek(offset);
 		return is.GetOffset();
-	} catch (const std::runtime_error &e) {
-		LogError(e, "Seek failed");
+	} catch (...) {
+		LogError(std::current_exception(), "Seek failed");
 		return -1;
 	}
 }
@@ -129,7 +129,7 @@ sndfile_vio_tell(void *user_data)
  * This SF_VIRTUAL_IO implementation wraps MPD's #InputStream to a
  * libsndfile stream.
  */
-static SF_VIRTUAL_IO vio = {
+static constexpr SF_VIRTUAL_IO vio = {
 	sndfile_vio_get_filelen,
 	sndfile_vio_seek,
 	sndfile_vio_read,
@@ -148,7 +148,7 @@ sndfile_duration(const SF_INFO &info)
 
 gcc_pure
 static SampleFormat
-sndfile_sample_format(const SF_INFO &info)
+sndfile_sample_format(const SF_INFO &info) noexcept
 {
 	switch (info.format & SF_FORMAT_SUBMASK) {
 	case SF_FORMAT_PCM_S8:
@@ -163,6 +163,14 @@ sndfile_sample_format(const SF_INFO &info)
 	default:
 		return SampleFormat::S32;
 	}
+}
+
+static AudioFormat
+CheckAudioFormat(const SF_INFO &info)
+{
+	return CheckAudioFormat(info.samplerate,
+				sndfile_sample_format(info),
+				info.channels);
 }
 
 static sf_count_t
@@ -193,17 +201,17 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 	info.format = 0;
 
 	SndfileInputStream sis{&client, is};
-	SNDFILE *const sf = sf_open_virtual(&vio, SFM_READ, &info, &sis);
+	SNDFILE *const sf = sf_open_virtual(const_cast<SF_VIRTUAL_IO *>(&vio),
+					    SFM_READ, &info, &sis);
 	if (sf == nullptr) {
 		FormatWarning(sndfile_domain, "sf_open_virtual() failed: %s",
 			      sf_strerror(nullptr));
 		return;
 	}
 
-	const auto audio_format =
-		CheckAudioFormat(info.samplerate,
-				 sndfile_sample_format(info),
-				 info.channels);
+	AtScopeExit(sf) { sf_close(sf); };
+
+	const auto audio_format = CheckAudioFormat(info);
 
 	client.Ready(audio_format, info.seekable, sndfile_duration(info));
 
@@ -234,17 +242,15 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 			cmd = DecoderCommand::NONE;
 		}
 	} while (cmd == DecoderCommand::NONE);
-
-	sf_close(sf);
 }
 
 static void
 sndfile_handle_tag(SNDFILE *sf, int str, TagType tag,
-		   const TagHandler &handler, void *handler_ctx)
+		   TagHandler &handler) noexcept
 {
 	const char *value = sf_get_string(sf, str);
 	if (value != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx, tag, value);
+		handler.OnTag(tag, value);
 }
 
 static constexpr struct {
@@ -261,32 +267,35 @@ static constexpr struct {
 };
 
 static bool
-sndfile_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+sndfile_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	SF_INFO info;
 
 	info.format = 0;
 
 	SndfileInputStream sis{nullptr, is};
-	SNDFILE *const sf = sf_open_virtual(&vio, SFM_READ, &info, &sis);
+	SNDFILE *const sf = sf_open_virtual(const_cast<SF_VIRTUAL_IO *>(&vio),
+					    SFM_READ, &info, &sis);
 	if (sf == nullptr)
 		return false;
 
+	AtScopeExit(sf) { sf_close(sf); };
+
 	if (!audio_valid_sample_rate(info.samplerate)) {
-		sf_close(sf);
 		FormatWarning(sndfile_domain,
 			      "Invalid sample rate in %s", is.GetURI());
 		return false;
 	}
 
-	tag_handler_invoke_duration(handler, handler_ctx,
-				    sndfile_duration(info));
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(info));
+	} catch (...) {
+	}
+
+	handler.OnDuration(sndfile_duration(info));
 
 	for (auto i : sndfile_tags)
-		sndfile_handle_tag(sf, i.str, i.tag, handler, handler_ctx);
-
-	sf_close(sf);
+		sndfile_handle_tag(sf, i.str, i.tag, handler);
 
 	return true;
 }

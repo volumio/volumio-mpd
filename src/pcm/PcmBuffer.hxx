@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define PCM_BUFFER_HXX
 
 #include "util/ReusableArray.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <stdint.h>
 
@@ -34,25 +34,25 @@ class PcmBuffer {
 	ReusableArray<uint8_t, 8192> buffer;
 
 public:
-	void Clear() {
+	void Clear() noexcept {
 		buffer.Clear();
 	}
 
 	/**
 	 * Get the buffer, and guarantee a minimum size.  This buffer becomes
-	 * invalid with the next pcm_buffer_get() call.
+	 * invalid with the next Get() call.
 	 *
 	 * This function will never return nullptr, even if size is
 	 * zero, because the PCM library uses the nullptr return value
 	 * to signal "error".  An empty destination buffer is not
 	 * always an error.
 	 */
-	gcc_malloc
-	void *Get(size_t size);
+	gcc_malloc gcc_returns_nonnull
+	void *Get(size_t size) noexcept;
 
 	template<typename T>
-	gcc_malloc
-	T *GetT(size_t n) {
+	gcc_malloc gcc_returns_nonnull
+	T *GetT(size_t n) noexcept {
 		return (T *)Get(n * sizeof(T));
 	}
 };

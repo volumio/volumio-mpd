@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "fs/Path.hxx"
 #include "util/Macros.hxx"
 #include "util/Alloc.hxx"
@@ -33,6 +33,8 @@
 
 #include <stdexcept>
 #include <memory>
+
+#include <cstdlib>
 
 #include <assert.h>
 
@@ -99,7 +101,7 @@ WavpackOpenInput(WavpackStreamReader *reader, void *wv_id, void *wvc_id,
 
 gcc_pure
 static SignedSongTime
-GetDuration(WavpackContext *wpc)
+GetDuration(WavpackContext *wpc) noexcept
 {
 #ifdef OPEN_DSD_AS_PCM
 	/* libWavPack 5 */
@@ -184,18 +186,12 @@ wavpack_bits_to_sample_format(bool is_float,
 	}
 }
 
-/*
- * This does the main decoding thing.
- * Requires an already opened WavpackContext.
- */
-static void
-wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
+static AudioFormat
+CheckAudioFormat(WavpackContext *wpc)
 {
 	const bool is_float = (WavpackGetMode(wpc) & MODE_FLOAT) != 0;
 #if defined(OPEN_DSD_AS_PCM) && defined(ENABLE_DSD)
 	const bool is_dsd = (WavpackGetQualifyMode(wpc) & QMODE_DSD_AUDIO) != 0;
-#else
-	constexpr bool is_dsd = false;
 #endif
 	SampleFormat sample_format =
 		wavpack_bits_to_sample_format(is_float,
@@ -204,14 +200,24 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 #endif
 					      WavpackGetBytesPerSample(wpc));
 
-	auto audio_format = CheckAudioFormat(WavpackGetSampleRate(wpc),
-					     sample_format,
-					     WavpackGetReducedChannels(wpc));
+	return CheckAudioFormat(WavpackGetSampleRate(wpc),
+				sample_format,
+				WavpackGetReducedChannels(wpc));
+}
+
+/*
+ * This does the main decoding thing.
+ * Requires an already opened WavpackContext.
+ */
+static void
+wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
+{
+	const auto audio_format = CheckAudioFormat(wpc);
 
 	auto *format_samples = format_samples_nop;
-	if (is_dsd)
+	if (audio_format.format == SampleFormat::DSD)
 		format_samples = format_samples_int<uint8_t>;
-	else if (!is_float) {
+	else if (audio_format.format != SampleFormat::FLOAT) {
 		switch (WavpackGetBytesPerSample(wpc)) {
 		case 1:
 			format_samples = format_samples_int<int8_t>;
@@ -293,7 +299,7 @@ struct WavpackInput {
 		try {
 			is.LockSeek(pos);
 			return 0;
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 			return -1;
 		}
 	}
@@ -518,7 +524,7 @@ wavpack_open_wvc(DecoderClient &client, const char *uri)
 
 	try {
 		return client.OpenUri(uri);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return nullptr;
 	}
 }
@@ -536,7 +542,7 @@ wavpack_streamdecode(DecoderClient &client, InputStream &is)
 	auto is_wvc = wavpack_open_wvc(client, is.GetURI());
 	if (is_wvc) {
 		open_flags |= OPEN_WVC;
-		can_seek &= wvc->is.IsSeekable();
+		can_seek &= is_wvc->IsSeekable();
 
 		wvc.reset(new WavpackInput(&client, *is_wvc));
 	}
@@ -572,40 +578,59 @@ wavpack_filedecode(DecoderClient &client, Path path_fs)
 	wavpack_decode(client, wpc, true);
 }
 
+static void
+Scan(WavpackContext *wpc,TagHandler &handler) noexcept
+{
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(wpc));
+	} catch (...) {
+	}
+
+	const auto duration = GetDuration(wpc);
+	if (!duration.IsNegative())
+		handler.OnDuration(SongTime(duration));
+}
+
 /*
  * Reads metainfo from the specified file.
  */
 static bool
-wavpack_scan_file(Path path_fs,
-		  const TagHandler &handler, void *handler_ctx)
+wavpack_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
-	auto *wpc = WavpackOpenInput(path_fs, OPEN_DSD_FLAG, 0);
+	WavpackContext *wpc;
+
+	try {
+		wpc = WavpackOpenInput(path_fs, OPEN_DSD_FLAG, 0);
+	} catch (...) {
+		return false;
+	}
+
 	AtScopeExit(wpc) {
 		WavpackCloseFile(wpc);
 	};
 
-	const auto duration = GetDuration(wpc);
-	if (!duration.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
-
+	Scan(wpc, handler);
 	return true;
 }
 
 static bool
-wavpack_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+wavpack_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	WavpackInput isp(nullptr, is);
-	auto *wpc = WavpackOpenInput(&mpd_is_reader, &isp, nullptr,
-				     OPEN_DSD_FLAG, 0);
+
+	WavpackContext *wpc;
+	try {
+		wpc = WavpackOpenInput(&mpd_is_reader, &isp, nullptr,
+					     OPEN_DSD_FLAG, 0);
+	} catch (...) {
+		return false;
+	}
+
 	AtScopeExit(wpc) {
 		WavpackCloseFile(wpc);
 	};
 
-	const auto duration = GetDuration(wpc);
-	if (!duration.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
-
+	Scan(wpc, handler);
 	return true;
 }
 

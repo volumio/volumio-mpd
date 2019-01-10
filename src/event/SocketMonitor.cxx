@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SocketMonitor.hxx"
 #include "Loop.hxx"
-#include "system/fd_util.h"
 
 #include <assert.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
 #endif
 
 void
-SocketMonitor::Dispatch(unsigned flags)
+SocketMonitor::Dispatch(unsigned flags) noexcept
 {
 	flags &= GetScheduledFlags();
 
@@ -39,52 +37,39 @@ SocketMonitor::Dispatch(unsigned flags)
 		Cancel();
 }
 
-SocketMonitor::~SocketMonitor()
+SocketMonitor::~SocketMonitor() noexcept
 {
 	if (IsDefined())
 		Cancel();
 }
 
 void
-SocketMonitor::Open(int _fd)
+SocketMonitor::Open(SocketDescriptor _fd) noexcept
 {
-	assert(fd < 0);
-	assert(_fd >= 0);
+	assert(!fd.IsDefined());
+	assert(_fd.IsDefined());
 
 	fd = _fd;
 }
 
-int
-SocketMonitor::Steal()
+SocketDescriptor
+SocketMonitor::Steal() noexcept
 {
 	assert(IsDefined());
 
 	Cancel();
 
-	int result = fd;
-	fd = -1;
-
-	return result;
+	return std::exchange(fd, SocketDescriptor::Undefined());
 }
 
 void
-SocketMonitor::Abandon()
+SocketMonitor::Close() noexcept
 {
-	assert(IsDefined());
-
-	int old_fd = fd;
-	fd = -1;
-	loop.Abandon(old_fd, *this);
+	Steal().Close();
 }
 
 void
-SocketMonitor::Close()
-{
-	close_socket(Steal());
-}
-
-void
-SocketMonitor::Schedule(unsigned flags)
+SocketMonitor::Schedule(unsigned flags) noexcept
 {
 	assert(IsDefined());
 
@@ -92,40 +77,11 @@ SocketMonitor::Schedule(unsigned flags)
 		return;
 
 	if (scheduled_flags == 0)
-		loop.AddFD(fd, flags, *this);
+		loop.AddFD(fd.Get(), flags, *this);
 	else if (flags == 0)
-		loop.RemoveFD(fd, *this);
+		loop.RemoveFD(fd.Get(), *this);
 	else
-		loop.ModifyFD(fd, flags, *this);
+		loop.ModifyFD(fd.Get(), flags, *this);
 
 	scheduled_flags = flags;
-}
-
-SocketMonitor::ssize_t
-SocketMonitor::Read(void *data, size_t length)
-{
-	assert(IsDefined());
-
-	int flags = 0;
-#ifdef MSG_DONTWAIT
-	flags |= MSG_DONTWAIT;
-#endif
-
-	return recv(Get(), (char *)data, length, flags);
-}
-
-SocketMonitor::ssize_t
-SocketMonitor::Write(const void *data, size_t length)
-{
-	assert(IsDefined());
-
-	int flags = 0;
-#ifdef MSG_NOSIGNAL
-	flags |= MSG_NOSIGNAL;
-#endif
-#ifdef MSG_DONTWAIT
-	flags |= MSG_DONTWAIT;
-#endif
-
-	return send(Get(), (const char *)data, length, flags);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,7 +18,7 @@
  */
 
 #include "config.h" /* must be first for large file support */
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "db/plugins/simple/Song.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "storage/StorageInterface.hxx"
@@ -26,7 +26,7 @@
 #include "util/UriUtil.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileInfo.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 #include "TagFile.hxx"
 #include "TagStream.hxx"
 
@@ -34,7 +34,7 @@
 #include "TagArchive.hxx"
 #endif
 
-#include <stdexcept>
+#include <exception>
 
 #include <assert.h>
 #include <string.h>
@@ -42,7 +42,8 @@
 #ifdef ENABLE_DATABASE
 
 Song *
-Song::LoadFile(Storage &storage, const char *path_utf8, Directory &parent)
+Song::LoadFile(Storage &storage, const char *path_utf8,
+	       Directory &parent) noexcept
 {
 	assert(!uri_has_scheme(path_utf8));
 	assert(strchr(path_utf8, '\n') == nullptr);
@@ -61,14 +62,14 @@ Song::LoadFile(Storage &storage, const char *path_utf8, Directory &parent)
 #ifdef ENABLE_DATABASE
 
 bool
-Song::UpdateFile(Storage &storage)
+Song::UpdateFile(Storage &storage) noexcept
 {
 	const auto &relative_uri = GetURI();
 
 	StorageFileInfo info;
 	try {
 		info = storage.GetInfo(relative_uri.c_str(), true);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 
@@ -76,19 +77,23 @@ Song::UpdateFile(Storage &storage)
 		return false;
 
 	TagBuilder tag_builder;
+	auto new_audio_format = AudioFormat::Undefined();
 
 	const auto path_fs = storage.MapFS(relative_uri.c_str());
 	if (path_fs.IsNull()) {
 		const auto absolute_uri =
 			storage.MapUTF8(relative_uri.c_str());
-		if (!tag_stream_scan(absolute_uri.c_str(), tag_builder))
+		if (!tag_stream_scan(absolute_uri.c_str(), tag_builder,
+				     &new_audio_format))
 			return false;
 	} else {
-		if (!tag_file_scan(path_fs, tag_builder))
+		if (!ScanFileTagsWithGeneric(path_fs, tag_builder,
+					     &new_audio_format))
 			return false;
 	}
 
 	mtime = info.mtime;
+	audio_format = new_audio_format;
 	tag_builder.Commit(tag);
 	return true;
 }
@@ -99,7 +104,7 @@ Song::UpdateFile(Storage &storage)
 
 Song *
 Song::LoadFromArchive(ArchiveFile &archive, const char *name_utf8,
-		      Directory &parent)
+		      Directory &parent) noexcept
 {
 	assert(!uri_has_scheme(name_utf8));
 	assert(strchr(name_utf8, '\n') == nullptr);
@@ -115,7 +120,7 @@ Song::LoadFromArchive(ArchiveFile &archive, const char *name_utf8,
 }
 
 bool
-Song::UpdateFileInArchive(ArchiveFile &archive)
+Song::UpdateFileInArchive(ArchiveFile &archive) noexcept
 {
 	assert(parent != nullptr);
 	assert(parent->device == DEVICE_INARCHIVE);
@@ -141,14 +146,14 @@ Song::UpdateFileInArchive(ArchiveFile &archive)
 #endif
 
 bool
-DetachedSong::LoadFile(Path path)
+DetachedSong::LoadFile(Path path) noexcept
 {
 	FileInfo fi;
 	if (!GetFileInfo(path, fi) || !fi.IsRegular())
 		return false;
 
 	TagBuilder tag_builder;
-	if (!tag_file_scan(path, tag_builder))
+	if (!ScanFileTagsWithGeneric(path, tag_builder))
 		return false;
 
 	mtime = fi.GetModificationTime();
@@ -157,7 +162,7 @@ DetachedSong::LoadFile(Path path)
 }
 
 bool
-DetachedSong::Update()
+DetachedSong::Update() noexcept
 {
 	if (IsAbsoluteFile()) {
 		const AllocatedPath path_fs =
@@ -171,7 +176,7 @@ DetachedSong::Update()
 		if (!tag_stream_scan(uri.c_str(), tag_builder))
 			return false;
 
-		mtime = 0;
+		mtime = std::chrono::system_clock::time_point::min();
 		tag_builder.Commit(tag);
 		return true;
 	} else

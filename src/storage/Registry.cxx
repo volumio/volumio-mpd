@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Registry.hxx"
 #include "StoragePlugin.hxx"
+#include "StorageInterface.hxx"
 #include "plugins/LocalStorage.hxx"
+#include "plugins/UdisksStorage.hxx"
 #include "plugins/SmbclientStorage.hxx"
 #include "plugins/NfsStorage.hxx"
+#include "plugins/CurlStorage.hxx"
+#include "config.h"
 
 #include <assert.h>
 #include <string.h>
@@ -32,14 +35,20 @@ const StoragePlugin *const storage_plugins[] = {
 #ifdef ENABLE_SMBCLIENT
 	&smbclient_storage_plugin,
 #endif
+#ifdef ENABLE_UDISKS
+	&udisks_storage_plugin,
+#endif
 #ifdef ENABLE_NFS
 	&nfs_storage_plugin,
+#endif
+#ifdef ENABLE_WEBDAV
+	&curl_storage_plugin,
 #endif
 	nullptr
 };
 
 const StoragePlugin *
-GetStoragePluginByName(const char *name)
+GetStoragePluginByName(const char *name) noexcept
 {
 	for (auto i = storage_plugins; *i != nullptr; ++i) {
 		const StoragePlugin &plugin = **i;
@@ -50,7 +59,7 @@ GetStoragePluginByName(const char *name)
 	return nullptr;
 }
 
-Storage *
+std::unique_ptr<Storage>
 CreateStorageURI(EventLoop &event_loop, const char *uri)
 {
 	for (auto i = storage_plugins; *i != nullptr; ++i) {
@@ -59,7 +68,7 @@ CreateStorageURI(EventLoop &event_loop, const char *uri)
 		if (plugin.create_uri == nullptr)
 			continue;
 
-		Storage *storage = plugin.create_uri(event_loop, uri);
+		auto storage = plugin.create_uri(event_loop, uri);
 		if (storage != nullptr)
 			return storage;
 	}

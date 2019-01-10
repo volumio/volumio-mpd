@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,9 +24,8 @@
 #include "PlaylistError.hxx"
 #include "queue/Playlist.hxx"
 #include "SongEnumerator.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "fs/Traits.hxx"
 
 #ifdef ENABLE_DATABASE
@@ -70,13 +69,12 @@ playlist_open_into_queue(const char *uri,
 			 const SongLoader &loader)
 {
 	Mutex mutex;
-	Cond cond;
 
-	std::unique_ptr<SongEnumerator> playlist(playlist_open_any(uri,
+	auto playlist = playlist_open_any(uri,
 #ifdef ENABLE_DATABASE
-								   loader.GetStorage(),
+					  loader.GetStorage(),
 #endif
-								   mutex, cond));
+					  mutex);
 	if (playlist == nullptr)
 		throw PlaylistError::NoSuchList();
 

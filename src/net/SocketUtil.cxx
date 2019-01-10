@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,55 +21,38 @@
 #include "SocketUtil.hxx"
 #include "SocketAddress.hxx"
 #include "SocketError.hxx"
-#include "system/fd_util.h"
+#include "UniqueSocketDescriptor.hxx"
 
-int
+#include <sys/stat.h>
+
+UniqueSocketDescriptor
 socket_bind_listen(int domain, int type, int protocol,
 		   SocketAddress address,
 		   int backlog)
 {
-	int fd, ret;
-	const int reuse = 1;
-
-	fd = socket_cloexec_nonblock(domain, type, protocol);
-	if (fd < 0)
+	UniqueSocketDescriptor fd;
+	if (!fd.CreateNonBlock(domain, type, protocol))
 		throw MakeSocketError("Failed to create socket");
 
-	ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-			 (const char *) &reuse, sizeof(reuse));
-	if (ret < 0) {
-		auto error = GetSocketError();
-		close_socket(fd);
-		throw MakeSocketError(error, "setsockopt() failed");
+#ifdef HAVE_UN
+	if (domain == AF_UNIX) {
+		/* Prevent access until right permissions are set */
+		fchmod(fd.Get(), 0);
 	}
+#endif
 
-	ret = bind(fd, address.GetAddress(), address.GetSize());
-	if (ret < 0) {
-		auto error = GetSocketError();
-		close_socket(fd);
-		throw MakeSocketError(error, "Failed to bind socket");
-	}
+	if (!fd.SetReuseAddress())
+		throw MakeSocketError("setsockopt() failed");
 
-	ret = listen(fd, backlog);
-	if (ret < 0) {
-		auto error = GetSocketError();
-		close_socket(fd);
-		throw MakeSocketError(error, "Failed to listen on socket");
-	}
+	if (!fd.Bind(address))
+		throw MakeSocketError("Failed to bind socket");
+
+	if (!fd.Listen(backlog))
+		throw MakeSocketError("Failed to listen on socket");
 
 #if defined(HAVE_STRUCT_UCRED) && defined(SO_PASSCRED)
-	setsockopt(fd, SOL_SOCKET, SO_PASSCRED,
-		   (const char *) &reuse, sizeof(reuse));
+	fd.SetBoolOption(SOL_SOCKET, SO_PASSCRED, true);
 #endif
 
 	return fd;
-}
-
-int
-socket_keepalive(int fd)
-{
-	const int reuse = 1;
-
-	return setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-			  (const char *)&reuse, sizeof(reuse));
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_PCM_CHANNELS_CONVERTER_HXX
 #define MPD_PCM_CHANNELS_CONVERTER_HXX
 
-#include "check.h"
-#include "AudioFormat.hxx"
+#include "SampleFormat.hxx"
 #include "PcmBuffer.hxx"
 
 #ifndef NDEBUG
@@ -41,10 +40,10 @@ class PcmChannelsConverter {
 
 public:
 #ifndef NDEBUG
-	PcmChannelsConverter()
+	PcmChannelsConverter() noexcept
 		:format(SampleFormat::UNDEFINED) {}
 
-	~PcmChannelsConverter() {
+	~PcmChannelsConverter() noexcept {
 		assert(format == SampleFormat::UNDEFINED);
 	}
 #endif
@@ -64,7 +63,7 @@ public:
 	/**
 	 * Closes the object.  After that, you may call Open() again.
 	 */
-	void Close();
+	void Close() noexcept;
 
 	/**
 	 * Convert a block of PCM data.
@@ -75,7 +74,7 @@ public:
 	 * @return the destination buffer
 	 */
 	gcc_pure
-	ConstBuffer<void> Convert(ConstBuffer<void> src);
+	ConstBuffer<void> Convert(ConstBuffer<void> src) noexcept;
 };
 
 #endif

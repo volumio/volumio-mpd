@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,8 @@
  * @param src the source buffer
  */
 void
-pcm_pack_24(uint8_t *dest, const int32_t *src, const int32_t *src_end);
+pcm_pack_24(uint8_t *dest,
+	    const int32_t *src, const int32_t *src_end) noexcept;
 
 /**
  * Converts packed 24 bit samples (3 bytes per sample) to padded 24
@@ -47,6 +48,15 @@ pcm_pack_24(uint8_t *dest, const int32_t *src, const int32_t *src_end);
  * @param src the source buffer (array of triples)
  */
 void
-pcm_unpack_24(int32_t *dest, const uint8_t *src, const uint8_t *src_end);
+pcm_unpack_24(int32_t *dest,
+	      const uint8_t *src, const uint8_t *src_end) noexcept;
+
+/**
+ * Like pcm_unpack_24(), but assume the source byte order is
+ * big-endian.  The destination byte order ia always native.
+ */
+void
+pcm_unpack_24be(int32_t *dest,
+		const uint8_t *src, const uint8_t *src_end) noexcept;
 
 #endif

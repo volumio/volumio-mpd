@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,10 @@
 #ifndef MPD_PERMISSION_HXX
 #define MPD_PERMISSION_HXX
 
+#include "config.h"
+
+struct ConfigData;
+
 static constexpr unsigned PERMISSION_NONE = 0;
 static constexpr unsigned PERMISSION_READ = 1;
 static constexpr unsigned PERMISSION_ADD = 2;
@@ -31,7 +35,12 @@ int getPermissionFromPassword(char const* password, unsigned* permission);
 unsigned
 getDefaultPermissions();
 
+#ifdef HAVE_UN
+unsigned
+GetLocalPermissions() noexcept;
+#endif
+
 void
-initPermissions();
+initPermissions(const ConfigData &config);
 
 #endif

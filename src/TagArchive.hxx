@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,8 @@
 #ifndef MPD_TAG_ARCHIVE_HXX
 #define MPD_TAG_ARCHIVE_HXX
 
-#include "check.h"
-
 class ArchiveFile;
-struct TagHandler;
+class TagHandler;
 class TagBuilder;
 
 /**
@@ -36,7 +34,7 @@ class TagBuilder;
  */
 bool
 tag_archive_scan(ArchiveFile &archive, const char *path_utf8,
-		 const TagHandler &handler, void *handler_ctx);
+		 TagHandler &handler) noexcept;
 
 /**
  * Scan the tags of a song file inside an archive.  Invokes matching
@@ -48,6 +46,6 @@ tag_archive_scan(ArchiveFile &archive, const char *path_utf8,
  */
 bool
 tag_archive_scan(ArchiveFile &archive, const char *path_utf8,
-		 TagBuilder &builder);
+		 TagBuilder &builder) noexcept;
 
 #endif

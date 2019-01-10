@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -121,6 +121,10 @@ public:
 
 	bool empty() const {
 		return *value == SENTINEL;
+	}
+
+	constexpr pointer_type data() const {
+		return value;
 	}
 
 	reference_type operator[](size_type i) {

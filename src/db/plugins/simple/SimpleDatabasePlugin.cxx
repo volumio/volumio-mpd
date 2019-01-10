@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,17 +20,20 @@
 #include "config.h"
 #include "SimpleDatabasePlugin.hxx"
 #include "PrefixedLightSong.hxx"
+#include "Mount.hxx"
 #include "db/DatabasePlugin.hxx"
 #include "db/Selection.hxx"
 #include "db/Helpers.hxx"
 #include "db/Stats.hxx"
 #include "db/UniqueTags.hxx"
+#include "db/VHelper.hxx"
 #include "db/LightDirectory.hxx"
 #include "Directory.hxx"
 #include "Song.hxx"
 #include "DatabaseSave.hxx"
 #include "db/DatabaseLock.hxx"
 #include "db/DatabaseError.hxx"
+#include "tag/Mask.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "fs/io/FileOutputStream.hxx"
@@ -70,19 +73,19 @@ inline SimpleDatabase::SimpleDatabase(AllocatedPath &&_path,
 #ifndef ENABLE_ZLIB
 				      gcc_unused
 #endif
-				      bool _compress)
+				      bool _compress) noexcept
 	:Database(simple_db_plugin),
 	 path(std::move(_path)),
 	 path_utf8(path.ToUTF8()),
 #ifdef ENABLE_ZLIB
 	 compress(_compress),
 #endif
-	 cache_path(AllocatedPath::Null()),
+	 cache_path(nullptr),
 	 prefixed_light_song(nullptr) {
 }
 
 Database *
-SimpleDatabase::Create(gcc_unused EventLoop &loop,
+SimpleDatabase::Create(EventLoop &, EventLoop &,
 		       gcc_unused DatabaseListener &listener,
 		       const ConfigBlock &block)
 {
@@ -115,7 +118,7 @@ SimpleDatabase::Check() const
 						 path_utf8 + "\" because the "
 						 "parent path is not a directory");
 
-#ifndef WIN32
+#ifndef _WIN32
 		/* Check if we can write to the directory */
 		if (!CheckAccess(dirPath, X_OK | W_OK)) {
 			const int e = errno;
@@ -134,7 +137,7 @@ SimpleDatabase::Check() const
 	if (!fi.IsRegular())
 		throw std::runtime_error("db file \"" + path_utf8 + "\" is not a regular file");
 
-#ifndef WIN32
+#ifndef _WIN32
 	/* And check that we can write to it */
 	if (!CheckAccess(path, R_OK | W_OK))
 		throw FormatErrno("Can't open db file \"%s\" for reading/writing",
@@ -165,7 +168,7 @@ SimpleDatabase::Open()
 	assert(prefixed_light_song == nullptr);
 
 	root = Directory::NewRoot();
-	mtime = 0;
+	mtime = std::chrono::system_clock::time_point::min();
 
 #ifndef NDEBUG
 	borrowed_song_count = 0;
@@ -173,8 +176,8 @@ SimpleDatabase::Open()
 
 	try {
 		Load();
-	} catch (const std::exception &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 
 		delete root;
 
@@ -185,7 +188,7 @@ SimpleDatabase::Open()
 }
 
 void
-SimpleDatabase::Close()
+SimpleDatabase::Close() noexcept
 {
 	assert(root != nullptr);
 	assert(prefixed_light_song == nullptr);
@@ -235,30 +238,41 @@ SimpleDatabase::GetSong(const char *uri) const
 		throw DatabaseError(DatabaseErrorCode::NOT_FOUND,
 				    "No such song");
 
-	light_song = song->Export();
+	light_song.Construct(song->Export());
 
 #ifndef NDEBUG
 	++borrowed_song_count;
 #endif
 
-	return &light_song;
+	return &light_song.Get();
 }
 
 void
-SimpleDatabase::ReturnSong(gcc_unused const LightSong *song) const
+SimpleDatabase::ReturnSong(gcc_unused const LightSong *song) const noexcept
 {
 	assert(song != nullptr);
-	assert(song == &light_song || song == prefixed_light_song);
+	assert(song == &light_song.Get() || song == prefixed_light_song);
 
-	delete prefixed_light_song;
-	prefixed_light_song = nullptr;
-
+	if (prefixed_light_song != nullptr) {
+		delete prefixed_light_song;
+		prefixed_light_song = nullptr;
+	} else {
 #ifndef NDEBUG
-	if (song == &light_song) {
 		assert(borrowed_song_count > 0);
 		--borrowed_song_count;
-	}
 #endif
+
+		light_song.Destruct();
+	}
+}
+
+gcc_const
+static DatabaseSelection
+CheckSelection(DatabaseSelection selection) noexcept
+{
+	selection.uri.clear();
+	selection.filter = nullptr;
+	return selection;
 }
 
 void
@@ -270,6 +284,20 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 	ScopeDatabaseLock protect;
 
 	auto r = root->LookupDirectory(selection.uri.c_str());
+
+	if (r.directory->IsMount()) {
+		/* pass the request and the remaining uri to the mounted database */
+		protect.unlock();
+
+		WalkMount(r.directory->GetPath(), *(r.directory->mounted_database),
+			  (r.uri == nullptr)?"":r.uri, selection,
+			  visit_directory, visit_song, visit_playlist);
+
+		return;
+	}
+
+	DatabaseVisitorHelper helper(CheckSelection(selection), visit_song);
+
 	if (r.uri == nullptr) {
 		/* it's a directory */
 
@@ -279,6 +307,7 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 		r.directory->Walk(selection.recursive, selection.filter,
 				  visit_directory, visit_song,
 				  visit_playlist);
+		helper.Commit();
 		return;
 	}
 
@@ -290,6 +319,7 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 				if (selection.Match(song2))
 					visit_song(song2);
 
+				helper.Commit();
 				return;
 			}
 		}
@@ -299,12 +329,11 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 			    "No such directory");
 }
 
-void
-SimpleDatabase::VisitUniqueTags(const DatabaseSelection &selection,
-				TagType tag_type, tag_mask_t group_mask,
-				VisitTag visit_tag) const
+std::map<std::string, std::set<std::string>>
+SimpleDatabase::CollectUniqueTags(const DatabaseSelection &selection,
+				  TagType tag_type, TagType group) const
 {
-	::VisitUniqueTags(*this, selection, tag_type, group_mask, visit_tag);
+	return ::CollectUniqueTags(*this, selection, tag_type, group);
 }
 
 DatabaseStats
@@ -412,8 +441,7 @@ SimpleDatabase::Mount(const char *local_uri, const char *storage_uri)
 #ifndef ENABLE_ZLIB
 	constexpr bool compress = false;
 #endif
-	auto db = new SimpleDatabase(AllocatedPath::Build(cache_path,
-							  name_fs.c_str()),
+	auto db = new SimpleDatabase(cache_path / name_fs,
 				     compress);
 	try {
 		db->Open();
@@ -433,8 +461,8 @@ SimpleDatabase::Mount(const char *local_uri, const char *storage_uri)
 	}
 }
 
-Database *
-SimpleDatabase::LockUmountSteal(const char *uri)
+inline Database *
+SimpleDatabase::LockUmountSteal(const char *uri) noexcept
 {
 	ScopeDatabaseLock protect;
 
@@ -450,7 +478,7 @@ SimpleDatabase::LockUmountSteal(const char *uri)
 }
 
 bool
-SimpleDatabase::Unmount(const char *uri)
+SimpleDatabase::Unmount(const char *uri) noexcept
 {
 	Database *db = LockUmountSteal(uri);
 	if (db == nullptr)

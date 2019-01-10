@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,12 +23,11 @@
  *
  */
 
-#include "config.h"
 #include "Playlist.hxx"
 #include "Listener.hxx"
 #include "PlaylistError.hxx"
 #include "player/Control.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongLoader.hxx"
 
 #include <memory>
@@ -112,7 +111,7 @@ playlist::AppendSong(PlayerControl &pc, DetachedSong &&song)
 		else
 			start = current + 1;
 		if (start < queue.GetLength())
-			queue.ShuffleOrderLast(start, queue.GetLength());
+			queue.ShuffleOrderLastWithPriority(start, queue.GetLength());
 	}
 
 	UpdateQueuedSong(pc, queued_song);
@@ -125,8 +124,7 @@ unsigned
 playlist::AppendURI(PlayerControl &pc, const SongLoader &loader,
 		    const char *uri)
 {
-	std::unique_ptr<DetachedSong> song(loader.LoadSong(uri));
-	return AppendSong(pc, std::move(*song));
+	return AppendSong(pc, loader.LoadSong(uri));
 }
 
 void

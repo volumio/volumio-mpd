@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "LogError.hxx"
 #include "Domain.hxx"
 #include "Log.hxx"
@@ -26,7 +25,7 @@
 #include <pulse/error.h>
 
 void
-LogPulseError(pa_context *context, const char *prefix)
+LogPulseError(pa_context *context, const char *prefix) noexcept
 {
 	const int e = pa_context_errno(context);
 	FormatError(pulse_domain, "%s: %s", prefix, pa_strerror(e));

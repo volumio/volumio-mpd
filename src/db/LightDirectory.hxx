@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_LIGHT_DIRECTORY_HXX
 #define MPD_LIGHT_DIRECTORY_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 
@@ -39,21 +39,22 @@ struct Tag;
 struct LightDirectory {
 	const char *uri;
 
-	time_t mtime;
+	std::chrono::system_clock::time_point mtime;
 
-	constexpr LightDirectory(const char *_uri, time_t _mtime)
+	constexpr LightDirectory(const char *_uri,
+				 std::chrono::system_clock::time_point _mtime)
 		:uri(_uri), mtime(_mtime) {}
 
-	static constexpr LightDirectory Root() {
-		return LightDirectory("", 0);
+	static constexpr LightDirectory Root() noexcept {
+		return LightDirectory("", std::chrono::system_clock::time_point::min());
 	}
 
-	bool IsRoot() const {
+	bool IsRoot() const noexcept {
 		return *uri == 0;
 	}
 
 	gcc_pure
-	const char *GetPath() const {
+	const char *GetPath() const noexcept {
 		return uri;
 	}
 };

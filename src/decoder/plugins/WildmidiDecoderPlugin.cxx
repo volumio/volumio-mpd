@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "WildmidiDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "util/Domain.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
@@ -33,7 +32,7 @@ extern "C" {
 
 static constexpr Domain wildmidi_domain("wildmidi");
 
-static constexpr unsigned WILDMIDI_SAMPLE_RATE = 48000;
+static constexpr AudioFormat wildmidi_audio_format{48000, SampleFormat::S16, 2};
 
 static bool
 wildmidi_init(const ConfigBlock &block)
@@ -50,11 +49,12 @@ wildmidi_init(const ConfigBlock &block)
 		return false;
 	}
 
-	return WildMidi_Init(path.c_str(), WILDMIDI_SAMPLE_RATE, 0) == 0;
+	return WildMidi_Init(path.c_str(), wildmidi_audio_format.sample_rate,
+			     0) == 0;
 }
 
 static void
-wildmidi_finish(void)
+wildmidi_finish() noexcept
 {
 	WildMidi_Shutdown();
 }
@@ -80,11 +80,6 @@ wildmidi_output(DecoderClient &client, midi *wm)
 static void
 wildmidi_file_decode(DecoderClient &client, Path path_fs)
 {
-	static constexpr AudioFormat audio_format = {
-		WILDMIDI_SAMPLE_RATE,
-		SampleFormat::S16,
-		2,
-	};
 	midi *wm;
 	const struct _WM_Info *info;
 
@@ -100,9 +95,9 @@ wildmidi_file_decode(DecoderClient &client, Path path_fs)
 
 	const auto duration =
 		SongTime::FromScale<uint64_t>(info->approx_total_samples,
-					      WILDMIDI_SAMPLE_RATE);
+					      wildmidi_audio_format.sample_rate);
 
-	client.Ready(audio_format, true, duration);
+	client.Ready(wildmidi_audio_format, true, duration);
 
 	DecoderCommand cmd;
 	do {
@@ -126,8 +121,7 @@ wildmidi_file_decode(DecoderClient &client, Path path_fs)
 }
 
 static bool
-wildmidi_scan_file(Path path_fs,
-		   const TagHandler &handler, void *handler_ctx)
+wildmidi_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	midi *wm = WildMidi_Open(path_fs.c_str());
 	if (wm == nullptr)
@@ -139,10 +133,12 @@ wildmidi_scan_file(Path path_fs,
 		return false;
 	}
 
+	handler.OnAudioFormat(wildmidi_audio_format);
+
 	const auto duration =
 		SongTime::FromScale<uint64_t>(info->approx_total_samples,
-					      WILDMIDI_SAMPLE_RATE);
-	tag_handler_invoke_duration(handler, handler_ctx, duration);
+					      wildmidi_audio_format.sample_rate);
+	handler.OnDuration(duration);
 
 	WildMidi_Close(wm);
 

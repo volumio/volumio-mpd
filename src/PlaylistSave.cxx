@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,18 +22,33 @@
 #include "PlaylistFile.hxx"
 #include "PlaylistError.hxx"
 #include "queue/Playlist.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "Mapper.hxx"
 #include "Idle.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/Traits.hxx"
 #include "fs/FileSystem.hxx"
-#include "fs/NarrowPath.hxx"
 #include "fs/io/FileOutputStream.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "util/UriUtil.hxx"
 
-#include <stdexcept>
+#include <exception>
+
+static void
+playlist_print_path(BufferedOutputStream &os, const Path path)
+{
+#ifdef _UNICODE
+	/* on Windows, playlists always contain UTF-8, because its
+	   "narrow" charset (i.e. CP_ACP) is incapable of storing all
+	   Unicode paths */
+	try {
+		os.Format("%s\n", path.ToUTF8Throw().c_str());
+	} catch (...) {
+	}
+#else
+	os.Format("%s\n", path.c_str());
+#endif
+}
 
 void
 playlist_print_song(BufferedOutputStream &os, const DetachedSong &song)
@@ -44,8 +59,8 @@ playlist_print_song(BufferedOutputStream &os, const DetachedSong &song)
 
 	try {
 		const auto uri_fs = AllocatedPath::FromUTF8Throw(uri_utf8);
-		os.Format("%s\n", NarrowPath(uri_fs).c_str());
-	} catch (const std::runtime_error &) {
+		playlist_print_path(os, uri_fs);
+	} catch (...) {
 	}
 }
 
@@ -63,8 +78,8 @@ playlist_print_uri(BufferedOutputStream &os, const char *uri)
 			AllocatedPath::FromUTF8Throw(uri);
 
 		if (!path.IsNull())
-			os.Format("%s\n", NarrowPath(path).c_str());
-	} catch (const std::runtime_error &) {
+			playlist_print_path(os, path);
+	} catch (...) {
 	}
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,41 +21,41 @@
 #define MPD_DATABASE_INTERFACE_HXX
 
 #include "Visitor.hxx"
-#include "tag/TagType.h"
-#include "tag/Mask.hxx"
-#include "Compiler.h"
+#include "tag/Type.h"
+#include "util/Compiler.h"
 
-#include <time.h>
+#include <chrono>
+#include <map>
+#include <set>
+#include <string>
 
 struct DatabasePlugin;
 struct DatabaseStats;
 struct DatabaseSelection;
 struct LightSong;
+class TagMask;
 
 class Database {
 	const DatabasePlugin &plugin;
 
-public:
-	Database(const DatabasePlugin &_plugin)
+protected:
+	Database(const DatabasePlugin &_plugin) noexcept
 		:plugin(_plugin) {}
 
+public:
 	/**
 	 * Free instance data.
          */
-	virtual ~Database() {}
+	virtual ~Database() noexcept = default;
 
-	const DatabasePlugin &GetPlugin() const {
+	const DatabasePlugin &GetPlugin() const noexcept {
 		return plugin;
-	}
-
-	bool IsPlugin(const DatabasePlugin &other) const {
-		return &plugin == &other;
 	}
 
 	/**
          * Open the database.  Read it into memory if applicable.
 	 *
-	 * Throws #DatabaseError or std::runtime_error on error.
+	 * Throws on error (e.g. #DatabaseError).
 	 */
 	virtual void Open() {
 	}
@@ -63,14 +63,18 @@ public:
 	/**
          * Close the database, free allocated memory.
 	 */
-	virtual void Close() {}
+	virtual void Close() noexcept {}
 
 	/**
          * Look up a song (including tag data) in the database.  When
          * you don't need this anymore, call ReturnSong().
 	 *
+	 * Throws on error.  "Not found" is an error that throws
+	 * DatabaseErrorCode::NOT_FOUND.
+	 *
 	 * @param uri_utf8 the URI of the song within the music
 	 * directory (UTF-8)
+	 * @return a pointer that must be released with ReturnSong()
 	 */
 	virtual const LightSong *GetSong(const char *uri_utf8) const = 0;
 
@@ -78,10 +82,12 @@ public:
 	 * Mark the song object as "unused".  Call this on objects
 	 * returned by GetSong().
 	 */
-	virtual void ReturnSong(const LightSong *song) const = 0;
+	virtual void ReturnSong(const LightSong *song) const noexcept = 0;
 
 	/**
 	 * Visit the selected entities.
+	 *
+	 * Throws on error.
 	 */
 	virtual void Visit(const DatabaseSelection &selection,
 			   VisitDirectory visit_directory,
@@ -100,19 +106,23 @@ public:
 	}
 
 	/**
-	 * Visit all unique tag values.
+	 * Collect unique values of the given tag type.
+	 *
+	 * Throws on error.
 	 */
-	virtual void VisitUniqueTags(const DatabaseSelection &selection,
-				     TagType tag_type, tag_mask_t group_mask,
-				     VisitTag visit_tag) const = 0;
+	virtual std::map<std::string, std::set<std::string>> CollectUniqueTags(const DatabaseSelection &selection,
+									       TagType tag_type,
+									       TagType group=TAG_NUM_OF_ITEM_TYPES) const = 0;
 
-	gcc_pure
+	/**
+	 * Throws on error.
+	 */
 	virtual DatabaseStats GetStats(const DatabaseSelection &selection) const = 0;
 
 	/**
 	 * Update the database.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 *
 	 * @return the job id or 0 if not implemented
 	 */
@@ -124,10 +134,10 @@ public:
 
 	/**
 	 * Returns the time stamp of the last database update.
-	 * Returns 0 if that is not not known/available.
+	 * Returns a negative value if that is not not known/available.
 	 */
 	gcc_pure
-	virtual time_t GetUpdateStamp() const = 0;
+	virtual std::chrono::system_clock::time_point GetUpdateStamp() const noexcept = 0;
 };
 
 #endif

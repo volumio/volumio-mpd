@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2017 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,103 +31,97 @@
 #define STRING_VIEW_HXX
 
 #include "ConstBuffer.hxx"
+#include "StringAPI.hxx"
 
-#include <string.h>
+template<typename T>
+struct BasicStringView : ConstBuffer<T> {
+	typedef typename ConstBuffer<T>::size_type size_type;
+	typedef typename ConstBuffer<T>::value_type value_type;
+	typedef typename ConstBuffer<T>::pointer_type pointer_type;
 
-struct StringView : ConstBuffer<char> {
-	StringView() = default;
+	using ConstBuffer<T>::data;
+	using ConstBuffer<T>::size;
 
-	constexpr StringView(pointer_type _data, size_type _size)
-		:ConstBuffer<char>(_data, _size) {}
+	BasicStringView() = default;
 
-	constexpr StringView(pointer_type _begin, pointer_type _end)
-		:ConstBuffer<char>(_begin, _end - _begin) {}
+	explicit constexpr BasicStringView(ConstBuffer<T> src)
+		:ConstBuffer<T>(src) {}
 
-	StringView(pointer_type _data)
-		:ConstBuffer<char>(_data,
-				   _data != nullptr ? strlen(_data) : 0) {}
+	explicit constexpr BasicStringView(ConstBuffer<void> src)
+		:ConstBuffer<T>(ConstBuffer<T>::FromVoid(src)) {}
 
-	constexpr StringView(std::nullptr_t n)
-		:ConstBuffer<char>(n) {}
+	constexpr BasicStringView(pointer_type _data, size_type _size) noexcept
+		:ConstBuffer<T>(_data, _size) {}
 
-	static constexpr StringView Empty() {
-		return StringView("", size_t(0));
-	}
+	constexpr BasicStringView(pointer_type _begin,
+				  pointer_type _end) noexcept
+		:ConstBuffer<T>(_begin, _end - _begin) {}
 
-	template<size_t n>
-	static constexpr StringView Literal(const char (&_data)[n]) {
-		static_assert(n > 0, "");
-		return {_data, n - 1};
-	}
+	BasicStringView(pointer_type _data) noexcept
+		:ConstBuffer<T>(_data,
+				_data != nullptr ? StringLength(_data) : 0) {}
 
-	static constexpr StringView Literal() {
-		return StringView("", size_t(0));
-	}
+	constexpr BasicStringView(std::nullptr_t n) noexcept
+		:ConstBuffer<T>(n) {}
 
-	void SetEmpty() {
-		data = "";
-		size = 0;
+	using ConstBuffer<T>::empty;
+	using ConstBuffer<T>::front;
+	using ConstBuffer<T>::back;
+	using ConstBuffer<T>::pop_front;
+	using ConstBuffer<T>::pop_back;
+
+	gcc_pure
+	pointer_type Find(value_type ch) const noexcept {
+		return StringFind(data, ch, this->size);
 	}
 
 	gcc_pure
-	pointer_type Find(char ch) const {
-		return (pointer_type)memchr(data, ch, size);
-	}
-
-	StringView &operator=(std::nullptr_t) {
-		data = nullptr;
-		size = 0;
-		return *this;
-	}
-
-	StringView &operator=(pointer_type _data) {
-		data = _data;
-		size = _data != nullptr ? strlen(_data) : 0;
-		return *this;
+	bool StartsWith(BasicStringView<T> needle) const noexcept {
+		return this->size >= needle.size &&
+			StringIsEqual(data, needle.data, needle.size);
 	}
 
 	gcc_pure
-	bool StartsWith(StringView needle) const {
-		return size >= needle.size &&
-			memcmp(data, needle.data, needle.size) == 0;
+	bool EndsWith(BasicStringView<T> needle) const noexcept {
+		return this->size >= needle.size &&
+			StringIsEqual(data + this->size - needle.size,
+				      needle.data, needle.size);
 	}
 
 	gcc_pure
-	bool Equals(StringView other) const {
-		return size == other.size &&
-			memcmp(data, other.data, size) == 0;
-	}
-
-	template<size_t n>
-	bool EqualsLiteral(const char (&other)[n]) const {
-		return Equals(Literal(other));
+	bool Equals(BasicStringView<T> other) const noexcept {
+		return this->size == other.size &&
+			StringIsEqual(data, other.data, this->size);
 	}
 
 	gcc_pure
-	bool EqualsIgnoreCase(StringView other) const {
-		return size == other.size &&
-			strncasecmp(data, other.data, size) == 0;
-	}
-
-	template<size_t n>
-	bool EqualsLiteralIgnoreCase(const char (&other)[n]) const {
-		return EqualsIgnoreCase(Literal(other));
+	bool EqualsIgnoreCase(BasicStringView<T> other) const noexcept {
+		return this->size == other.size &&
+			StringIsEqualIgnoreCase(data, other.data, this->size);
 	}
 
 	/**
 	 * Skip all whitespace at the beginning.
 	 */
-	void StripLeft();
+	void StripLeft() noexcept;
 
 	/**
 	 * Skip all whitespace at the end.
 	 */
-	void StripRight();
+	void StripRight() noexcept;
 
-	void Strip() {
+	void Strip() noexcept {
 		StripLeft();
 		StripRight();
 	}
+};
+
+struct StringView : BasicStringView<char> {
+	using BasicStringView::BasicStringView;
+
+	StringView() = default;
+	constexpr StringView(BasicStringView<value_type> src) noexcept
+		:BasicStringView(src) {}
 };
 
 #endif

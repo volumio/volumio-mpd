@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "Log.hxx"
-#include "ScopeIOThread.hxx"
+#include "event/Thread.hxx"
 #include "storage/Registry.hxx"
 #include "storage/StorageInterface.hxx"
 #include "storage/FileInfo.hxx"
+#include "net/Init.hxx"
+#include "util/ChronoUtil.hxx"
+#include "util/PrintException.hxx"
 
 #include <memory>
 #include <stdexcept>
@@ -33,10 +34,10 @@
 #include <string.h>
 #include <time.h>
 
-static Storage *
-MakeStorage(const char *uri)
+static std::unique_ptr<Storage>
+MakeStorage(EventLoop &event_loop, const char *uri)
 {
-	Storage *storage = CreateStorageURI(io_thread_get(), uri);
+	auto storage = CreateStorageURI(event_loop, uri);
 	if (storage == nullptr)
 		throw std::runtime_error("Unrecognized storage URI");
 
@@ -67,15 +68,25 @@ Ls(Storage &storage, const char *path)
 			break;
 		}
 
-		char mtime[32];
-		strftime(mtime, sizeof(mtime), "%F", gmtime(&info.mtime));
+		char mtime_buffer[32];
+		const char *mtime = "          ";
+		if (!IsNegative(info.mtime)) {
+			time_t t = std::chrono::system_clock::to_time_t(info.mtime);
+			strftime(mtime_buffer, sizeof(mtime_buffer),
+#ifdef _WIN32
+				 "%Y-%m-%d",
+#else
+				 "%F",
+#endif
+				 gmtime(&t));
+			mtime = mtime_buffer;
+		}
 
 		printf("%s %10llu %s %s\n",
 		       type, (unsigned long long)info.size,
 		       mtime, name);
 	}
 
-	delete dir;
 	return EXIT_SUCCESS;
 }
 
@@ -90,7 +101,9 @@ try {
 	const char *const command = argv[1];
 	const char *const storage_uri = argv[2];
 
-	const ScopeIOThread io_thread;
+	const ScopeNetInit net_init;
+	EventThread io_thread;
+	io_thread.Start();
 
 	if (strcmp(command, "ls") == 0) {
 		if (argc != 4) {
@@ -100,7 +113,8 @@ try {
 
 		const char *const path = argv[3];
 
-		std::unique_ptr<Storage> storage(MakeStorage(storage_uri));
+		auto storage = MakeStorage(io_thread.GetEventLoop(),
+					   storage_uri);
 
 		return Ls(*storage, path);
 	} else {
@@ -109,7 +123,7 @@ try {
 	}
 
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

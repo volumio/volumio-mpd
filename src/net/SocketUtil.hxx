@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,29 +26,29 @@
 #ifndef MPD_SOCKET_UTIL_HXX
 #define MPD_SOCKET_UTIL_HXX
 
+class UniqueSocketDescriptor;
 class SocketAddress;
 
 /**
  * Creates a socket listening on the specified address.  This is a
  * shortcut for socket(), bind() and listen().
+ * When a unix socket is created (domain == AF_UNIX), its
+ * permissions will be stripped down to prevent unauthorized
+ * access. The caller is responsible to apply proper permissions
+ * at a later point.
  *
- * Throws #std::system_error on error.
+ * Throws on error.
  *
  * @param domain the socket domain, e.g. PF_INET6
  * @param type the socket type, e.g. SOCK_STREAM
  * @param protocol the protocol, usually 0 to let the kernel choose
  * @param address the address to listen on
  * @param backlog the backlog parameter for the listen() system call
- * @param error location to store the error occurring, or NULL to
- * ignore errors
  * @return the socket file descriptor
  */
-int
+UniqueSocketDescriptor
 socket_bind_listen(int domain, int type, int protocol,
 		   SocketAddress address,
 		   int backlog);
-
-int
-socket_keepalive(int fd);
 
 #endif

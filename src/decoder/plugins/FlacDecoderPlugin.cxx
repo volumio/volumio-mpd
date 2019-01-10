@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "FlacDecoderPlugin.h"
 #include "FlacStreamDecoder.hxx"
 #include "FlacDomain.hxx"
 #include "FlacCommon.hxx"
-#include "FlacMetadata.hxx"
+#include "lib/xiph/FlacMetadataChain.hxx"
 #include "OggCodec.hxx"
+#include "input/InputStream.hxx"
 #include "fs/Path.hxx"
 #include "fs/NarrowPath.hxx"
 #include "Log.hxx"
@@ -69,8 +69,7 @@ flac_write_cb(const FLAC__StreamDecoder *dec, const FLAC__Frame *frame,
 }
 
 static bool
-flac_scan_file(Path path_fs,
-	       const TagHandler &handler, void *handler_ctx)
+flac_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	FlacMetadataChain chain;
 	if (!chain.Read(NarrowPath(path_fs))) {
@@ -80,13 +79,12 @@ flac_scan_file(Path path_fs,
 		return false;
 	}
 
-	chain.Scan(handler, handler_ctx);
+	chain.Scan(handler);
 	return true;
 }
 
 static bool
-flac_scan_stream(InputStream &is,
-		 const TagHandler &handler, void *handler_ctx)
+flac_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	FlacMetadataChain chain;
 	if (!chain.Read(is)) {
@@ -96,7 +94,7 @@ flac_scan_stream(InputStream &is,
 		return false;
 	}
 
-	chain.Scan(handler, handler_ctx);
+	chain.Scan(handler);
 	return true;
 }
 
@@ -139,19 +137,40 @@ flac_decoder_initialize(FlacDecoder *data, FLAC__StreamDecoder *sd)
 	return data->initialized;
 }
 
+static DecoderCommand
+FlacSubmitToClient(DecoderClient &client, FlacDecoder &d) noexcept
+{
+	if (d.tag.IsEmpty() && d.chunk.empty())
+		return client.GetCommand();
+
+	if (!d.tag.IsEmpty()) {
+		auto cmd = client.SubmitTag(d.GetInputStream(),
+					    std::move(d.tag));
+		d.tag.Clear();
+		if (cmd != DecoderCommand::NONE)
+			return cmd;
+	}
+
+	if (!d.chunk.empty()) {
+		auto cmd = client.SubmitData(d.GetInputStream(),
+					     d.chunk.data,
+					     d.chunk.size,
+					     d.kbit_rate);
+		d.chunk = nullptr;
+		if (cmd != DecoderCommand::NONE)
+			return cmd;
+	}
+
+	return DecoderCommand::NONE;
+}
+
 static void
 flac_decoder_loop(FlacDecoder *data, FLAC__StreamDecoder *flac_dec)
 {
 	DecoderClient &client = *data->GetClient();
 
 	while (true) {
-		DecoderCommand cmd;
-		if (!data->tag.IsEmpty()) {
-			cmd = client.SubmitTag(data->GetInputStream(),
-					       std::move(data->tag));
-			data->tag.Clear();
-		} else
-			cmd = client.GetCommand();
+		DecoderCommand cmd = FlacSubmitToClient(client, *data);
 
 		if (cmd == DecoderCommand::SEEK) {
 			FLAC__uint64 seek_sample = client.GetSeekFrame();
@@ -160,6 +179,11 @@ flac_decoder_loop(FlacDecoder *data, FLAC__StreamDecoder *flac_dec)
 				client.CommandFinished();
 			} else
 				client.SeekError();
+
+			/* FLAC__stream_decoder_seek_absolute()
+			   decodes one frame and may have provided
+			   data to be submitted to the client */
+			continue;
 		} else if (cmd == DecoderCommand::STOP)
 			break;
 
@@ -289,8 +313,7 @@ oggflac_init(gcc_unused const ConfigBlock &block)
 }
 
 static bool
-oggflac_scan_file(Path path_fs,
-		  const TagHandler &handler, void *handler_ctx)
+oggflac_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	FlacMetadataChain chain;
 	if (!chain.ReadOgg(NarrowPath(path_fs))) {
@@ -300,13 +323,12 @@ oggflac_scan_file(Path path_fs,
 		return false;
 	}
 
-	chain.Scan(handler, handler_ctx);
+	chain.Scan(handler);
 	return true;
 }
 
 static bool
-oggflac_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+oggflac_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	FlacMetadataChain chain;
 	if (!chain.ReadOgg(is)) {
@@ -316,7 +338,7 @@ oggflac_scan_stream(InputStream &is,
 		return false;
 	}
 
-	chain.Scan(handler, handler_ctx);
+	chain.Scan(handler);
 	return true;
 }
 
@@ -330,7 +352,7 @@ oggflac_decode(DecoderClient &client, InputStream &input_stream)
 	   moved it */
 	try {
 		input_stream.LockRewind();
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 	}
 
 	flac_decode_internal(client, input_stream, true);

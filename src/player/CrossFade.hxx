@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,8 @@
 #ifndef MPD_CROSSFADE_HXX
 #define MPD_CROSSFADE_HXX
 
-#include "Compiler.h"
+#include "Chrono.hxx"
+#include "util/Compiler.h"
 
 struct AudioFormat;
 class SignedSongTime;
@@ -29,7 +30,7 @@ struct CrossFadeSettings {
 	/**
 	 * The configured cross fade duration [s].
 	 */
-	float duration;
+	FloatDuration duration;
 
 	float mixramp_db;
 
@@ -37,7 +38,7 @@ struct CrossFadeSettings {
 	 * The configured MixRapm delay [s].  A non-positive value
 	 * disables MixRamp.
 	 */
-	float mixramp_delay;
+	FloatDuration mixramp_delay;
 
 	CrossFadeSettings()
 		:duration(0),
@@ -66,7 +67,7 @@ struct CrossFadeSettings {
 			   const char *mixramp_start,
 			   const char *mixramp_prev_end,
 			   AudioFormat af, AudioFormat old_format,
-			   unsigned max_chunks) const;
+			   unsigned max_chunks) const noexcept;
 };
 
 #endif

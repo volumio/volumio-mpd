@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #include "config.h"
 #include "MikmodDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
@@ -61,10 +61,7 @@ mikmod_mpd_is_present(void)
 
 static char drv_name[] = PACKAGE_NAME;
 static char drv_version[] = VERSION;
-
-#if (LIBMIKMOD_VERSION > 0x030106)
 static char drv_alias[] = PACKAGE;
-#endif
 
 static MDRIVER drv_mpd = {
 	nullptr,
@@ -72,13 +69,9 @@ static MDRIVER drv_mpd = {
 	drv_version,
 	0,
 	255,
-#if (LIBMIKMOD_VERSION > 0x030106)
 	drv_alias,
-#if (LIBMIKMOD_VERSION >= 0x030200)
 	nullptr,  /* CmdLineHelp */
-#endif
 	nullptr,  /* CommandLine */
-#endif
 	mikmod_mpd_is_present,
 	VC_SampleLoad,
 	VC_SampleUnload,
@@ -114,7 +107,7 @@ mikmod_decoder_init(const ConfigBlock &block)
 	static char params[] = "";
 
 	mikmod_loop = block.GetBlockValue("loop", false);
-	mikmod_sample_rate = block.GetBlockValue("sample_rate", 44100u);
+	mikmod_sample_rate = block.GetPositiveValue("sample_rate", 44100u);
 	if (!audio_valid_sample_rate(mikmod_sample_rate))
 		throw FormatRuntimeError("Invalid sample rate in line %d: %u",
 					 block.line, mikmod_sample_rate);
@@ -141,7 +134,7 @@ mikmod_decoder_init(const ConfigBlock &block)
 }
 
 static void
-mikmod_decoder_finish(void)
+mikmod_decoder_finish() noexcept
 {
 	MikMod_Exit();
 }
@@ -185,8 +178,7 @@ mikmod_decoder_file_decode(DecoderClient &client, Path path_fs)
 }
 
 static bool
-mikmod_decoder_scan_file(Path path_fs,
-			 const TagHandler &handler, void *handler_ctx)
+mikmod_decoder_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	/* deconstify the path because libmikmod wants a non-const
 	   string pointer */
@@ -204,13 +196,8 @@ mikmod_decoder_scan_file(Path path_fs,
 
 	char *title = Player_LoadTitle(path2);
 	if (title != nullptr) {
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_TITLE, title);
-#if (LIBMIKMOD_VERSION >= 0x030200)
+		handler.OnTag(TAG_TITLE, title);
 		MikMod_free(title);
-#else
-		free(title);
-#endif
 	}
 
 	return true;

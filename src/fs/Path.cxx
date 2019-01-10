@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,27 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Path.hxx"
 #include "Charset.hxx"
 
-#include <stdexcept>
-
 std::string
-Path::ToUTF8() const
+Path::ToUTF8() const noexcept
 {
 	try {
-		return ::PathToUTF8(c_str());
-	} catch (const std::runtime_error &) {
+		return ToUTF8Throw();
+	} catch (...) {
 		return std::string();
 	}
 }
 
+std::string
+Path::ToUTF8Throw() const
+{
+	return ::PathToUTF8(c_str());
+}
+
 Path::const_pointer_type
-Path::GetSuffix() const
+Path::GetSuffix() const noexcept
 {
 	const auto base = GetBase().c_str();
 	const auto *dot = StringFindLast(base, '.');

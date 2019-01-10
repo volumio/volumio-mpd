@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,12 +25,17 @@ public:
 	/**
 	 * Must call playlist_sync().
 	 */
-	virtual void OnPlayerSync() = 0;
+	virtual void OnPlayerSync() noexcept = 0;
 
 	/**
 	 * The current song's tag has changed.
 	 */
-	virtual void OnPlayerTagModified() = 0;
+	virtual void OnPlayerTagModified() noexcept = 0;
+
+	/**
+	 * Playback went into border pause.
+	 */
+	virtual void OnBorderPause() noexcept = 0;
 };
 
 #endif

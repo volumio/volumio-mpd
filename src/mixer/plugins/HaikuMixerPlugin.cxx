@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * Copyright (C) 2010-2011 Philipp 'ph3-der-loewe' Schafft
  * Copyright (C) 2010-2011 Hans-Kristian 'maister' Arntzen
  * Copyright (C) 2014-2015 François 'mmu_man' Revol
@@ -20,10 +20,11 @@
  */
 
 
-#include "config.h"
 #include "mixer/MixerInternal.hxx"
 #include "output/plugins/HaikuOutputPlugin.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
+
+#include "util/RuntimeError.hxx"
 
 class HaikuMixer final : public Mixer {
 	/** the base mixer class */
@@ -35,36 +36,34 @@ public:
 		 self(_output) {}
 
 	/* virtual methods from class Mixer */
-	virtual bool Open(gcc_unused Error &error) override {
-		return true;
+	virtual void Open() override {
 	}
 
-	virtual void Close() override {
+	void Close() noexcept override {
 	}
 
-	virtual int GetVolume(Error &error) override;
-	virtual bool SetVolume(unsigned volume, Error &error) override;
+	virtual int GetVolume() override;
+	virtual void SetVolume(unsigned volume) override;
 };
 
 static Mixer *
 haiku_mixer_init(gcc_unused EventLoop &event_loop, AudioOutput &ao,
 		MixerListener &listener,
-		gcc_unused const ConfigBlock &block,
-		gcc_unused Error &error)
+		gcc_unused const ConfigBlock &block)
 {
 	return new HaikuMixer((HaikuOutput &)ao, listener);
 }
 
 int
-HaikuMixer::GetVolume(gcc_unused Error &error)
+HaikuMixer::GetVolume()
 {
 	return haiku_output_get_volume(self);
 }
 
-bool
-HaikuMixer::SetVolume(unsigned volume, gcc_unused Error &error)
+void
+HaikuMixer::SetVolume(unsigned volume)
 {
-	return haiku_output_set_volume(self, volume);
+	haiku_output_set_volume(self, volume);
 }
 
 const MixerPlugin haiku_mixer_plugin = {

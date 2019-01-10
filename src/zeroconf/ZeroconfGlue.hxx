@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,14 +20,15 @@
 #ifndef MPD_ZEROCONF_GLUE_HXX
 #define MPD_ZEROCONF_GLUE_HXX
 
-#include "check.h"
+#include "config.h"
 
+struct ConfigData;
 class EventLoop;
 
 #ifdef HAVE_ZEROCONF
 
 void
-ZeroconfInit(EventLoop &loop);
+ZeroconfInit(const ConfigData &config, EventLoop &loop);
 
 void
 ZeroconfDeinit();
@@ -35,7 +36,7 @@ ZeroconfDeinit();
 #else /* ! HAVE_ZEROCONF */
 
 static inline void
-ZeroconfInit(EventLoop &)
+ZeroconfInit(const ConfigData &, EventLoop &)
 {}
 
 static inline void

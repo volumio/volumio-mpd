@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,3 +36,14 @@ AllocatedString<char>::Duplicate(const_pointer_type src)
 {
 	return Duplicate(src, StringLength(src));
 }
+
+#ifdef _UNICODE
+
+template<>
+AllocatedString<wchar_t>
+AllocatedString<wchar_t>::Duplicate(const_pointer_type src)
+{
+	return Duplicate(src, StringLength(src));
+}
+
+#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2011-2017 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@
 
 #include <algorithm>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <ws2tcpip.h>
 #else
 #include <netdb.h>
@@ -53,7 +53,7 @@
 #ifdef HAVE_UN
 
 static std::string
-LocalAddressToString(const struct sockaddr_un &s_un, size_t size)
+LocalAddressToString(const struct sockaddr_un &s_un, size_t size) noexcept
 {
 	const size_t prefix_size = (size_t)
 		((struct sockaddr_un *)nullptr)->sun_path;
@@ -81,24 +81,13 @@ LocalAddressToString(const struct sockaddr_un &s_un, size_t size)
 
 #if defined(HAVE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
 
-gcc_pure
-static bool
-IsV4Mapped(SocketAddress address)
-{
-	if (address.GetFamily() != AF_INET6)
-		return false;
-
-	const auto &a6 = *(const struct sockaddr_in6 *)address.GetAddress();
-	return IN6_IS_ADDR_V4MAPPED(&a6.sin6_addr);
-}
-
 /**
  * Convert "::ffff:127.0.0.1" to "127.0.0.1".
  */
 static SocketAddress
-UnmapV4(SocketAddress src, struct sockaddr_in &buffer)
+UnmapV4(SocketAddress src, struct sockaddr_in &buffer) noexcept
 {
-	assert(IsV4Mapped(src));
+	assert(src.IsV4Mapped());
 
 	const auto &src6 = *(const struct sockaddr_in6 *)src.GetAddress();
 	memset(&buffer, 0, sizeof(buffer));
@@ -113,10 +102,10 @@ UnmapV4(SocketAddress src, struct sockaddr_in &buffer)
 #endif
 
 std::string
-ToString(SocketAddress address)
+ToString(SocketAddress address) noexcept
 {
 #ifdef HAVE_UN
-	if (address.GetFamily() == AF_UNIX)
+	if (address.GetFamily() == AF_LOCAL)
 		/* return path of UNIX domain sockets */
 		return LocalAddressToString(*(const sockaddr_un *)address.GetAddress(),
 					    address.GetSize());
@@ -124,7 +113,7 @@ ToString(SocketAddress address)
 
 #if defined(HAVE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
 	struct sockaddr_in in_buffer;
-	if (IsV4Mapped(address))
+	if (address.IsV4Mapped())
 		address = UnmapV4(address, in_buffer);
 #endif
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 
 #include "fs/FileSystem.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "Log.hxx"
+#include "system/Error.hxx"
 
 #include <assert.h>
 #include <string.h>
@@ -38,24 +38,24 @@ public:
 		if (path.IsNull())
 			return;
 
-		fd = OpenFile(path, O_WRONLY|O_CREAT|O_TRUNC, 0666);
+		fd = OpenFile(path, O_WRONLY|O_CREAT|O_TRUNC, 0666).Steal();
 		if (fd < 0) {
 			const std::string utf8 = path.ToUTF8();
-			FormatFatalSystemError("Failed to create pid file \"%s\"",
-					       utf8.c_str());
+			throw FormatErrno("Failed to create pid file \"%s\"",
+					  utf8.c_str());
 		}
 	}
 
 	PidFile(const PidFile &) = delete;
 
-	void Close() {
+	void Close() noexcept {
 		if (fd < 0)
 			return;
 
 		close(fd);
 	}
 
-	void Delete(const AllocatedPath &path) {
+	void Delete(const AllocatedPath &path) noexcept {
 		if (fd < 0) {
 			assert(path.IsNull());
 			return;
@@ -67,7 +67,7 @@ public:
 		unlink(path.c_str());
 	}
 
-	void Write(pid_t pid) {
+	void Write(pid_t pid) noexcept {
 		if (fd < 0)
 			return;
 
@@ -78,7 +78,7 @@ public:
 		close(fd);
 	}
 
-	void Write() {
+	void Write() noexcept {
 		if (fd < 0)
 			return;
 
@@ -88,16 +88,16 @@ public:
 
 gcc_pure
 static inline pid_t
-ReadPidFile(Path path)
+ReadPidFile(Path path) noexcept
 {
-	int fd = OpenFile(path, O_RDONLY, 0);
-	if (fd < 0)
+	auto fd = OpenFile(path, O_RDONLY, 0);
+	if (!fd.IsDefined())
 		return -1;
 
 	pid_t pid = -1;
 
 	char buffer[32];
-	auto nbytes = read(fd, buffer, sizeof(buffer) - 1);
+	auto nbytes = fd.Read(buffer, sizeof(buffer) - 1);
 	if (nbytes > 0) {
 		buffer[nbytes] = 0;
 
@@ -107,7 +107,6 @@ ReadPidFile(Path path)
 			pid = value;
 	}
 
-	close(fd);
 	return pid;
 }
 

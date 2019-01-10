@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SocketError.hxx"
 #include "util/Macros.hxx"
 
 #include <string.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 
-SocketErrorMessage::SocketErrorMessage(socket_error_t code)
+SocketErrorMessage::SocketErrorMessage(socket_error_t code) noexcept
 {
 #ifdef _UNICODE
 	wchar_t buffer[ARRAY_SIZE(msg)];
@@ -56,7 +55,7 @@ SocketErrorMessage::SocketErrorMessage(socket_error_t code)
 
 #else
 
-SocketErrorMessage::SocketErrorMessage(socket_error_t code)
+SocketErrorMessage::SocketErrorMessage(socket_error_t code) noexcept
 	:msg(strerror(code)) {}
 
 #endif

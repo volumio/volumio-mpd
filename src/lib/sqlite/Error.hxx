@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,8 +29,8 @@ class SqliteError final : public std::runtime_error {
 	int code;
 
 public:
-	SqliteError(sqlite3 *db, int _code, const char *msg);
-	SqliteError(sqlite3_stmt *stmt, int _code, const char *msg);
+	SqliteError(sqlite3 *db, int _code, const char *msg) noexcept;
+	SqliteError(sqlite3_stmt *stmt, int _code, const char *msg) noexcept;
 
 	int GetCode() const {
 		return code;

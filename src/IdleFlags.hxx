@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 #ifndef MPD_IDLE_FLAGS_HXX
 #define MPD_IDLE_FLAGS_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 /** song database has been updated*/
 static constexpr unsigned IDLE_DATABASE = 0x1;
@@ -67,11 +67,15 @@ static constexpr unsigned IDLE_NEIGHBOR = 0x800;
 /** the mount list has changed */
 static constexpr unsigned IDLE_MOUNT = 0x1000;
 
+/** the partition list has changed */
+static constexpr unsigned IDLE_PARTITION = 0x2000;
+
 /**
  * Get idle names
  */
+gcc_const
 const char*const*
-idle_get_names();
+idle_get_names() noexcept;
 
 /**
  * Parse an idle name and return its mask.  Returns 0 if the given
@@ -79,6 +83,6 @@ idle_get_names();
  */
 gcc_nonnull_all gcc_pure
 unsigned
-idle_parse_name(const char *name);
+idle_parse_name(const char *name) noexcept;
 
 #endif

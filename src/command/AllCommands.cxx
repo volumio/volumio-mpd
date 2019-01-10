@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,9 +31,11 @@
 #include "OutputCommands.hxx"
 #include "MessageCommands.hxx"
 #include "NeighborCommands.hxx"
+#include "ClientCommands.hxx"
+#include "PartitionCommands.hxx"
 #include "OtherCommands.hxx"
 #include "Permission.hxx"
-#include "tag/TagType.h"
+#include "tag/Type.h"
 #include "Partition.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
@@ -82,6 +84,7 @@ static constexpr struct command commands[] = {
 	{ "add", PERMISSION_ADD, 1, 1, handle_add },
 	{ "addid", PERMISSION_ADD, 1, 2, handle_addid },
 	{ "addtagid", PERMISSION_ADD, 3, 3, handle_addtagid },
+	{ "albumart", PERMISSION_READ, 2, 2, handle_album_art },
 	{ "channels", PERMISSION_READ, 0, 0, handle_channels },
 	{ "clear", PERMISSION_CONTROL, 0, 0, handle_clear },
 	{ "clearerror", PERMISSION_CONTROL, 0, 0, handle_clearerror },
@@ -91,7 +94,7 @@ static constexpr struct command commands[] = {
 	{ "config", PERMISSION_ADMIN, 0, 0, handle_config },
 	{ "consume", PERMISSION_CONTROL, 1, 1, handle_consume },
 #ifdef ENABLE_DATABASE
-	{ "count", PERMISSION_READ, 2, -1, handle_count },
+	{ "count", PERMISSION_READ, 1, -1, handle_count },
 #endif
 	{ "crossfade", PERMISSION_CONTROL, 1, 1, handle_crossfade },
 	{ "currentsong", PERMISSION_READ, 0, 0, handle_currentsong },
@@ -101,8 +104,8 @@ static constexpr struct command commands[] = {
 	{ "disableoutput", PERMISSION_ADMIN, 1, 1, handle_disableoutput },
 	{ "enableoutput", PERMISSION_ADMIN, 1, 1, handle_enableoutput },
 #ifdef ENABLE_DATABASE
-	{ "find", PERMISSION_READ, 2, -1, handle_find },
-	{ "findadd", PERMISSION_ADD, 2, -1, handle_findadd},
+	{ "find", PERMISSION_READ, 1, -1, handle_find },
+	{ "findadd", PERMISSION_ADD, 1, -1, handle_findadd},
 #endif
 	{ "idle", PERMISSION_READ, 0, -1, handle_idle },
 	{ "kill", PERMISSION_ADMIN, -1, -1, handle_kill },
@@ -118,6 +121,7 @@ static constexpr struct command commands[] = {
 #ifdef ENABLE_NEIGHBOR_PLUGINS
 	{ "listneighbors", PERMISSION_READ, 0, 0, handle_listneighbors },
 #endif
+	{ "listpartitions", PERMISSION_READ, 0, 0, handle_listpartitions },
 	{ "listplaylist", PERMISSION_READ, 1, 1, handle_listplaylist },
 	{ "listplaylistinfo", PERMISSION_READ, 1, 1, handle_listplaylistinfo },
 	{ "listplaylists", PERMISSION_READ, 0, 0, handle_listplaylists },
@@ -130,9 +134,12 @@ static constexpr struct command commands[] = {
 #endif
 	{ "move", PERMISSION_CONTROL, 2, 2, handle_move },
 	{ "moveid", PERMISSION_CONTROL, 2, 2, handle_moveid },
+	{ "newpartition", PERMISSION_ADMIN, 1, 1, handle_newpartition },
 	{ "next", PERMISSION_CONTROL, 0, 0, handle_next },
 	{ "notcommands", PERMISSION_NONE, 0, 0, handle_not_commands },
 	{ "outputs", PERMISSION_READ, 0, 0, handle_devices },
+	{ "outputset", PERMISSION_ADMIN, 3, 3, handle_outputset },
+	{ "partition", PERMISSION_READ, 1, 1, handle_partition },
 	{ "password", PERMISSION_NONE, 1, 1, handle_password },
 	{ "pause", PERMISSION_CONTROL, 0, 1, handle_pause },
 	{ "ping", PERMISSION_NONE, 0, 0, handle_ping },
@@ -142,11 +149,11 @@ static constexpr struct command commands[] = {
 	{ "playlistadd", PERMISSION_CONTROL, 2, 2, handle_playlistadd },
 	{ "playlistclear", PERMISSION_CONTROL, 1, 1, handle_playlistclear },
 	{ "playlistdelete", PERMISSION_CONTROL, 2, 2, handle_playlistdelete },
-	{ "playlistfind", PERMISSION_READ, 2, -1, handle_playlistfind },
+	{ "playlistfind", PERMISSION_READ, 1, -1, handle_playlistfind },
 	{ "playlistid", PERMISSION_READ, 0, 1, handle_playlistid },
 	{ "playlistinfo", PERMISSION_READ, 0, 1, handle_playlistinfo },
 	{ "playlistmove", PERMISSION_CONTROL, 3, 3, handle_playlistmove },
-	{ "playlistsearch", PERMISSION_READ, 2, -1, handle_playlistsearch },
+	{ "playlistsearch", PERMISSION_READ, 1, -1, handle_playlistsearch },
 	{ "plchanges", PERMISSION_READ, 1, 2, handle_plchanges },
 	{ "plchangesposid", PERMISSION_READ, 1, 2, handle_plchangesposid },
 	{ "previous", PERMISSION_CONTROL, 0, 0, handle_previous },
@@ -166,9 +173,9 @@ static constexpr struct command commands[] = {
 	{ "rm", PERMISSION_CONTROL, 1, 1, handle_rm },
 	{ "save", PERMISSION_CONTROL, 1, 1, handle_save },
 #ifdef ENABLE_DATABASE
-	{ "search", PERMISSION_READ, 2, -1, handle_search },
-	{ "searchadd", PERMISSION_ADD, 2, -1, handle_searchadd },
-	{ "searchaddpl", PERMISSION_CONTROL, 3, -1, handle_searchaddpl },
+	{ "search", PERMISSION_READ, 1, -1, handle_search },
+	{ "searchadd", PERMISSION_ADD, 1, -1, handle_searchadd },
+	{ "searchaddpl", PERMISSION_CONTROL, 2, -1, handle_searchaddpl },
 #endif
 	{ "seek", PERMISSION_CONTROL, 2, 2, handle_seek },
 	{ "seekcur", PERMISSION_CONTROL, 1, 1, handle_seekcur },
@@ -186,7 +193,7 @@ static constexpr struct command commands[] = {
 	{ "subscribe", PERMISSION_READ, 1, 1, handle_subscribe },
 	{ "swap", PERMISSION_CONTROL, 2, 2, handle_swap },
 	{ "swapid", PERMISSION_CONTROL, 2, 2, handle_swapid },
-	{ "tagtypes", PERMISSION_READ, 0, 0, handle_tagtypes },
+	{ "tagtypes", PERMISSION_READ, 0, -1, handle_tagtypes },
 	{ "toggleoutput", PERMISSION_ADMIN, 1, 1, handle_toggleoutput },
 #ifdef ENABLE_DATABASE
 	{ "unmount", PERMISSION_ADMIN, 1, 1, handle_unmount },
@@ -258,7 +265,7 @@ PrintUnavailableCommands(Response &r, unsigned permission)
 static CommandResult
 handle_commands(Client &client, gcc_unused Request request, Response &r)
 {
-	return PrintAvailableCommands(r, client.partition,
+	return PrintAvailableCommands(r, client.GetPartition(),
 				      client.GetPermission());
 }
 

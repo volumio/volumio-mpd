@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,4 +19,4 @@
 
 #include "Settings.hxx"
 
-tag_mask_t global_tag_mask = (tag_mask_t)-1 & ~(1 << TAG_COMMENT);
+TagMask global_tag_mask = TagMask::All() & ~TagMask(TAG_COMMENT);

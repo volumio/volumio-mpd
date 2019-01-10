@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "OpusDecoderPlugin.h"
 #include "OggDecoder.hxx"
 #include "OpusDomain.hxx"
@@ -29,8 +28,8 @@
 #include "decoder/Reader.hxx"
 #include "input/Reader.hxx"
 #include "OggCodec.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "input/InputStream.hxx"
 #include "util/RuntimeError.hxx"
 #include "Log.hxx"
@@ -52,14 +51,14 @@ static constexpr unsigned opus_output_buffer_frames = opus_sample_rate / 4;
 
 gcc_pure
 static bool
-IsOpusHead(const ogg_packet &packet)
+IsOpusHead(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusHead", 8) == 0;
 }
 
 gcc_pure
 static bool
-IsOpusTags(const ogg_packet &packet)
+IsOpusTags(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusTags", 8) == 0;
 }
@@ -207,11 +206,10 @@ MPDOpusDecoder::HandleTags(const ogg_packet &packet)
 	rgi.Clear();
 
 	TagBuilder tag_builder;
+	AddTagHandler h(tag_builder);
 
-	if (ScanOpusTags(packet.packet, packet.bytes,
-			 &rgi,
-			 add_tag_handler, &tag_builder) &&
-	    !tag_builder.IsEmpty()) {
+	if (ScanOpusTags(packet.packet, packet.bytes, &rgi, h) &&
+	    !tag_builder.empty()) {
 		client.SubmitReplayGain(&rgi);
 
 		Tag tag = tag_builder.Commit();
@@ -244,7 +242,7 @@ MPDOpusDecoder::HandleAudio(const ogg_packet &packet)
 			throw cmd;
 
 		if (packet.granulepos > 0)
-			client.SubmitTimestamp(double(packet.granulepos)
+			client.SubmitTimestamp(FloatDuration(packet.granulepos)
 					       / opus_sample_rate);
 	}
 }
@@ -261,7 +259,7 @@ MPDOpusDecoder::Seek(uint64_t where_frame)
 	try {
 		SeekGranulePos(where_granulepos);
 		return true;
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 }
@@ -277,7 +275,7 @@ mpd_opus_stream_decode(DecoderClient &client,
 	   moved it */
 	try {
 		input_stream.LockRewind();
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 	}
 
 	DecoderReader reader(client, input_stream);
@@ -314,7 +312,7 @@ ReadAndParseOpusHead(OggSyncState &sync, OggStreamState &stream,
 
 static bool
 ReadAndVisitOpusTags(OggSyncState &sync, OggStreamState &stream,
-		     const TagHandler &handler, void *handler_ctx)
+		     TagHandler &handler)
 {
 	ogg_packet packet;
 
@@ -322,12 +320,12 @@ ReadAndVisitOpusTags(OggSyncState &sync, OggStreamState &stream,
 		IsOpusTags(packet) &&
 		ScanOpusTags(packet.packet, packet.bytes,
 			     nullptr,
-			     handler, handler_ctx);
+			     handler);
 }
 
 static void
 VisitOpusDuration(InputStream &is, OggSyncState &sync, OggStreamState &stream,
-		  const TagHandler &handler, void *handler_ctx)
+		  TagHandler &handler)
 {
 	ogg_packet packet;
 
@@ -335,13 +333,12 @@ VisitOpusDuration(InputStream &is, OggSyncState &sync, OggStreamState &stream,
 		const auto duration =
 			SongTime::FromScale<uint64_t>(packet.granulepos,
 						      opus_sample_rate);
-		tag_handler_invoke_duration(handler, handler_ctx, duration);
+		handler.OnDuration(duration);
 	}
 }
 
 static bool
-mpd_opus_scan_stream(InputStream &is,
-		     const TagHandler &handler, void *handler_ctx)
+mpd_opus_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	InputStreamReader reader(is);
 	OggSyncState oy(reader);
@@ -354,10 +351,13 @@ mpd_opus_scan_stream(InputStream &is,
 
 	unsigned channels;
 	if (!ReadAndParseOpusHead(oy, os, channels) ||
-	    !ReadAndVisitOpusTags(oy, os, handler, handler_ctx))
+	    !ReadAndVisitOpusTags(oy, os, handler))
 		return false;
 
-	VisitOpusDuration(is, oy, os, handler, handler_ctx);
+	handler.OnAudioFormat(AudioFormat(opus_sample_rate,
+					  SampleFormat::S16, channels));
+
+	VisitOpusDuration(is, oy, os, handler);
 	return true;
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AvahiPoll.hxx"
 #include "event/SocketMonitor.hxx"
-#include "event/TimeoutMonitor.hxx"
+#include "event/TimerEvent.hxx"
 
 static unsigned
 FromAvahiWatchEvent(AvahiWatchEvent e)
@@ -48,7 +47,7 @@ private:
 	AvahiWatchEvent received;
 
 public:
-	AvahiWatch(int _fd, AvahiWatchEvent _event,
+	AvahiWatch(SocketDescriptor _fd, AvahiWatchEvent _event,
 		   AvahiWatchCallback _callback, void *_userdata,
 		   EventLoop &_loop)
 		:SocketMonitor(_fd, _loop),
@@ -69,23 +68,25 @@ public:
 		delete w;
 	}
 
-protected:
-	virtual bool OnSocketReady(unsigned flags) {
+private:
+	/* virtual methods from class SocketMonitor */
+	bool OnSocketReady(unsigned flags) noexcept {
 		received = ToAvahiWatchEvent(flags);
-		callback(this, Get(), received, userdata);
+		callback(this, GetSocket().Get(), received, userdata);
 		received = AvahiWatchEvent(0);
 		return true;
 	}
 };
 
-static constexpr unsigned
-TimevalToMS(const timeval &tv)
+static constexpr std::chrono::steady_clock::duration
+TimevalToChrono(const timeval &tv)
 {
-	return tv.tv_sec * 1000 + (tv.tv_usec + 500) / 1000;
+	return std::chrono::seconds(tv.tv_sec) + std::chrono::microseconds(tv.tv_usec);
 }
 
-struct AvahiTimeout final : private TimeoutMonitor {
-private:
+struct AvahiTimeout final {
+	TimerEvent timer;
+
 	const AvahiTimeoutCallback callback;
 	void *const userdata;
 
@@ -93,25 +94,25 @@ public:
 	AvahiTimeout(const struct timeval *tv,
 		     AvahiTimeoutCallback _callback, void *_userdata,
 		     EventLoop &_loop)
-		:TimeoutMonitor(_loop),
+		:timer(_loop, BIND_THIS_METHOD(OnTimeout)),
 		 callback(_callback), userdata(_userdata) {
 		if (tv != nullptr)
-			Schedule(TimevalToMS(*tv));
+			timer.Schedule(TimevalToChrono(*tv));
 	}
 
 	static void TimeoutUpdate(AvahiTimeout *t, const struct timeval *tv) {
 		if (tv != nullptr)
-			t->Schedule(TimevalToMS(*tv));
+			t->timer.Schedule(TimevalToChrono(*tv));
 		else
-			t->Cancel();
+			t->timer.Cancel();
 	}
 
 	static void TimeoutFree(AvahiTimeout *t) {
 		delete t;
 	}
 
-protected:
-	virtual void OnTimeout() {
+private:
+	void OnTimeout() {
 		callback(this, userdata);
 	}
 };
@@ -132,7 +133,7 @@ MyAvahiPoll::WatchNew(const AvahiPoll *api, int fd, AvahiWatchEvent event,
 		      AvahiWatchCallback callback, void *userdata) {
 	const MyAvahiPoll &poll = *(const MyAvahiPoll *)api;
 
-	return new AvahiWatch(fd, event, callback, userdata,
+	return new AvahiWatch(SocketDescriptor(fd), event, callback, userdata,
 			      poll.event_loop);
 }
 

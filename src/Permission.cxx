@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #include "config.h"
 #include "Permission.hxx"
 #include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "system/FatalError.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "util/RuntimeError.hxx"
 
 #include <algorithm>
 #include <map>
@@ -49,7 +49,10 @@ static std::map<std::string, unsigned> permission_passwords;
 
 static unsigned permission_default;
 
-gcc_pure
+#ifdef HAVE_UN
+static unsigned local_permissions;
+#endif
+
 static unsigned
 ParsePermission(const char *p)
 {
@@ -57,7 +60,7 @@ ParsePermission(const char *p)
 		if (strcmp(p, i->name) == 0)
 			return i->value;
 
-	FormatFatalError("unknown permission \"%s\"", p);
+	throw FormatRuntimeError("unknown permission \"%s\"", p);
 }
 
 static unsigned parsePermissions(const char *string)
@@ -84,44 +87,48 @@ static unsigned parsePermissions(const char *string)
 	return permission;
 }
 
-void initPermissions(void)
+void
+initPermissions(const ConfigData &config)
 {
 	unsigned permission;
-	const ConfigParam *param;
 
 	permission_default = PERMISSION_READ | PERMISSION_ADD |
 	    PERMISSION_CONTROL | PERMISSION_ADMIN;
 
-	param = config_get_param(ConfigOption::PASSWORD);
-
-	if (param) {
+	for (const auto &param : config.GetParamList(ConfigOption::PASSWORD)) {
 		permission_default = 0;
 
-		do {
-			const char *separator =
-				strchr(param->value.c_str(),
-				       PERMISSION_PASSWORD_CHAR);
+		const char *separator = strchr(param.value.c_str(),
+					       PERMISSION_PASSWORD_CHAR);
 
-			if (separator == NULL)
-				FormatFatalError("\"%c\" not found in password string "
+		if (separator == NULL)
+			throw FormatRuntimeError("\"%c\" not found in password string "
 						 "\"%s\", line %i",
 						 PERMISSION_PASSWORD_CHAR,
-						 param->value.c_str(),
-						 param->line);
+						 param.value.c_str(),
+						 param.line);
 
-			std::string password(param->value.c_str(), separator);
+		std::string password(param.value.c_str(), separator);
 
-			permission = parsePermissions(separator + 1);
+		permission = parsePermissions(separator + 1);
 
-			permission_passwords.insert(std::make_pair(std::move(password),
-								   permission));
-		} while ((param = param->next) != nullptr);
+		permission_passwords.insert(std::make_pair(std::move(password),
+							   permission));
 	}
 
-	param = config_get_param(ConfigOption::DEFAULT_PERMS);
+	const ConfigParam *param;
+	param = config.GetParam(ConfigOption::DEFAULT_PERMS);
 
 	if (param)
 		permission_default = parsePermissions(param->value.c_str());
+
+#ifdef HAVE_UN
+	param = config.GetParam(ConfigOption::LOCAL_PERMISSIONS);
+	if (param != nullptr)
+		local_permissions = parsePermissions(param->value.c_str());
+	else
+		local_permissions = permission_default;
+#endif
 }
 
 int getPermissionFromPassword(char const* password, unsigned* permission)
@@ -138,3 +145,13 @@ unsigned getDefaultPermissions(void)
 {
 	return permission_default;
 }
+
+#ifdef HAVE_UN
+
+unsigned
+GetLocalPermissions() noexcept
+{
+	return local_permissions;
+}
+
+#endif

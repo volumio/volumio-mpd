@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,8 @@
 #ifndef MPD_PEEK_READER_HXX
 #define MPD_PEEK_READER_HXX
 
-#include "check.h"
 #include "Reader.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <stdint.h>
 
@@ -34,13 +33,13 @@
 class PeekReader final : public Reader {
 	Reader &next;
 
-	size_t buffer_size, buffer_position;
+	size_t buffer_size = 0, buffer_position = 0;
 
 	uint8_t buffer[64];
 
 public:
-	PeekReader(Reader &_next)
-		:next(_next), buffer_size(0), buffer_position(0) {}
+	explicit PeekReader(Reader &_next)
+		:next(_next) {}
 
 	const void *Peek(size_t size);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,13 @@
 #include "config.h"
 #include "DecoderList.hxx"
 #include "DecoderPlugin.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "config/Data.hxx"
 #include "config/Block.hxx"
 #include "plugins/AudiofileDecoderPlugin.hxx"
 #include "plugins/PcmDecoderPlugin.hxx"
 #include "plugins/DsdiffDecoderPlugin.hxx"
 #include "plugins/DsfDecoderPlugin.hxx"
+#include "plugins/HybridDsdDecoderPlugin.hxx"
 #include "plugins/FlacDecoderPlugin.h"
 #include "plugins/OpusDecoderPlugin.h"
 #include "plugins/VorbisDecoderPlugin.h"
@@ -73,6 +74,7 @@ const struct DecoderPlugin *const decoder_plugins[] = {
 #ifdef ENABLE_DSD
 	&dsdiff_decoder_plugin,
 	&dsf_decoder_plugin,
+	&hybrid_dsd_decoder_plugin,
 #endif
 #ifdef ENABLE_FAAD
 	&faad_decoder_plugin,
@@ -86,7 +88,7 @@ const struct DecoderPlugin *const decoder_plugins[] = {
 #ifdef ENABLE_MODPLUG
 	&modplug_decoder_plugin,
 #endif
-#ifdef ENABLE_MIKMOD_DECODER
+#ifdef ENABLE_LIBMIKMOD
 	&mikmod_decoder_plugin,
 #endif
 #ifdef ENABLE_SIDPLAY
@@ -118,28 +120,32 @@ static constexpr unsigned num_decoder_plugins =
 bool decoder_plugins_enabled[num_decoder_plugins];
 
 const struct DecoderPlugin *
-decoder_plugin_from_name(const char *name)
+decoder_plugin_from_name(const char *name) noexcept
 {
 	return decoder_plugins_find([=](const DecoderPlugin &plugin){
 			return strcmp(plugin.name, name) == 0;
 		});
 }
 
-void decoder_plugin_init_all(void)
+void
+decoder_plugin_init_all(const ConfigData &config)
 {
 	ConfigBlock empty;
 
 	for (unsigned i = 0; decoder_plugins[i] != nullptr; ++i) {
 		const DecoderPlugin &plugin = *decoder_plugins[i];
 		const auto *param =
-			config_find_block(ConfigBlockOption::DECODER, "plugin",
-					  plugin.name);
+			config.FindBlock(ConfigBlockOption::DECODER, "plugin",
+					 plugin.name);
 
 		if (param == nullptr)
 			param = &empty;
 		else if (!param->GetBlockValue("enabled", true))
 			/* the plugin is disabled in mpd.conf */
 			continue;
+
+		if (param != nullptr)
+			param->SetUsed();
 
 		if (plugin.Init(*param))
 			decoder_plugins_enabled[i] = true;
@@ -154,7 +160,7 @@ void decoder_plugin_deinit_all(void)
 }
 
 bool
-decoder_plugins_supports_suffix(const char *suffix)
+decoder_plugins_supports_suffix(const char *suffix) noexcept
 {
 	return decoder_plugins_try([suffix](const DecoderPlugin &plugin){
 			return plugin.SupportsSuffix(suffix);

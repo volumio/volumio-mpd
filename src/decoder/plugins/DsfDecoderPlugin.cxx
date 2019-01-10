@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -35,7 +35,7 @@
 #include "util/bit_reverse.h"
 #include "system/ByteOrder.hxx"
 #include "DsdLib.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "Log.hxx"
 
 #include <string.h>
@@ -325,28 +325,26 @@ dsf_stream_decode(DecoderClient &client, InputStream &is)
 }
 
 static bool
-dsf_scan_stream(InputStream &is,
-		gcc_unused const TagHandler &handler,
-		gcc_unused void *handler_ctx)
+dsf_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	/* check DSF metadata */
 	DsfMetaData metadata;
 	if (!dsf_read_metadata(nullptr, is, &metadata))
 		return false;
 
-	auto audio_format = CheckAudioFormat(metadata.sample_rate / 8,
-					     SampleFormat::DSD,
-					     metadata.channels);
+	const auto sample_rate = metadata.sample_rate / 8;
+	if (!audio_valid_sample_rate(sample_rate))
+		return false;
 
 	/* calculate song time and add as tag */
 	const auto n_blocks = metadata.n_blocks;
 	auto songtime = SongTime::FromScale<uint64_t>(n_blocks * DSF_BLOCK_SIZE,
-						      audio_format.sample_rate);
-	tag_handler_invoke_duration(handler, handler_ctx, songtime);
+						      sample_rate);
+	handler.OnDuration(songtime);
 
 #ifdef ENABLE_ID3TAG
 	/* Add available tags from the ID3 tag */
-	dsdlib_tag_id3(is, handler, handler_ctx, metadata.id3_offset);
+	dsdlib_tag_id3(is, handler, metadata.id3_offset);
 #endif
 	return true;
 }
@@ -358,6 +356,8 @@ static const char *const dsf_suffixes[] = {
 
 static const char *const dsf_mime_types[] = {
 	"application/x-dsf",
+	"audio/x-dsf",
+	"audio/x-dsd",
 	nullptr
 };
 

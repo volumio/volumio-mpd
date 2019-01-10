@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "OpusTags.hxx"
 #include "OpusReader.hxx"
 #include "lib/xiph/XiphTags.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/Tag.hxx"
+#include "tag/Handler.hxx"
+#include "tag/ParseName.hxx"
 #include "ReplayGainInfo.hxx"
 
 #include <stdint.h>
@@ -31,7 +30,7 @@
 
 gcc_pure
 static TagType
-ParseOpusTagName(const char *name)
+ParseOpusTagName(const char *name) noexcept
 {
 	TagType type = tag_name_parse_i(name);
 	if (type != TAG_NUM_OF_ITEM_TYPES)
@@ -43,7 +42,7 @@ ParseOpusTagName(const char *name)
 static void
 ScanOneOpusTag(const char *name, const char *value,
 	       ReplayGainInfo *rgi,
-	       const TagHandler &handler, void *ctx)
+	       TagHandler &handler) noexcept
 {
 	if (rgi != nullptr && strcmp(name, "R128_TRACK_GAIN") == 0) {
 		/* R128_TRACK_GAIN is a Q7.8 fixed point number in
@@ -53,27 +52,35 @@ ScanOneOpusTag(const char *name, const char *value,
 		long l = strtol(value, &endptr, 10);
 		if (endptr > value && *endptr == 0)
 			rgi->track.gain = double(l) / 256.;
+	} else if (rgi != nullptr && strcmp(name, "R128_ALBUM_GAIN") == 0) {
+		/* R128_ALBUM_GAIN is a Q7.8 fixed point number in
+		   dB */
+
+		char *endptr;
+		long l = strtol(value, &endptr, 10);
+		if (endptr > value && *endptr == 0)
+			rgi->album.gain = double(l) / 256.;
 	}
 
-	tag_handler_invoke_pair(handler, ctx, name, value);
+	handler.OnPair(name, value);
 
-	if (handler.tag != nullptr) {
+	if (handler.WantTag()) {
 		TagType t = ParseOpusTagName(name);
 		if (t != TAG_NUM_OF_ITEM_TYPES)
-			tag_handler_invoke_tag(handler, ctx, t, value);
+			handler.OnTag(t, value);
 	}
 }
 
 bool
 ScanOpusTags(const void *data, size_t size,
 	     ReplayGainInfo *rgi,
-	     const TagHandler &handler, void *ctx)
+	     TagHandler &handler) noexcept
 {
 	OpusReader r(data, size);
 	if (!r.Expect("OpusTags", 8))
 		return false;
 
-	if (handler.pair == nullptr && handler.tag == nullptr)
+	if (!handler.WantPair() && !handler.WantTag())
 		return true;
 
 	if (!r.SkipString())
@@ -92,7 +99,7 @@ ScanOpusTags(const void *data, size_t size,
 		if (eq != nullptr && eq > p) {
 			*eq = 0;
 
-			ScanOneOpusTag(p, eq + 1, rgi, handler, ctx);
+			ScanOneOpusTag(p, eq + 1, rgi, handler);
 		}
 
 		delete[] p;

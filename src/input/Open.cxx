@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,52 +17,59 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "InputStream.hxx"
 #include "Registry.hxx"
 #include "InputPlugin.hxx"
 #include "LocalOpen.hxx"
-#include "Domain.hxx"
-#include "plugins/RewindInputPlugin.hxx"
+#include "CondHandler.hxx"
+#include "RewindInputStream.hxx"
 #include "fs/Traits.hxx"
 #include "fs/AllocatedPath.hxx"
 
 #include <stdexcept>
 
 InputStreamPtr
-InputStream::Open(const char *url,
-		  Mutex &mutex, Cond &cond)
+InputStream::Open(const char *url, Mutex &mutex)
 {
 	if (PathTraitsUTF8::IsAbsolute(url)) {
 		const auto path = AllocatedPath::FromUTF8Throw(url);
-		return OpenLocalInputStream(path, mutex, cond);
+		return OpenLocalInputStream(path, mutex);
 	}
 
 	input_plugins_for_each_enabled(plugin) {
-		InputStream *is;
+		if (!plugin->SupportsUri(url))
+			continue;
 
-		is = plugin->open(url, mutex, cond);
-		if (is != nullptr) {
-			is = input_rewind_open(is);
-
-			return InputStreamPtr(is);
-		}
+		auto is = plugin->open(url, mutex);
+		if (is != nullptr)
+			return input_rewind_open(std::move(is));
 	}
 
 	throw std::runtime_error("Unrecognized URI");
 }
 
 InputStreamPtr
-InputStream::OpenReady(const char *uri,
-		       Mutex &mutex, Cond &cond)
+InputStream::OpenReady(const char *uri, Mutex &mutex)
 {
-	auto is = Open(uri, mutex, cond);
+	CondInputStreamHandler handler;
+
+	auto is = Open(uri, mutex);
+	is->SetHandler(&handler);
 
 	{
-		const ScopeLock protect(mutex);
-		is->WaitReady();
+		const std::lock_guard<Mutex> protect(mutex);
+
+		while (true) {
+			is->Update();
+			if (is->IsReady())
+				break;
+
+			handler.cond.wait(mutex);
+		}
+
 		is->Check();
 	}
 
+	is->SetHandler(nullptr);
 	return is;
 }

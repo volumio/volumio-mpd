@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,11 @@
 #ifndef MPD_PLAYLIST_MAPPER_HXX
 #define MPD_PLAYLIST_MAPPER_HXX
 
-#include "check.h"
+#include "config.h"
+
+#include <memory>
 
 class Mutex;
-class Cond;
 class SongEnumerator;
 class Storage;
 
@@ -31,11 +32,11 @@ class Storage;
  * Opens a playlist from an URI relative to the playlist or music
  * directory.
  */
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_mapper_open(const char *uri,
 #ifdef ENABLE_DATABASE
 		     const Storage *storage,
 #endif
-		     Mutex &mutex, Cond &cond);
+		     Mutex &mutex);
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Walk.hxx"
 #include "UpdateDomain.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "db/DatabaseLock.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "db/plugins/simple/Song.hxx"
@@ -30,11 +29,10 @@
 #include "fs/AllocatedPath.hxx"
 #include "storage/FileInfo.hxx"
 #include "Log.hxx"
-#include "util/AllocatedString.hxx"
 
 Directory *
 UpdateWalk::MakeDirectoryIfModified(Directory &parent, const char *name,
-				    const StorageFileInfo &info)
+				    const StorageFileInfo &info) noexcept
 {
 	Directory *directory = parent.FindChild(name);
 
@@ -58,7 +56,8 @@ UpdateWalk::MakeDirectoryIfModified(Directory &parent, const char *name,
 }
 
 static bool
-SupportsContainerSuffix(const DecoderPlugin &plugin, const char *suffix)
+SupportsContainerSuffix(const DecoderPlugin &plugin,
+			const char *suffix) noexcept
 {
 	return plugin.container_scan != nullptr &&
 		plugin.SupportsSuffix(suffix);
@@ -67,7 +66,7 @@ SupportsContainerSuffix(const DecoderPlugin &plugin, const char *suffix)
 bool
 UpdateWalk::UpdateContainerFile(Directory &directory,
 				const char *name, const char *suffix,
-				const StorageFileInfo &info)
+				const StorageFileInfo &info) noexcept
 {
 	const DecoderPlugin *_plugin = decoder_plugins_find([suffix](const DecoderPlugin &plugin){
 			return SupportsContainerSuffix(plugin, suffix);
@@ -119,9 +118,9 @@ UpdateWalk::UpdateContainerFile(Directory &directory,
 
 			modified = true;
 		}
-	} catch (const std::runtime_error &e) {
+	} catch (...) {
+		LogError(std::current_exception());
 		editor.LockDeleteDirectory(contdir);
-		LogError(e);
 		return false;
 	}
 

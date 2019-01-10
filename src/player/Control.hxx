@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #ifndef MPD_PLAYER_CONTROL_HXX
 #define MPD_PLAYER_CONTROL_HXX
 
+#include "output/Client.hxx"
 #include "AudioFormat.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
@@ -28,13 +29,16 @@
 #include "Chrono.hxx"
 #include "ReplayGainConfig.hxx"
 #include "ReplayGainMode.hxx"
+#include "MusicChunkPtr.hxx"
 
 #include <exception>
+#include <memory>
 
 #include <stdint.h>
 
+struct Tag;
 class PlayerListener;
-class MultipleOutputs;
+class PlayerOutputs;
 class DetachedSong;
 
 enum class PlayerState : uint8_t {
@@ -48,7 +52,16 @@ enum class PlayerCommand : uint8_t {
 	EXIT,
 	STOP,
 	PAUSE,
+
+	/**
+	 * Seek to a certain position in the specified song.  This
+	 * command can also be used to change the current song or
+	 * start playback.  It "finishes" immediately, but
+	 * PlayerControl::seeking will be set until seeking really
+	 * completes (or fails).
+	 */
 	SEEK,
+
 	CLOSE_AUDIO,
 
 	/**
@@ -88,7 +101,7 @@ enum class PlayerError : uint8_t {
 	OUTPUT,
 };
 
-struct player_status {
+struct PlayerStatus {
 	PlayerState state;
 	uint16_t bit_rate;
 	AudioFormat audio_format;
@@ -96,14 +109,14 @@ struct player_status {
 	SongTime elapsed_time;
 };
 
-struct PlayerControl {
+class PlayerControl final : public AudioOutputClient {
+	friend class Player;
+
 	PlayerListener &listener;
 
-	MultipleOutputs &outputs;
+	PlayerOutputs &outputs;
 
 	const unsigned buffer_chunks;
-
-	const unsigned buffered_before_play;
 
 	/**
 	 * The "audio_output_format" setting.
@@ -132,11 +145,6 @@ struct PlayerControl {
 	 */
 	Cond client_cond;
 
-	PlayerCommand command = PlayerCommand::NONE;
-	PlayerState state = PlayerState::STOP;
-
-	PlayerError error_type = PlayerError::NONE;
-
 	/**
 	 * The error that occurred in the player thread.  This
 	 * attribute is only valid if #error_type is not
@@ -144,6 +152,14 @@ struct PlayerControl {
 	 * object transitions back to #PlayerError::NONE.
 	 */
 	std::exception_ptr error;
+
+	/**
+	 * The next queued song.
+	 *
+	 * This is a duplicate, and must be freed when this attribute
+	 * is cleared.
+	 */
+	std::unique_ptr<DetachedSong> next_song;
 
 	/**
 	 * A copy of the current #DetachedSong after its tags have
@@ -155,29 +171,19 @@ struct PlayerControl {
 	 * Protected by #mutex.  Set by the PlayerThread and consumed
 	 * by the main thread.
 	 */
-	DetachedSong *tagged_song = nullptr;
+	std::unique_ptr<DetachedSong> tagged_song;
 
-	uint16_t bit_rate;
-	AudioFormat audio_format;
-	SignedSongTime total_time;
-	SongTime elapsed_time;
+	PlayerCommand command = PlayerCommand::NONE;
+	PlayerState state = PlayerState::STOP;
 
-	/**
-	 * The next queued song.
-	 *
-	 * This is a duplicate, and must be freed when this attribute
-	 * is cleared.
-	 */
-	DetachedSong *next_song = nullptr;
+	PlayerError error_type = PlayerError::NONE;
 
-	SongTime seek_time;
-
-	CrossFadeSettings cross_fade;
-
-	const ReplayGainConfig replay_gain_config;
 	ReplayGainMode replay_gain_mode = ReplayGainMode::OFF;
 
-	double total_play_time = 0;
+	/**
+	 * Is the player currently busy with the SEEK command?
+	 */
+	bool seeking = false;
 
 	/**
 	 * If this flag is set, then the player will be auto-paused at
@@ -188,33 +194,163 @@ struct PlayerControl {
 	 */
 	bool border_pause = false;
 
+	/**
+	 * If this flag is set, then the player thread is currently
+	 * occupied and will not be able to respond quickly to
+	 * commands (e.g. waiting for the decoder thread to finish
+	 * seeking).  This is used to skip #PlayerCommand::REFRESH to
+	 * avoid blocking the main thread.
+	 */
+	bool occupied = false;
+
+	struct ScopeOccupied {
+		PlayerControl &pc;
+
+		explicit ScopeOccupied(PlayerControl &_pc) noexcept:pc(_pc) {
+			assert(!pc.occupied);
+			pc.occupied = true;
+		}
+
+		~ScopeOccupied() noexcept {
+			assert(pc.occupied);
+			pc.occupied = false;
+		}
+	};
+
+	AudioFormat audio_format;
+	uint16_t bit_rate;
+
+	SignedSongTime total_time;
+	SongTime elapsed_time;
+
+	SongTime seek_time;
+
+	CrossFadeSettings cross_fade;
+
+	const ReplayGainConfig replay_gain_config;
+
+	FloatDuration total_play_time = FloatDuration::zero();
+
+public:
 	PlayerControl(PlayerListener &_listener,
-		      MultipleOutputs &_outputs,
+		      PlayerOutputs &_outputs,
 		      unsigned buffer_chunks,
-		      unsigned buffered_before_play,
 		      AudioFormat _configured_audio_format,
-		      const ReplayGainConfig &_replay_gain_config);
-	~PlayerControl();
+		      const ReplayGainConfig &_replay_gain_config) noexcept;
+	~PlayerControl() noexcept;
+
+	void Kill() noexcept;
 
 	/**
-	 * Locks the object.
+	 * Like CheckRethrowError(), but locks and unlocks the object.
 	 */
-	void Lock() const {
-		mutex.lock();
+	void LockCheckRethrowError() const {
+		const std::lock_guard<Mutex> protect(mutex);
+		CheckRethrowError();
+	}
+
+	void LockClearError() noexcept;
+
+	PlayerError GetErrorType() const noexcept {
+		return error_type;
+	}
+
+	void LockUpdateAudio() noexcept;
+
+	/**
+	 * Throws on error.
+	 *
+	 * @param song the song to be queued
+	 */
+	void Play(std::unique_ptr<DetachedSong> song);
+
+	/**
+	 * @param song the song to be queued; the given instance will be owned
+	 * and freed by the player
+	 */
+	void LockEnqueueSong(std::unique_ptr<DetachedSong> song) noexcept;
+
+	/**
+	 * Makes the player thread seek the specified song to a position.
+	 *
+	 * Throws on error.
+	 *
+	 * @param song the song to be queued; the given instance will be owned
+	 * and freed by the player
+	 */
+	void LockSeek(std::unique_ptr<DetachedSong> song, SongTime t);
+
+	void LockStop() noexcept;
+
+	/**
+	 * see PlayerCommand::CANCEL
+	 */
+	void LockCancel() noexcept;
+
+	void LockSetPause(bool pause_flag) noexcept;
+
+	void LockPause() noexcept;
+
+	/**
+	 * Set the player's #border_pause flag.
+	 */
+	void LockSetBorderPause(bool border_pause) noexcept;
+	void SetCrossFade(FloatDuration duration) noexcept;
+
+	auto GetCrossFade() const noexcept {
+		return cross_fade.duration;
+	}
+
+	void SetMixRampDb(float mixramp_db) noexcept;
+
+	float GetMixRampDb() const noexcept {
+		return cross_fade.mixramp_db;
+	}
+
+	void SetMixRampDelay(FloatDuration mixramp_delay) noexcept;
+
+	auto GetMixRampDelay() const noexcept {
+		return cross_fade.mixramp_delay;
+	}
+
+	void LockSetReplayGainMode(ReplayGainMode _mode) noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
+		replay_gain_mode = _mode;
 	}
 
 	/**
-	 * Unlocks the object.
+	 * Like ReadTaggedSong(), but locks and unlocks the object.
 	 */
-	void Unlock() const {
-		mutex.unlock();
+	std::unique_ptr<DetachedSong> LockReadTaggedSong() noexcept;
+
+	gcc_pure
+	PlayerStatus LockGetStatus() noexcept;
+
+	PlayerState GetState() const noexcept {
+		return state;
 	}
 
+	struct SyncInfo {
+		PlayerState state;
+		bool has_next_song;
+	};
+
+	gcc_pure
+	SyncInfo LockGetSyncInfo() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
+		return {state, next_song != nullptr};
+	}
+
+	auto GetTotalPlayTime() const noexcept {
+		return total_play_time;
+	}
+
+private:
 	/**
 	 * Signals the object.  The object should be locked prior to
 	 * calling this function.
 	 */
-	void Signal() {
+	void Signal() noexcept {
 		cond.signal();
 	}
 
@@ -222,8 +358,8 @@ struct PlayerControl {
 	 * Signals the object.  The object is temporarily locked by
 	 * this function.
 	 */
-	void LockSignal() {
-		const ScopeLock protect(mutex);
+	void LockSignal() noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		Signal();
 	}
 
@@ -232,7 +368,7 @@ struct PlayerControl {
 	 * valid in the player thread.  The object must be locked
 	 * prior to calling this function.
 	 */
-	void Wait() {
+	void Wait() noexcept {
 		assert(thread.IsInside());
 
 		cond.wait(mutex);
@@ -243,7 +379,7 @@ struct PlayerControl {
 	 *
 	 * Caller must lock the object.
 	 */
-	void ClientSignal() {
+	void ClientSignal() noexcept {
 		assert(thread.IsInside());
 
 		client_cond.signal();
@@ -255,7 +391,7 @@ struct PlayerControl {
 	 *
 	 * Caller must lock the object.
 	 */
-	void ClientWait() {
+	void ClientWait() noexcept {
 		assert(!thread.IsInside());
 
 		client_cond.wait(mutex);
@@ -268,26 +404,42 @@ struct PlayerControl {
 	 * To be called from the player thread.  Caller must lock the
 	 * object.
 	 */
-	void CommandFinished() {
+	void CommandFinished() noexcept {
 		assert(command != PlayerCommand::NONE);
 
 		command = PlayerCommand::NONE;
 		ClientSignal();
 	}
 
-	void LockCommandFinished() {
-		const ScopeLock protect(mutex);
+	void LockCommandFinished() noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		CommandFinished();
 	}
 
-private:
+	/**
+	 * Checks if the size of the #MusicPipe is below the #threshold.  If
+	 * not, it attempts to synchronize with all output threads, and waits
+	 * until another #MusicChunk is finished.
+	 *
+	 * Caller must lock the mutex.
+	 *
+	 * @param threshold the maximum number of chunks in the pipe
+	 * @return true if there are less than #threshold chunks in the pipe
+	 */
+	bool WaitOutputConsumed(unsigned threshold) noexcept;
+
+	bool LockWaitOutputConsumed(unsigned threshold) noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
+		return WaitOutputConsumed(threshold);
+	}
+
 	/**
 	 * Wait for the command to be finished by the player thread.
 	 *
 	 * To be called from the main thread.  Caller must lock the
 	 * object.
 	 */
-	void WaitCommandLocked() {
+	void WaitCommandLocked() noexcept {
 		while (command != PlayerCommand::NONE)
 			ClientWait();
 	}
@@ -299,7 +451,7 @@ private:
 	 * To be called from the main thread.  Caller must lock the
 	 * object.
 	 */
-	void SynchronousCommand(PlayerCommand cmd) {
+	void SynchronousCommand(PlayerCommand cmd) noexcept {
 		assert(command == PlayerCommand::NONE);
 
 		command = cmd;
@@ -314,50 +466,22 @@ private:
 	 * To be called from the main thread.  This method locks the
 	 * object.
 	 */
-	void LockSynchronousCommand(PlayerCommand cmd) {
-		const ScopeLock protect(mutex);
+	void LockSynchronousCommand(PlayerCommand cmd) noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		SynchronousCommand(cmd);
 	}
 
-public:
-	/**
-	 * Throws std::runtime_error or #Error on error.
-	 *
-	 * @param song the song to be queued; the given instance will
-	 * be owned and freed by the player
-	 */
-	void Play(DetachedSong *song);
+	void PauseLocked() noexcept;
 
-	/**
-	 * see PlayerCommand::CANCEL
-	 */
-	void LockCancel();
-
-	void LockSetPause(bool pause_flag);
-
-private:
-	void PauseLocked();
-
-	void ClearError() {
+	void ClearError() noexcept {
 		error_type = PlayerError::NONE;
 		error = std::exception_ptr();
 	}
 
-public:
-	void LockPause();
-
-	/**
-	 * Set the player's #border_pause flag.
-	 */
-	void LockSetBorderPause(bool border_pause);
-
-	void Kill();
-
-	gcc_pure
-	player_status LockGetStatus();
-
-	PlayerState GetState() const {
-		return state;
+	bool ApplyBorderPause() noexcept {
+		if (border_pause)
+			state = PlayerState::PAUSE;
+		return border_pause;
 	}
 
 	/**
@@ -367,7 +491,23 @@ public:
 	 *
 	 * @param type the error type; must not be #PlayerError::NONE
 	 */
-	void SetError(PlayerError type, std::exception_ptr &&_error);
+	void SetError(PlayerError type, std::exception_ptr &&_error) noexcept;
+
+	/**
+	 * Set the error and set state to PlayerState::PAUSE.
+	 */
+	void SetOutputError(std::exception_ptr &&_error) noexcept {
+		SetError(PlayerError::OUTPUT, std::move(_error));
+
+		/* pause: the user may resume playback as soon as an
+		   audio output becomes available */
+		state = PlayerState::PAUSE;
+	}
+
+	void LockSetOutputError(std::exception_ptr &&_error) noexcept {
+		const std::lock_guard<Mutex> lock(mutex);
+		SetOutputError(std::move(_error));
+	}
 
 	/**
 	 * Checks whether an error has occurred, and if so, rethrows
@@ -381,108 +521,64 @@ public:
 	}
 
 	/**
-	 * Like CheckRethrowError(), but locks and unlocks the object.
-	 */
-	void LockCheckRethrowError() const {
-		const ScopeLock protect(mutex);
-		CheckRethrowError();
-	}
-
-	void LockClearError();
-
-	PlayerError GetErrorType() const {
-		return error_type;
-	}
-
-	/**
 	 * Set the #tagged_song attribute to a newly allocated copy of
 	 * the given #DetachedSong.  Locks and unlocks the object.
 	 */
-	void LockSetTaggedSong(const DetachedSong &song);
+	void LockSetTaggedSong(const DetachedSong &song) noexcept;
 
-	void ClearTaggedSong();
+	void ClearTaggedSong() noexcept;
 
 	/**
 	 * Read and clear the #tagged_song attribute.
 	 *
 	 * Caller must lock the object.
 	 */
-	DetachedSong *ReadTaggedSong() {
-		DetachedSong *result = tagged_song;
-		tagged_song = nullptr;
-		return result;
+	std::unique_ptr<DetachedSong> ReadTaggedSong() noexcept;
+
+	void EnqueueSongLocked(std::unique_ptr<DetachedSong> song) noexcept;
+
+	/**
+	 * Throws on error.
+	 */
+	void SeekLocked(std::unique_ptr<DetachedSong> song, SongTime t);
+
+	/**
+	 * Caller must lock the object.
+	 */
+	void CancelPendingSeek() noexcept {
+		if (!seeking)
+			return;
+
+		seeking = false;
+		ClientSignal();
 	}
 
-	/**
-	 * Like ReadTaggedSong(), but locks and unlocks the object.
-	 */
-	DetachedSong *LockReadTaggedSong() {
-		const ScopeLock protect(mutex);
-		return ReadTaggedSong();
-	}
-
-	void LockStop();
-
-	void LockUpdateAudio();
-
-private:
-	void EnqueueSongLocked(DetachedSong *song) {
-		assert(song != nullptr);
-		assert(next_song == nullptr);
-
-		next_song = song;
-		seek_time = SongTime::zero();
-		SynchronousCommand(PlayerCommand::QUEUE);
-	}
+	void LockUpdateSongTag(DetachedSong &song,
+			       const Tag &new_tag) noexcept;
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
-	 */
-	void SeekLocked(DetachedSong *song, SongTime t);
-
-public:
-	/**
-	 * @param song the song to be queued; the given instance will be owned
-	 * and freed by the player
-	 */
-	void LockEnqueueSong(DetachedSong *song);
-
-	/**
-	 * Makes the player thread seek the specified song to a position.
+	 * Plays a #MusicChunk object (after applying software
+	 * volume).  If it contains a (stream) tag, copy it to the
+	 * current song, so MPD's playlist reflects the new stream
+	 * tag.
 	 *
-	 * Throws std::runtime_error or #Error on error.
+	 * Player lock is not held.
 	 *
-	 * @param song the song to be queued; the given instance will be owned
-	 * and freed by the player
+	 * Throws on error.
 	 */
-	void LockSeek(DetachedSong *song, SongTime t);
+	void PlayChunk(DetachedSong &song, MusicChunkPtr chunk,
+		       const AudioFormat &format);
 
-	void SetCrossFade(float cross_fade_seconds);
-
-	float GetCrossFade() const {
-		return cross_fade.duration;
+	/* virtual methods from AudioOutputClient */
+	void ChunksConsumed() override {
+		LockSignal();
 	}
 
-	void SetMixRampDb(float mixramp_db);
-
-	float GetMixRampDb() const {
-		return cross_fade.mixramp_db;
+	void ApplyEnabled() override {
+		LockUpdateAudio();
 	}
 
-	void SetMixRampDelay(float mixramp_delay_seconds);
-
-	float GetMixRampDelay() const {
-		return cross_fade.mixramp_delay;
-	}
-
-	void LockSetReplayGainMode(ReplayGainMode _mode) {
-		const ScopeLock protect(mutex);
-		replay_gain_mode = _mode;
-	}
-
-	double GetTotalPlayTime() const {
-		return total_play_time;
-	}
+	void RunThread() noexcept;
 };
 
 #endif

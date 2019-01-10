@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,31 +20,64 @@
 #include "config.h"
 #include "OSXOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
+#include "mixer/MixerList.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
+#include "util/Manual.hxx"
+#include "util/ConstBuffer.hxx"
+#include "pcm/PcmExport.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
 #include "system/ByteOrder.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/StringFormat.hxx"
 #include "Log.hxx"
 
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnit.h>
+#include <AudioToolbox/AudioToolbox.h>
 #include <CoreServices/CoreServices.h>
 #include <boost/lockfree/spsc_queue.hpp>
 
 #include <memory>
 
-struct OSXOutput {
-	AudioOutput base;
+static constexpr unsigned MPD_OSX_BUFFER_TIME_MS = 100;
 
+static StringBuffer<64>
+StreamDescriptionToString(const AudioStreamBasicDescription desc) {
+	// Only convert the lpcm formats (nothing else supported / used by MPD)
+	assert(desc.mFormatID == kAudioFormatLinearPCM);
+	
+	return StringFormat<64>("%u channel %s %sinterleaved %u-bit %s %s (%uHz)",
+							desc.mChannelsPerFrame,
+							(desc.mFormatFlags & kAudioFormatFlagIsNonMixable) ? "" : "mixable",
+							(desc.mFormatFlags & kAudioFormatFlagIsNonInterleaved) ? "non-" : "",
+							desc.mBitsPerChannel,
+							(desc.mFormatFlags & kAudioFormatFlagIsFloat) ? "Float" : "SInt",
+							(desc.mFormatFlags & kAudioFormatFlagIsBigEndian) ? "BE" : "LE",
+							(UInt32)desc.mSampleRate);
+}
+
+
+struct OSXOutput final : AudioOutput {
 	/* configuration settings */
 	OSType component_subtype;
 	/* only applicable with kAudioUnitSubType_HALOutput */
 	const char *device_name;
 	const char *channel_map;
 	bool hog_device;
-	bool sync_sample_rate;
+	bool pause;
+#ifdef ENABLE_DSD
+	/**
+	 * Enable DSD over PCM according to the DoP standard?
+	 *
+	 * @see http://dsd-guide.com/dop-open-standard
+	 */
+	bool dop_setting;
+	bool dop_enabled;
+	Manual<PcmExport> pcm_export;
+#endif
 
 	AudioDeviceID dev_id;
 	AudioComponentInstance au;
@@ -53,6 +86,22 @@ struct OSXOutput {
 	boost::lockfree::spsc_queue<uint8_t> *ring_buffer;
 
 	OSXOutput(const ConfigBlock &block);
+
+	static AudioOutput *Create(EventLoop &, const ConfigBlock &block);
+	int GetVolume();
+	void SetVolume(unsigned new_volume);
+
+private:
+	void Enable() override;
+	void Disable() noexcept override;
+
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
+
+	std::chrono::steady_clock::duration Delay() const noexcept override;
+	size_t Play(const void *chunk, size_t size) override;
+	bool Pause() override;
+	void Cancel() noexcept override;
 };
 
 static constexpr Domain osx_output_domain("osx_output");
@@ -80,7 +129,7 @@ osx_output_test_default_device(void)
 }
 
 OSXOutput::OSXOutput(const ConfigBlock &block)
-	:base(osx_output_plugin, block)
+	:AudioOutput(FLAG_ENABLE_DISABLE|FLAG_PAUSE)
 {
 	const char *device = block.GetBlockValue("device");
 
@@ -100,22 +149,34 @@ OSXOutput::OSXOutput(const ConfigBlock &block)
 
 	channel_map = block.GetBlockValue("channel_map");
 	hog_device = block.GetBlockValue("hog_device", false);
-	sync_sample_rate = block.GetBlockValue("sync_sample_rate", false);
+#ifdef ENABLE_DSD
+	dop_setting = block.GetBlockValue("dop", false);
+#endif
 }
 
-static AudioOutput *
-osx_output_init(const ConfigBlock &block)
+AudioOutput *
+OSXOutput::Create(EventLoop &, const ConfigBlock &block)
 {
 	OSXOutput *oo = new OSXOutput(block);
-
-	AudioObjectPropertyAddress aopa = {
-		kAudioHardwarePropertyDefaultOutputDevice,
-		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
-	};
-
+	AudioObjectPropertyAddress aopa;
 	AudioDeviceID dev_id = kAudioDeviceUnknown;
 	UInt32 dev_id_size = sizeof(dev_id);
+	
+	if (oo->component_subtype == kAudioUnitSubType_SystemOutput)
+		// get system output dev_id if configured
+		aopa = {
+			kAudioHardwarePropertyDefaultSystemOutputDevice,
+			kAudioObjectPropertyScopeOutput,
+			kAudioObjectPropertyElementMaster
+		};
+	else
+		// fallback to default device initially (can still be changed by osx_output_set_device)
+		aopa = {
+			kAudioHardwarePropertyDefaultOutputDevice,
+			kAudioObjectPropertyScopeOutput,
+			kAudioObjectPropertyElementMaster
+		};
+
 	AudioObjectGetPropertyData(kAudioObjectSystemObject,
 				   &aopa,
 				   0,
@@ -124,15 +185,58 @@ osx_output_init(const ConfigBlock &block)
 				   &dev_id);
 	oo->dev_id = dev_id;
 
-	return &oo->base;
+	return oo;
 }
 
-static void
-osx_output_finish(AudioOutput *ao)
-{
-	OSXOutput *oo = (OSXOutput *)ao;
 
-	delete oo;
+int
+OSXOutput::GetVolume()
+{
+	Float32 vol;
+	AudioObjectPropertyAddress aopa = {
+		.mSelector	= kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+		.mScope		= kAudioObjectPropertyScopeOutput,
+		.mElement	= kAudioObjectPropertyElementMaster,
+	};
+	UInt32 size = sizeof(vol);
+	OSStatus status = AudioObjectGetPropertyData(dev_id,
+						     &aopa,
+						     0,
+						     NULL,
+						     &size,
+						     &vol);
+
+	if (status != noErr) {
+		char errormsg[1024];
+		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
+		throw FormatRuntimeError("unable to get volume: %s", errormsg);
+	}
+
+	return static_cast<int>(vol * 100.0);
+}
+
+void
+OSXOutput::SetVolume(unsigned new_volume) {
+	Float32 vol = new_volume / 100.0;
+	AudioObjectPropertyAddress aopa = {
+		.mSelector	= kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+		.mScope		= kAudioObjectPropertyScopeOutput,
+		.mElement	= kAudioObjectPropertyElementMaster
+	};
+	UInt32 size = sizeof(vol);
+	OSStatus status = AudioObjectSetPropertyData(dev_id,
+						     &aopa,
+						     0,
+						     NULL,
+						     size,
+						     &vol);
+
+	if (status != noErr) {
+		char errormsg[1024];
+		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
+		throw FormatRuntimeError( "unable to set new volume %u: %s",
+				new_volume, errormsg);
+	}
 }
 
 static void
@@ -225,71 +329,144 @@ osx_output_set_channel_map(OSXOutput *oo)
 	}
 }
 
-static void
-osx_output_sync_device_sample_rate(AudioDeviceID dev_id, AudioStreamBasicDescription desc)
+
+static float
+osx_output_score_sample_rate(Float64 destination_rate, unsigned int source_rate) {
+	float score = 0;
+	double int_portion;
+	double frac_portion = modf(source_rate / destination_rate, &int_portion);
+	// prefer sample rates that are multiples of the source sample rate
+	score += (1 - frac_portion) * 1000;
+	// prefer exact matches over other multiples
+	score += (int_portion == 1.0) ? 500 : 0;
+	if (source_rate == destination_rate)
+		score += 1000;
+	else if(source_rate > destination_rate)
+		score += (int_portion > 1 && int_portion < 100) ? (100 - int_portion) / 100 * 100 : 0;
+	else
+		score += (int_portion > 1 && int_portion < 100) ? (100 + int_portion) / 100 * 100 : 0;
+	
+	return score;
+}
+
+static float
+osx_output_score_format(const AudioStreamBasicDescription &format_desc, const AudioStreamBasicDescription &target_format) {
+	float score = 0;
+	// Score only linear PCM formats (everything else MPD cannot use)
+	if (format_desc.mFormatID == kAudioFormatLinearPCM) {
+		score += osx_output_score_sample_rate(format_desc.mSampleRate, target_format.mSampleRate);
+		
+		// Just choose the stream / format with the highest number of output channels
+		score += format_desc.mChannelsPerFrame * 5;
+		
+		if (target_format.mFormatFlags == kLinearPCMFormatFlagIsFloat) {
+			// for float, prefer the highest bitdepth we have
+			if (format_desc.mBitsPerChannel >= 16)
+				score += (format_desc.mBitsPerChannel / 8);
+		} else {
+			if (format_desc.mBitsPerChannel == target_format.mBitsPerChannel)
+				score += 5;
+			else if (format_desc.mBitsPerChannel > target_format.mBitsPerChannel)
+				score += 1;
+			
+		}
+	}
+	return score;
+}
+
+static Float64
+osx_output_set_device_format(AudioDeviceID dev_id, const AudioStreamBasicDescription &target_format)
 {
-	FormatDebug(osx_output_domain, "Syncing sample rate.");
 	AudioObjectPropertyAddress aopa = {
-		kAudioDevicePropertyAvailableNominalSampleRates,
+		kAudioDevicePropertyStreams,
 		kAudioObjectPropertyScopeOutput,
 		kAudioObjectPropertyElementMaster
 	};
 
 	UInt32 property_size;
-	OSStatus err = AudioObjectGetPropertyDataSize(dev_id,
-						      &aopa,
-						      0,
-						      NULL,
-						      &property_size);
+	OSStatus err = AudioObjectGetPropertyDataSize(dev_id, &aopa, 0, NULL, &property_size);	
+	if (err != noErr) {	
+		throw FormatRuntimeError("Cannot get number of streams: %d\n", err);	
+	}	
+	
+	int n_streams = property_size / sizeof(AudioStreamID);	
+	AudioStreamID streams[n_streams];	
+	err = AudioObjectGetPropertyData(dev_id, &aopa, 0, NULL, &property_size, streams);	
+	if (err != noErr) {	
+		throw FormatRuntimeError("Cannot get streams: %d\n", err);	
+	}	
+	
+	bool format_found = false;
+	int output_stream;
+	AudioStreamBasicDescription output_format;
 
-	int count = property_size/sizeof(AudioValueRange);
-	AudioValueRange ranges[count];
-	property_size = sizeof(ranges);
-	err = AudioObjectGetPropertyData(dev_id,
-					 &aopa,
-					 0,
-					 NULL,
-					 &property_size,
-					 &ranges);
-	// Get the maximum sample rate as fallback.
-	Float64 sample_rate = .0;
-	for (int i = 0; i < count; i++) {
-		if (ranges[i].mMaximum > sample_rate)
-			sample_rate = ranges[i].mMaximum;
-	}
+	for (int i = 0; i < n_streams; i++) {	
+		UInt32 direction;	
+		AudioStreamID stream = streams[i];
+		aopa.mSelector = kAudioStreamPropertyDirection;	
+		property_size = sizeof(direction);	
+		err = AudioObjectGetPropertyData(stream,	
+						 &aopa,	
+						 0,	
+						 NULL,	
+						 &property_size,	
+						 &direction);	
+		if (err != noErr) {
+			throw FormatRuntimeError("Cannot get streams direction: %d\n", err);	
+		}
+		if (direction != 0) {	
+			continue;
+		}
 
-	// Now try to see if the device support our format sample rate.
-	// For some high quality media samples, the frame rate may exceed
-	// device capability. In this case, we let CoreAudio downsample
-	// by decimation with an integer factor ranging from 1 to 4.
-	for (int f = 4; f > 0; f--) {
-		Float64 rate = desc.mSampleRate / f;
-		for (int i = 0; i < count; i++) {
-			if (ranges[i].mMinimum <= rate
-			   && rate <= ranges[i].mMaximum) {
-				sample_rate = rate;
-				break;
+		aopa.mSelector = kAudioStreamPropertyAvailablePhysicalFormats;
+		err = AudioObjectGetPropertyDataSize(stream, &aopa, 0, NULL, &property_size);
+		if (err != noErr)
+			throw FormatRuntimeError("Unable to get format size s for stream %d. Error = %s", streams[i], err);
+
+		int format_count = property_size / sizeof(AudioStreamRangedDescription);
+		AudioStreamRangedDescription format_list[format_count];
+		err = AudioObjectGetPropertyData(stream, &aopa, 0, NULL, &property_size, format_list);
+		if (err != noErr)
+			throw FormatRuntimeError("Unable to get available formats for stream %d. Error = %s", streams[i], err);
+
+		float output_score = 0;
+		for (int j = 0; j < format_count; j++) {
+			AudioStreamBasicDescription format_desc = format_list[j].mFormat;
+			std::string format_string;
+			
+			// for devices with kAudioStreamAnyRate
+			// we use the requested samplerate here
+			if (format_desc.mSampleRate == kAudioStreamAnyRate)
+				format_desc.mSampleRate = target_format.mSampleRate;
+			float score = osx_output_score_format(format_desc, target_format);
+			
+			// print all (linear pcm) formats and their rating
+			if(score > 0.0)
+				FormatDebug(osx_output_domain, "Format: %s rated %f", StreamDescriptionToString(format_desc).c_str(), score);
+			
+			if (score > output_score) {
+				output_score  = score;
+				output_format = format_desc;
+				output_stream = stream; // set the idx of the stream in the device
+				format_found = true;
 			}
 		}
 	}
 
-	aopa.mSelector = kAudioDevicePropertyNominalSampleRate,
+	if (format_found) {
+		aopa.mSelector = kAudioStreamPropertyPhysicalFormat;	
+		err = AudioObjectSetPropertyData(output_stream,
+						 &aopa,	
+						 0,	
+						 NULL,	
+						 sizeof(output_format),	
+						 &output_format);	
+		if (err != noErr) {	
+			throw FormatRuntimeError("Failed to change the stream format: %d\n", err);	
+		}	
+	}	
 
-	err = AudioObjectSetPropertyData(dev_id,
-					 &aopa,
-					 0,
-					 NULL,
-					 sizeof(&desc.mSampleRate),
-					 &sample_rate);
-	if (err != noErr) {
-                FormatWarning(osx_output_domain,
-			      "Failed to synchronize the sample rate: %d",
-			      err);
-	} else {
-		FormatDebug(osx_output_domain,
-			    "Sample rate synced to %f Hz.",
-			    sample_rate);
-	}
+	return output_format.mSampleRate;
 }
 
 static OSStatus
@@ -513,15 +690,14 @@ osx_render(void *vdata,
  	return noErr;
 }
 
-static void
-osx_output_enable(AudioOutput *ao)
+void
+OSXOutput::Enable()
 {
 	char errormsg[1024];
-	OSXOutput *oo = (OSXOutput *)ao;
 
 	AudioComponentDescription desc;
 	desc.componentType = kAudioUnitType_Output;
-	desc.componentSubType = oo->component_subtype;
+	desc.componentSubType = component_subtype;
 	desc.componentManufacturer = kAudioUnitManufacturer_Apple;
 	desc.componentFlags = 0;
 	desc.componentFlagsMask = 0;
@@ -530,113 +706,131 @@ osx_output_enable(AudioOutput *ao)
 	if (comp == 0)
 		throw std::runtime_error("Error finding OS X component");
 
-	OSStatus status = AudioComponentInstanceNew(comp, &oo->au);
+	OSStatus status = AudioComponentInstanceNew(comp, &au);
 	if (status != noErr) {
 		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
 		throw FormatRuntimeError("Unable to open OS X component: %s",
 					 errormsg);
 	}
+#ifdef ENABLE_DSD
+	pcm_export.Construct();
+#endif
 
 	try {
-		osx_output_set_device(oo);
+		osx_output_set_device(this);
 	} catch (...) {
-		AudioComponentInstanceDispose(oo->au);
+		AudioComponentInstanceDispose(au);
+#ifdef ENABLE_DSD
+		pcm_export.Destruct();
+#endif
 		throw;
 	}
-
-	if (oo->hog_device) {
-		osx_output_hog_device(oo->dev_id, true);
-	}
+	
+	if (hog_device)
+		osx_output_hog_device(dev_id, true);
 }
 
-static void
-osx_output_disable(AudioOutput *ao)
+void
+OSXOutput::Disable() noexcept
 {
-	OSXOutput *oo = (OSXOutput *)ao;
+	AudioComponentInstanceDispose(au);
+#ifdef ENABLE_DSD
+	pcm_export.Destruct();
+#endif
 
-	AudioComponentInstanceDispose(oo->au);
-
-	if (oo->hog_device) {
-		osx_output_hog_device(oo->dev_id, false);
-	}
+	if (hog_device)
+		osx_output_hog_device(dev_id, false);
 }
 
-static void
-osx_output_close(AudioOutput *ao)
+void
+OSXOutput::Close() noexcept
 {
-	OSXOutput *od = (OSXOutput *)ao;
-
-	AudioOutputUnitStop(od->au);
-	AudioUnitUninitialize(od->au);
-
-	delete od->ring_buffer;
+	AudioOutputUnitStop(au);
+	AudioUnitUninitialize(au);
+	delete ring_buffer;
 }
 
-static void
-osx_output_open(AudioOutput *ao, AudioFormat &audio_format)
+void
+OSXOutput::Open(AudioFormat &audio_format)
 {
 	char errormsg[1024];
-	OSXOutput *od = (OSXOutput *)ao;
+#ifdef ENABLE_DSD
+	PcmExport::Params params;
+	params.alsa_channel_order = true;
+	bool dop = dop_setting;
+	params.dop = false;
+#endif
 
-	memset(&od->asbd, 0, sizeof(od->asbd));
-	od->asbd.mSampleRate = audio_format.sample_rate;
-	od->asbd.mFormatID = kAudioFormatLinearPCM;
-	od->asbd.mFormatFlags = kLinearPCMFormatFlagIsSignedInteger;
-
-	switch (audio_format.format) {
-	case SampleFormat::S8:
-		od->asbd.mBitsPerChannel = 8;
-		break;
-
-	case SampleFormat::S16:
-		od->asbd.mBitsPerChannel = 16;
-		break;
-
-	case SampleFormat::S32:
-		od->asbd.mBitsPerChannel = 32;
-		break;
-
-	default:
-		audio_format.format = SampleFormat::S32;
-		od->asbd.mBitsPerChannel = 32;
-		break;
+	memset(&asbd, 0, sizeof(asbd));
+	asbd.mFormatID = kAudioFormatLinearPCM;
+	if (audio_format.format == SampleFormat::FLOAT) {
+		asbd.mFormatFlags = kLinearPCMFormatFlagIsFloat;
+	} else {
+		asbd.mFormatFlags = kLinearPCMFormatFlagIsSignedInteger;
 	}
 
 	if (IsBigEndian())
-		od->asbd.mFormatFlags |= kLinearPCMFormatFlagIsBigEndian;
+		asbd.mFormatFlags |= kLinearPCMFormatFlagIsBigEndian;
 
-	od->asbd.mBytesPerPacket = audio_format.GetFrameSize();
-	od->asbd.mFramesPerPacket = 1;
-	od->asbd.mBytesPerFrame = od->asbd.mBytesPerPacket;
-	od->asbd.mChannelsPerFrame = audio_format.channels;
-
-	if (od->sync_sample_rate) {
-		osx_output_sync_device_sample_rate(od->dev_id, od->asbd);
+	if (audio_format.format == SampleFormat::S24_P32) {
+		asbd.mBitsPerChannel = 24;
+	} else {
+		asbd.mBitsPerChannel = audio_format.GetSampleSize() * 8;
 	}
+	asbd.mBytesPerPacket = audio_format.GetFrameSize();
+	asbd.mSampleRate = audio_format.sample_rate;
+
+#ifdef ENABLE_DSD
+	if (dop && audio_format.format == SampleFormat::DSD) {
+		asbd.mBitsPerChannel = 24;
+		params.dop = true;
+		asbd.mSampleRate = params.CalcOutputSampleRate(audio_format.sample_rate);
+		asbd.mBytesPerPacket = 4 * audio_format.channels;
+
+	}
+#endif
+
+	asbd.mFramesPerPacket = 1;
+	asbd.mBytesPerFrame = asbd.mBytesPerPacket;
+	asbd.mChannelsPerFrame = audio_format.channels;
+
+	Float64 sample_rate = osx_output_set_device_format(dev_id, asbd);
+
+#ifdef ENABLE_DSD
+	if(audio_format.format == SampleFormat::DSD && sample_rate != asbd.mSampleRate) { // fall back to PCM in case sample_rate cannot be synchronized
+		params.dop = false;
+		audio_format.format = SampleFormat::S32;
+		asbd.mBitsPerChannel = 32;
+		asbd.mBytesPerPacket = audio_format.GetFrameSize();
+		asbd.mSampleRate = params.CalcOutputSampleRate(audio_format.sample_rate);
+		asbd.mBytesPerFrame = asbd.mBytesPerPacket;
+	}
+	dop_enabled = params.dop;
+#endif
 
 	OSStatus status =
-		AudioUnitSetProperty(od->au, kAudioUnitProperty_StreamFormat,
+		AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat,
 				     kAudioUnitScope_Input, 0,
-				     &od->asbd,
-				     sizeof(od->asbd));
+				     &asbd,
+				     sizeof(asbd));
 	if (status != noErr)
 		throw std::runtime_error("Unable to set format on OS X device");
 
 	AURenderCallbackStruct callback;
 	callback.inputProc = osx_render;
-	callback.inputProcRefCon = od;
+	callback.inputProcRefCon = this;
 
 	status =
-		AudioUnitSetProperty(od->au,
+		AudioUnitSetProperty(au,
 				     kAudioUnitProperty_SetRenderCallback,
 				     kAudioUnitScope_Input, 0,
 				     &callback, sizeof(callback));
 	if (status != noErr) {
-		AudioComponentInstanceDispose(od->au);
-		throw std::runtime_error("unable to set callback for OS X audio unit");
+		AudioComponentInstanceDispose(au);
+		throw std::runtime_error("Unable to set callback for OS X audio unit");
 	}
 
-	status = AudioUnitInitialize(od->au);
+	status = AudioUnitInitialize(au);
 	if (status != noErr) {
 		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
 		throw FormatRuntimeError("Unable to initialize OS X audio unit: %s",
@@ -644,52 +838,108 @@ osx_output_open(AudioOutput *ao, AudioFormat &audio_format)
 	}
 
 	UInt32 buffer_frame_size = 1;
-	status = osx_output_set_buffer_size(od->au, od->asbd, &buffer_frame_size);
+	status = osx_output_set_buffer_size(au, asbd, &buffer_frame_size);
 	if (status != noErr) {
 		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
 		throw FormatRuntimeError("Unable to set frame size: %s",
 					 errormsg);
 	}
 
-	od->ring_buffer = new boost::lockfree::spsc_queue<uint8_t>(buffer_frame_size);
+	size_t ring_buffer_size = std::max<size_t>(buffer_frame_size,
+						   MPD_OSX_BUFFER_TIME_MS * audio_format.GetFrameSize() * audio_format.sample_rate / 1000);
 
-	status = AudioOutputUnitStart(od->au);
+#ifdef ENABLE_DSD
+        if (dop_enabled) {
+		pcm_export->Open(audio_format.format, audio_format.channels, params);
+		ring_buffer_size = std::max<size_t>(buffer_frame_size,
+						   MPD_OSX_BUFFER_TIME_MS * pcm_export->GetFrameSize(audio_format) * asbd.mSampleRate / 1000);
+	}
+#endif
+	ring_buffer = new boost::lockfree::spsc_queue<uint8_t>(ring_buffer_size);
+
+	status = AudioOutputUnitStart(au);
 	if (status != 0) {
-		AudioUnitUninitialize(od->au);
+		AudioUnitUninitialize(au);
 		osx_os_status_to_cstring(status, errormsg, sizeof(errormsg));
-		throw FormatRuntimeError("unable to start audio output: %s",
+		throw FormatRuntimeError("Unable to start audio output: %s",
 					 errormsg);
 	}
+	pause = false;
 }
 
-static size_t
-osx_output_play(AudioOutput *ao, const void *chunk, size_t size)
+size_t
+OSXOutput::Play(const void *chunk, size_t size)
 {
-	OSXOutput *od = (OSXOutput *)ao;
-	return od->ring_buffer->push((uint8_t *)chunk, size);
+	assert(size > 0);
+	if(pause) {
+		pause = false;
+		OSStatus status = AudioOutputUnitStart(au);
+		if (status != 0) {
+			AudioUnitUninitialize(au);
+			throw std::runtime_error("Unable to restart audio output after pause");
+		}
+	}
+#ifdef ENABLE_DSD
+        if (dop_enabled) {
+		const auto e = pcm_export->Export({chunk, size});
+		/* the DoP (DSD over PCM) filter converts two frames
+		   at a time and ignores the last odd frame; if there
+		   was only one frame (e.g. the last frame in the
+		   file), the result is empty; to avoid an endless
+		   loop, bail out here, and pretend the one frame has
+		   been played */
+		if (e.size == 0)
+			return size;
+
+		size_t bytes_written = ring_buffer->push((const uint8_t *)e.data, e.size);
+		return pcm_export->CalcSourceSize(bytes_written);
+	}
+#endif
+	return ring_buffer->push((const uint8_t *)chunk, size);
 }
 
-static unsigned
-osx_output_delay(AudioOutput *ao)
+std::chrono::steady_clock::duration
+OSXOutput::Delay() const noexcept
 {
-	OSXOutput *od = (OSXOutput *)ao;
-	return od->ring_buffer->write_available() ? 0 : 25;
+	return ring_buffer->write_available() && !pause
+		? std::chrono::steady_clock::duration::zero()
+		: std::chrono::milliseconds(MPD_OSX_BUFFER_TIME_MS / 4);
+}
+	
+bool OSXOutput::Pause() {
+	if(!pause) {
+		pause = true;
+		AudioOutputUnitStop(au);
+	}
+	return true;
+}
+
+void
+OSXOutput::Cancel() noexcept
+{
+	AudioOutputUnitStop(au);
+	ring_buffer->reset();
+#ifdef ENABLE_DSD
+	pcm_export->Reset();
+#endif
+	AudioOutputUnitStart(au);
+}
+
+int
+osx_output_get_volume(OSXOutput &output)
+{
+	return output.GetVolume();
+}
+
+void
+osx_output_set_volume(OSXOutput &output, unsigned new_volume)
+{
+	return output.SetVolume(new_volume);
 }
 
 const struct AudioOutputPlugin osx_output_plugin = {
 	"osx",
 	osx_output_test_default_device,
-	osx_output_init,
-	osx_output_finish,
-	osx_output_enable,
-	osx_output_disable,
-	osx_output_open,
-	osx_output_close,
-	osx_output_delay,
-	nullptr,
-	osx_output_play,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
+	&OSXOutput::Create,
+	&osx_mixer_plugin,
 };

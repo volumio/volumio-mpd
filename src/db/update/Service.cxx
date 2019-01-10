@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Service.hxx"
 #include "Walk.hxx"
 #include "UpdateDomain.hxx"
@@ -26,9 +25,11 @@
 #include "db/plugins/simple/SimpleDatabasePlugin.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "storage/CompositeStorage.hxx"
+#include "protocol/Ack.hxx"
 #include "Idle.hxx"
 #include "Log.hxx"
 #include "thread/Thread.hxx"
+#include "thread/Name.hxx"
 #include "thread/Util.hxx"
 
 #ifndef NDEBUG
@@ -37,14 +38,15 @@
 
 #include <assert.h>
 
-UpdateService::UpdateService(EventLoop &_loop, SimpleDatabase &_db,
+UpdateService::UpdateService(const ConfigData &_config,
+			     EventLoop &_loop, SimpleDatabase &_db,
 			     CompositeStorage &_storage,
 			     DatabaseListener &_listener)
-	:DeferredMonitor(_loop),
+	:config(_config),
+	 defer(_loop, BIND_THIS_METHOD(RunDeferred)),
 	 db(_db), storage(_storage),
 	 listener(_listener),
-	 update_task_id(0),
-	 walk(nullptr)
+	 update_thread(BIND_THIS_METHOD(Task))
 {
 }
 
@@ -61,7 +63,7 @@ UpdateService::~UpdateService()
 void
 UpdateService::CancelAllAsync()
 {
-	assert(GetEventLoop().IsInsideOrNull());
+	assert(GetEventLoop().IsInside());
 
 	queue.Clear();
 
@@ -92,11 +94,9 @@ UpdateService::CancelMount(const char *uri)
 		cancel_current = next.IsDefined() && next.storage == storage2;
 	}
 
-	Database &_db2 = *lr.directory->mounted_database;
-	if (_db2.IsPlugin(simple_db_plugin)) {
-		SimpleDatabase &db2 = static_cast<SimpleDatabase &>(_db2);
-		queue.Erase(db2);
-		cancel_current |= next.IsDefined() && next.db == &db2;
+	if (auto *db2 = dynamic_cast<SimpleDatabase *>(lr.directory->mounted_database)) {
+		queue.Erase(*db2);
+		cancel_current |= next.IsDefined() && next.db == db2;
 	}
 
 	if (cancel_current && walk != nullptr) {
@@ -111,6 +111,8 @@ inline void
 UpdateService::Task()
 {
 	assert(walk != nullptr);
+
+	SetThreadName("update");
 
 	if (!next.path_utf8.empty())
 		FormatDebug(update_domain, "starting: %s",
@@ -137,28 +139,21 @@ UpdateService::Task()
 	else
 		LogDebug(update_domain, "finished");
 
-	DeferredMonitor::Schedule();
-}
-
-void
-UpdateService::Task(void *ctx)
-{
-	UpdateService &service = *(UpdateService *)ctx;
-	return service.Task();
+	defer.Schedule();
 }
 
 void
 UpdateService::StartThread(UpdateQueueItem &&i)
 {
-	assert(GetEventLoop().IsInsideOrNull());
+	assert(GetEventLoop().IsInside());
 	assert(walk == nullptr);
 
 	modified = false;
 
 	next = std::move(i);
-	walk = new UpdateWalk(GetEventLoop(), listener, *next.storage);
+	walk = new UpdateWalk(config, GetEventLoop(), listener, *next.storage);
 
-	update_thread.Start(Task, this);
+	update_thread.Start();
 
 	FormatDebug(update_domain,
 		    "spawned thread for update job id %i", next.id);
@@ -176,7 +171,7 @@ UpdateService::GenerateId()
 unsigned
 UpdateService::Enqueue(const char *path, bool discard)
 {
-	assert(GetEventLoop().IsInsideOrNull());
+	assert(GetEventLoop().IsInside());
 
 	/* determine which (mounted) database will be updated and what
 	   storage will be scanned */
@@ -193,12 +188,9 @@ UpdateService::Enqueue(const char *path, bool discard)
 		/* follow the mountpoint, update the mounted
 		   database */
 
-		Database &_db2 = *lr.directory->mounted_database;
-		if (!_db2.IsPlugin(simple_db_plugin))
-			/* cannot update this type of database */
-			return 0;
-
-		db2 = static_cast<SimpleDatabase *>(&_db2);
+		db2 = dynamic_cast<SimpleDatabase *>(lr.directory->mounted_database);
+		if (db2 == nullptr)
+			throw std::runtime_error("Cannot update this type of database");
 
 		if (lr.uri == nullptr) {
 			storage2 = storage.GetMount(path);
@@ -222,12 +214,13 @@ UpdateService::Enqueue(const char *path, bool discard)
 	if (storage2 == nullptr)
 		/* no storage found at this mount point - should not
 		   happen */
-		return 0;
+		throw std::runtime_error("No storage at this path");
 
 	if (walk != nullptr) {
 		const unsigned id = GenerateId();
 		if (!queue.Push(*db2, *storage2, path, discard, id))
-			return 0;
+			throw ProtocolError(ACK_ERROR_UPDATE_ALREADY,
+					    "Update queue is full");
 
 		update_task_id = id;
 		return id;
@@ -245,7 +238,7 @@ UpdateService::Enqueue(const char *path, bool discard)
  * Called in the main thread after the database update is finished.
  */
 void
-UpdateService::RunDeferred()
+UpdateService::RunDeferred() noexcept
 {
 	assert(next.IsDefined());
 	assert(walk != nullptr);
@@ -258,7 +251,7 @@ UpdateService::RunDeferred()
 	delete walk;
 	walk = nullptr;
 
-	next = UpdateQueueItem();
+	next.Clear();
 
 	idle_add(IDLE_UPDATE);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Client.hxx"
-#include "util/FormatString.hxx"
-#include "util/AllocatedString.hxx"
 
 #include <string.h>
 
@@ -35,26 +32,4 @@ bool
 Client::Write(const char *data)
 {
 	return Write(data, strlen(data));
-}
-
-void
-client_puts(Client &client, const char *s)
-{
-	client.Write(s);
-}
-
-void
-client_vprintf(Client &client, const char *fmt, va_list args)
-{
-	client.Write(FormatStringV(fmt, args).c_str());
-}
-
-void
-client_printf(Client &client, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	client_vprintf(client, fmt, args);
-	va_end(args);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "CheckFile.hxx"
 #include "Log.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Domain.hxx"
 #include "FileInfo.hxx"
 #include "Path.hxx"
 #include "AllocatedPath.hxx"
@@ -32,25 +31,22 @@
 void
 CheckDirectoryReadable(Path path_fs)
 try {
-	const auto path_utf8 = path_fs.ToUTF8();
-
 	const FileInfo fi(path_fs);
 	if (!fi.IsDirectory()) {
 		FormatError(config_domain,
-			    "Not a directory: %s", path_utf8.c_str());
+			    "Not a directory: %s", path_fs.ToUTF8().c_str());
 		return;
 	}
 
-#ifndef WIN32
+#ifndef _WIN32
 	try {
-		const auto x = AllocatedPath::Build(path_fs,
-						    PathTraitsFS::CURRENT_DIRECTORY);
+		const auto x = path_fs / Path::FromFS(PathTraitsFS::CURRENT_DIRECTORY);
 		const FileInfo fi2(x);
 	} catch (const std::system_error &e) {
 		if (IsAccessDenied(e))
 			FormatError(config_domain,
 				    "No permission to traverse (\"execute\") directory: %s",
-				    path_utf8.c_str());
+				    path_fs.ToUTF8().c_str());
 	}
 #endif
 
@@ -62,6 +58,6 @@ try {
 				    "No permission to read directory: %s",
 				    path_fs.ToUTF8().c_str());
 	}
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 }

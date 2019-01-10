@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,17 @@
 #ifndef MPD_OFFSET_HXX
 #define MPD_OFFSET_HXX
 
-#include "check.h"
-
 #include <stdint.h>
 
 /**
  * A type for absolute offsets in a file.
  */
 typedef uint64_t offset_type;
+
+/**
+ * To format an offset_type with printf().  To use this, include
+ * <cinttypes>.
+ */
+#define PRIoffset PRIu64
 
 #endif

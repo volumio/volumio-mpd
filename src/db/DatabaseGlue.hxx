@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_DATABASE_GLUE_HXX
 #define MPD_DATABASE_GLUE_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct ConfigBlock;
 class EventLoop;
@@ -35,7 +35,9 @@ class Database;
  * @param block the database configuration block
  */
 Database *
-DatabaseGlobalInit(EventLoop &loop, DatabaseListener &listener,
+DatabaseGlobalInit(EventLoop &main_event_loop,
+		   EventLoop &io_event_loop,
+		   DatabaseListener &listener,
 		   const ConfigBlock &block);
 
 #endif

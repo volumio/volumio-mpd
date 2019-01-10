@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MaskMonitor.hxx"
 
 void
 MaskMonitor::OrMask(unsigned new_mask)
 {
 	if (pending_mask.fetch_or(new_mask) == 0)
-		DeferredMonitor::Schedule();
+		defer.Schedule();
 }
 
 void
-MaskMonitor::RunDeferred()
+MaskMonitor::RunDeferred() noexcept
 {
 	const unsigned mask = pending_mask.exchange(0);
 	if (mask != 0)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_DATABASE_SONG_HXX
 #define MPD_DATABASE_SONG_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct LightSong;
 class Database;
@@ -31,19 +31,17 @@ class DetachedSong;
  * "Detach" the #Song object, i.e. convert it to a #DetachedSong
  * instance.
  */
-gcc_pure
 DetachedSong
-DatabaseDetachSong(const Storage &storage, const LightSong &song);
+DatabaseDetachSong(const Storage *storage, const LightSong &song);
 
 /**
  * Look up a song in the database and convert it to a #DetachedSong
- * instance.  The caller is responsible for freeing it.
+ * instance.
  *
- * @return nullptr on error
+ * Throws std::runtime_error on error.
  */
-gcc_malloc gcc_nonnull_all
-DetachedSong *
-DatabaseDetachSong(const Database &db, const Storage &storage,
+DetachedSong
+DatabaseDetachSong(const Database &db, const Storage *storage,
 		   const char *uri);
 
 #endif

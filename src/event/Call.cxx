@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Call.hxx"
 #include "Loop.hxx"
-#include "DeferredMonitor.hxx"
+#include "DeferEvent.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <exception>
 
 #include <assert.h>
 
 class BlockingCallMonitor final
-	: DeferredMonitor
 {
+	DeferEvent defer_event;
+
 	const std::function<void()> f;
 
 	Mutex mutex;
@@ -43,12 +43,13 @@ class BlockingCallMonitor final
 
 public:
 	BlockingCallMonitor(EventLoop &_loop, std::function<void()> &&_f)
-		:DeferredMonitor(_loop), f(std::move(_f)), done(false) {}
+		:defer_event(_loop, BIND_THIS_METHOD(RunDeferred)),
+		 f(std::move(_f)), done(false) {}
 
 	void Run() {
 		assert(!done);
 
-		Schedule();
+		defer_event.Schedule();
 
 		mutex.lock();
 		while (!done)
@@ -60,7 +61,7 @@ public:
 	}
 
 private:
-	virtual void RunDeferred() override {
+	void RunDeferred() noexcept {
 		assert(!done);
 
 		try {
@@ -79,7 +80,7 @@ private:
 void
 BlockingCall(EventLoop &loop, std::function<void()> &&f)
 {
-	if (loop.IsInside()) {
+	if (loop.IsDead() || loop.IsInside()) {
 		/* we're already inside the loop - we can simply call
 		   the function */
 		f();

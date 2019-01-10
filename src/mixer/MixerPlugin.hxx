@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 #define MPD_MIXER_PLUGIN_HXX
 
 struct ConfigBlock;
-struct AudioOutput;
+class AudioOutput;
 class Mixer;
 class MixerListener;
 class EventLoop;
@@ -39,7 +39,7 @@ struct MixerPlugin {
 	 *
 	 * Throws std::runtime_error on error.
 	 *
-	 * @param ao the associated AudioOutput
+	 * @param ao the associated #AudioOutput
 	 * @param param the configuration section
 	 * @return a mixer object
 	 */

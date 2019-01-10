@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "XspfPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../MemorySongEnumerator.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "input/InputStream.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 #include "util/StringView.hxx"
 #include "lib/expat/ExpatParser.hxx"
 #include "Log.hxx"
@@ -187,7 +186,7 @@ xspf_char_data(void *user_data, const XML_Char *s, int len)
  *
  */
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 xspf_open_stream(InputStreamPtr &&is)
 {
 	XspfParser parser;
@@ -200,7 +199,7 @@ xspf_open_stream(InputStreamPtr &&is)
 	}
 
 	parser.songs.reverse();
-	return new MemorySongEnumerator(std::move(parser.songs));
+	return std::make_unique<MemorySongEnumerator>(std::move(parser.songs));
 }
 
 static const char *const xspf_suffixes[] = {

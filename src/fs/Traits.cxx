@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Traits.hxx"
 #include "util/StringCompare.hxx"
 
@@ -78,7 +77,7 @@ GetParentPathImpl(typename Traits::const_pointer_type p)
 		return typename Traits::string(Traits::CURRENT_DIRECTORY);
 	if (sep == p)
 		return typename Traits::string(p, p + 1);
-#ifdef WIN32
+#ifdef _WIN32
 	if (Traits::IsDrive(p) && sep == p + 2)
 		return typename Traits::string(p, p + 3);
 #endif
@@ -99,9 +98,16 @@ RelativePathImpl(typename Traits::const_pointer_type base,
 		return nullptr;
 
 	if (*other != 0) {
-		if (!Traits::IsSeparator(*other))
+		if (!Traits::IsSeparator(*other)) {
+			if (*base != 0 && Traits::IsSeparator(other[-1]))
+				/* "other" has no more slash, but the
+				   matching base ended with a slash:
+				   enough to detect a match */
+				return other;
+
 			/* mismatch */
 			return nullptr;
+		}
 
 		/* skip remaining path separators */
 		do {
@@ -114,50 +120,65 @@ RelativePathImpl(typename Traits::const_pointer_type base,
 
 PathTraitsFS::string
 PathTraitsFS::Build(const_pointer_type a, size_t a_size,
-		    const_pointer_type b, size_t b_size)
+		    const_pointer_type b, size_t b_size) noexcept
 {
 	return BuildPathImpl<PathTraitsFS>(a, a_size, b, b_size);
 }
 
 PathTraitsFS::const_pointer_type
-PathTraitsFS::GetBase(PathTraitsFS::const_pointer_type p)
+PathTraitsFS::GetBase(PathTraitsFS::const_pointer_type p) noexcept
 {
 	return GetBasePathImpl<PathTraitsFS>(p);
 }
 
 PathTraitsFS::string
-PathTraitsFS::GetParent(PathTraitsFS::const_pointer_type p)
+PathTraitsFS::GetParent(PathTraitsFS::const_pointer_type p) noexcept
 {
 	return GetParentPathImpl<PathTraitsFS>(p);
 }
 
 PathTraitsFS::const_pointer_type
-PathTraitsFS::Relative(const_pointer_type base, const_pointer_type other)
+PathTraitsFS::Relative(const_pointer_type base, const_pointer_type other) noexcept
 {
 	return RelativePathImpl<PathTraitsFS>(base, other);
 }
 
+PathTraitsFS::string
+PathTraitsFS::Apply(const_pointer_type base, const_pointer_type path) noexcept
+{
+	// TODO: support the Windows syntax (absolute path with or without drive, drive with relative path)
+
+	if (base == nullptr)
+		return path;
+
+	if (IsAbsolute(path))
+		return path;
+
+	return Build(base, path);
+}
+
 PathTraitsUTF8::string
 PathTraitsUTF8::Build(const_pointer_type a, size_t a_size,
-		      const_pointer_type b, size_t b_size)
+		      const_pointer_type b, size_t b_size) noexcept
 {
 	return BuildPathImpl<PathTraitsUTF8>(a, a_size, b, b_size);
 }
 
 PathTraitsUTF8::const_pointer_type
-PathTraitsUTF8::GetBase(const_pointer_type p)
+PathTraitsUTF8::GetBase(const_pointer_type p) noexcept
 {
 	return GetBasePathImpl<PathTraitsUTF8>(p);
 }
 
 PathTraitsUTF8::string
-PathTraitsUTF8::GetParent(const_pointer_type p)
+PathTraitsUTF8::GetParent(const_pointer_type p) noexcept
 {
 	return GetParentPathImpl<PathTraitsUTF8>(p);
 }
 
 PathTraitsUTF8::const_pointer_type
-PathTraitsUTF8::Relative(const_pointer_type base, const_pointer_type other)
+PathTraitsUTF8::Relative(const_pointer_type base,
+			 const_pointer_type other) noexcept
 {
 	return RelativePathImpl<PathTraitsUTF8>(base, other);
 }

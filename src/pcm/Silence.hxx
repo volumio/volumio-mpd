@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_PCM_SILENCE_HXX
 #define MPD_PCM_SILENCE_HXX
 
-#include "check.h"
-
 #include <stdint.h>
 
 template<typename T> struct WritableBuffer;
@@ -31,6 +29,6 @@ enum class SampleFormat : uint8_t;
  * Fill the given buffer with the format-specific silence pattern.
  */
 void
-PcmSilence(WritableBuffer<void> dest, SampleFormat format);
+PcmSilence(WritableBuffer<void> dest, SampleFormat format) noexcept;
 
 #endif

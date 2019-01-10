@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,28 +31,34 @@
 #define STRING_COMPARE_HXX
 
 #include "StringView.hxx"
+#include "StringAPI.hxx"
 #include "Compiler.h"
 
 #ifdef _UNICODE
 #include "WStringCompare.hxx"
 #endif
 
+gcc_pure gcc_nonnull_all
 static inline bool
-StringIsEmpty(const char *string)
+StringIsEmpty(const char *string) noexcept
 {
-  return *string == 0;
+	return *string == 0;
 }
 
 gcc_pure gcc_nonnull_all
 static inline bool
-StringStartsWith(const char *haystack, StringView needle)
+StringStartsWith(const char *haystack, StringView needle) noexcept
 {
-	return strncmp(haystack, needle.data, needle.size) == 0;
+	return StringIsEqual(haystack, needle.data, needle.size);
 }
 
-gcc_pure
+gcc_pure gcc_nonnull_all
 bool
-StringEndsWith(const char *haystack, const char *needle);
+StringEndsWith(const char *haystack, const char *needle) noexcept;
+
+gcc_pure gcc_nonnull_all
+bool
+StringEndsWithIgnoreCase(const char *haystack, const char *needle) noexcept;
 
 /**
  * Returns the portion of the string after a prefix.  If the string
@@ -61,9 +67,25 @@ StringEndsWith(const char *haystack, const char *needle);
  */
 gcc_pure gcc_nonnull_all
 static inline const char *
-StringAfterPrefix(const char *haystack, StringView needle)
+StringAfterPrefix(const char *haystack, StringView needle) noexcept
 {
 	return StringStartsWith(haystack, needle)
+		? haystack + needle.size
+		: nullptr;
+}
+
+gcc_pure gcc_nonnull_all
+static inline bool
+StringStartsWithIgnoreCase(const char *haystack, StringView needle) noexcept
+{
+	return StringIsEqualIgnoreCase(haystack, needle.data, needle.size);
+}
+
+gcc_pure gcc_nonnull_all
+static inline const char *
+StringAfterPrefixIgnoreCase(const char *haystack, StringView needle) noexcept
+{
+	return StringStartsWithIgnoreCase(haystack, needle)
 		? haystack + needle.size
 		: nullptr;
 }
@@ -72,8 +94,8 @@ StringAfterPrefix(const char *haystack, StringView needle)
  * Check if the given string ends with the specified suffix.  If yes,
  * returns the position of the suffix, and nullptr otherwise.
  */
-gcc_pure
+gcc_pure gcc_nonnull_all
 const char *
-FindStringSuffix(const char *p, const char *suffix);
+FindStringSuffix(const char *p, const char *suffix) noexcept;
 
 #endif

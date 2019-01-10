@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SignalHandlers.hxx"
 #include "event/SignalMonitor.hxx"
 
-#ifndef WIN32
+#ifndef _WIN32
 
 #include "Log.hxx"
 #include "LogInit.hxx"
 #include "event/Loop.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
 #include "util/Domain.hxx"
 
 #include <signal.h>
@@ -44,7 +43,7 @@ static void
 x_sigaction(int signum, const struct sigaction *act)
 {
 	if (sigaction(signum, act, NULL) < 0)
-		FatalSystemError("sigaction() failed");
+		throw MakeErrno("sigaction() failed");
 }
 
 static void
@@ -61,7 +60,7 @@ SignalHandlersInit(EventLoop &loop)
 {
 	SignalMonitorInit(loop);
 
-#ifndef WIN32
+#ifndef _WIN32
 	struct sigaction sa;
 
 	sa.sa_flags = 0;

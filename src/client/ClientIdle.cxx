@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,36 +17,41 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ClientInternal.hxx"
+#include "Response.hxx"
 #include "Idle.hxx"
 
 #include <assert.h>
 
+static void
+WriteIdleResponse(Response &r, unsigned flags) noexcept
+{
+	const char *const*idle_names = idle_get_names();
+	for (unsigned i = 0; idle_names[i]; ++i) {
+		if (flags & (1 << i))
+			r.Format("changed: %s\n", idle_names[i]);
+	}
+
+	r.Write("OK\n");
+}
+
 void
-Client::IdleNotify()
+Client::IdleNotify() noexcept
 {
 	assert(idle_waiting);
 	assert(idle_flags != 0);
 
-	unsigned flags = idle_flags;
-	idle_flags = 0;
+	unsigned flags = std::exchange(idle_flags, 0) & idle_subscriptions;
 	idle_waiting = false;
 
-	const char *const*idle_names = idle_get_names();
-	for (unsigned i = 0; idle_names[i]; ++i) {
-		if (flags & (1 << i) & idle_subscriptions)
-			client_printf(*this, "changed: %s\n",
-				      idle_names[i]);
-	}
+	Response r(*this, 0);
+	WriteIdleResponse(r, flags);
 
-	client_puts(*this, "OK\n");
-
-	TimeoutMonitor::ScheduleSeconds(client_timeout);
+	timeout_event.Schedule(client_timeout);
 }
 
 void
-Client::IdleAdd(unsigned flags)
+Client::IdleAdd(unsigned flags) noexcept
 {
 	if (IsExpired())
 		return;
@@ -57,7 +62,7 @@ Client::IdleAdd(unsigned flags)
 }
 
 bool
-Client::IdleWait(unsigned flags)
+Client::IdleWait(unsigned flags) noexcept
 {
 	assert(!idle_waiting);
 
@@ -69,7 +74,7 @@ Client::IdleWait(unsigned flags)
 		return true;
 	} else {
 		/* disable timeouts while in "idle" */
-		TimeoutMonitor::Cancel();
+		timeout_event.Cancel();
 		return false;
 	}
 }
