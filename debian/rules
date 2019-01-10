@@ -128,7 +128,9 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 LDFLAGS += -Wl,--as-needed
 
 %:
-    		dh $@
+	dh $@
+
+
 override_dh_auto_configure:
 	dh_auto_configure -- $(WITH_SHINE) $(WITH_SYSTEMD) \
 		$(RUN_TESTS) \
@@ -144,6 +146,6 @@ override_dh_auto_configure:
 		$(ENABLE_STREAMING) \
 		$(ENABLE_DOCUMENTATION)
 
-override_dh_installchangelogs:
-	dh_installchangelogs NEWS
-	rm debian/mpd/usr/share/doc/mpd/COPYING debian/mpd/usr/share/doc/mpd/NEWS debian/mpd/usr/share/doc/mpd/README.md
+#override_dh_installchangelogs:
+#	dh_installchangelogs NEWS
+#	rm debian/mpd/usr/share/doc/mpd/COPYING debian/mpd/usr/share/doc/mpd/NEWS debian/mpd/usr/share/doc/mpd/README.md
