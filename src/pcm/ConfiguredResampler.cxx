@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ConfiguredResampler.hxx"
 #include "FallbackResampler.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "config/Domain.hxx"
 #include "config/Block.hxx"
 #include "config/Param.hxx"
 #include "util/RuntimeError.hxx"
+#include "config.h"
 
 #ifdef ENABLE_LIBSAMPLERATE
 #include "LibsamplerateResampler.hxx"
@@ -35,6 +35,7 @@
 #include "SoxrResampler.hxx"
 #endif
 
+#include <assert.h>
 #include <string.h>
 
 enum class SelectedResampler {
@@ -52,7 +53,7 @@ enum class SelectedResampler {
 static SelectedResampler selected_resampler = SelectedResampler::FALLBACK;
 
 static const ConfigBlock *
-MakeResamplerDefaultConfig(ConfigBlock &block)
+MakeResamplerDefaultConfig(ConfigBlock &block) noexcept
 {
 	assert(block.IsEmpty());
 
@@ -71,7 +72,7 @@ MakeResamplerDefaultConfig(ConfigBlock &block)
  * "resampler" block.
  */
 static const ConfigBlock *
-MigrateResamplerConfig(const ConfigParam &param, ConfigBlock &block)
+MigrateResamplerConfig(const ConfigParam &param, ConfigBlock &block) noexcept
 {
 	assert(block.IsEmpty());
 
@@ -102,7 +103,7 @@ MigrateResamplerConfig(const ConfigParam &param, ConfigBlock &block)
 }
 
 static const ConfigBlock *
-MigrateResamplerConfig(const ConfigParam *param, ConfigBlock &buffer)
+MigrateResamplerConfig(const ConfigParam *param, ConfigBlock &buffer) noexcept
 {
 	assert(buffer.IsEmpty());
 
@@ -112,11 +113,11 @@ MigrateResamplerConfig(const ConfigParam *param, ConfigBlock &buffer)
 }
 
 static const ConfigBlock *
-GetResamplerConfig(ConfigBlock &buffer)
+GetResamplerConfig(const ConfigData &config, ConfigBlock &buffer)
 {
 	const auto *old_param =
-		config_get_param(ConfigOption::SAMPLERATE_CONVERTER);
-	const auto *block = config_get_block(ConfigBlockOption::RESAMPLER);
+		config.GetParam(ConfigOption::SAMPLERATE_CONVERTER);
+	const auto *block = config.GetBlock(ConfigBlockOption::RESAMPLER);
 	if (block == nullptr)
 		return MigrateResamplerConfig(old_param, buffer);
 
@@ -124,14 +125,15 @@ GetResamplerConfig(ConfigBlock &buffer)
 		throw FormatRuntimeError("Cannot use both 'resampler' (line %d) and 'samplerate_converter' (line %d)",
 					 block->line, old_param->line);
 
+	block->SetUsed();
 	return block;
 }
 
 void
-pcm_resampler_global_init()
+pcm_resampler_global_init(const ConfigData &config)
 {
 	ConfigBlock buffer;
-	const auto *block = GetResamplerConfig(buffer);
+	const auto *block = GetResamplerConfig(config, buffer);
 
 	const char *plugin_name = block->GetBlockValue("plugin");
 	if (plugin_name == nullptr)

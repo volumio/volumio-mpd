@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ClientInternal.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
 #include "event/Loop.hxx"
-#include "util/StringUtil.hxx"
+#include "util/StringStrip.hxx"
 
 #include <string.h>
 
 BufferedSocket::InputResult
-Client::OnSocketInput(void *data, size_t length)
+Client::OnSocketInput(void *data, size_t length) noexcept
 {
 	char *p = (char *)data;
 	char *newline = (char *)memchr(p, '\n', length);
 	if (newline == nullptr)
 		return InputResult::MORE;
 
-	TimeoutMonitor::ScheduleSeconds(client_timeout);
+	timeout_event.Schedule(client_timeout);
 
 	BufferedSocket::ConsumeInput(newline + 1 - p);
 
@@ -52,7 +51,7 @@ Client::OnSocketInput(void *data, size_t length)
 		break;
 
 	case CommandResult::KILL:
-		partition.instance.Shutdown();
+		partition->instance.Break();
 		Close();
 		return InputResult::CLOSED;
 

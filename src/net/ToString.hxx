@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2011-2017 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,7 @@
 #ifndef NET_TO_STRING_HXX
 #define NET_TO_STRING_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 
@@ -43,6 +42,6 @@ class SocketAddress;
  */
 gcc_pure
 std::string
-ToString(SocketAddress address);
+ToString(SocketAddress address) noexcept;
 
 #endif

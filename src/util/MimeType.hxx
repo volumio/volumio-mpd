@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
  * the string as-is.
  */
 std::string
-GetMimeTypeBase(const char *s);
+GetMimeTypeBase(const char *s) noexcept;
 
 /**
  * Parse the parameters from a MIME type string.  Parameters are
@@ -38,6 +38,6 @@ GetMimeTypeBase(const char *s);
  * "foo/bar; param1=value1; param2=value2"
  */
 std::map<std::string, std::string>
-ParseMimeTypeParameters(const char *s);
+ParseMimeTypeParameters(const char *s) noexcept;
 
 #endif

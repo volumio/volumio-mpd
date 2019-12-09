@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define MPD_PCM_RESAMPLER_HXX
 
 #include "util/ConstBuffer.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct AudioFormat;
 
@@ -52,17 +52,32 @@ public:
 	 * Closes the resampler.  After that, you may call Open()
 	 * again.
 	 */
-	virtual void Close() = 0;
+	virtual void Close() noexcept = 0;
+
+	/**
+	 * Reset the filter's state, e.g. drop/flush buffers.
+	 */
+	virtual void Reset() noexcept {
+	}
 
 	/**
 	 * Resamples a block of PCM data.
+	 *
+	 * Throws std::runtime_error on error.
 	 *
 	 * @param src the input buffer
 	 * @return the destination buffer (will be invalidated by
 	 * filter_close() or filter_filter())
 	 */
-	gcc_pure
 	virtual ConstBuffer<void> Resample(ConstBuffer<void> src) = 0;
+
+	/**
+	 * Flush pending data and return it.  This should be called
+	 * repepatedly until it returns nullptr.
+	 */
+	virtual ConstBuffer<void> Flush() {
+		return nullptr;
+	}
 };
 
 #endif

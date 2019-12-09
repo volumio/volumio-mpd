@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,10 @@
 #ifndef MPD_PLAYLIST_INFO_HXX
 #define MPD_PLAYLIST_INFO_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
-
-#include <sys/time.h>
+#include <chrono>
 
 /**
  * A directory entry pointing to a playlist file.
@@ -36,7 +34,12 @@ struct PlaylistInfo {
 	 */
 	std::string name;
 
-	time_t mtime;
+	/**
+	 * The time stamp of the last file modification.  A negative
+	 * value means that this is unknown/unavailable.
+	 */
+	std::chrono::system_clock::time_point mtime =
+		std::chrono::system_clock::time_point::min();
 
 	class CompareName {
 		const char *const name;
@@ -45,7 +48,7 @@ struct PlaylistInfo {
 		constexpr CompareName(const char *_name):name(_name) {}
 
 		gcc_pure
-		bool operator()(const PlaylistInfo &pi) const {
+		bool operator()(const PlaylistInfo &pi) const noexcept {
 			return pi.name.compare(name) == 0;
 		}
 	};
@@ -53,7 +56,8 @@ struct PlaylistInfo {
 	PlaylistInfo() = default;
 
 	template<typename N>
-	PlaylistInfo(N &&_name, time_t _mtime)
+	explicit PlaylistInfo(N &&_name,
+			      std::chrono::system_clock::time_point _mtime=std::chrono::system_clock::time_point::min())
 		:name(std::forward<N>(_name)), mtime(_mtime) {}
 
 	PlaylistInfo(const PlaylistInfo &other) = delete;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,8 @@
 
 #include "PosixMutex.hxx"
 
+#include <chrono>
+
 #include <sys/time.h>
 
 /**
@@ -41,18 +43,18 @@ class PosixCond {
 	pthread_cond_t cond;
 
 public:
-#ifdef __GLIBC__
+#if defined(__GLIBC__) && !defined(__gnu_hurd__)
 	/* optimized constexpr constructor for pthread implementations
 	   that support it */
-	constexpr PosixCond():cond(PTHREAD_COND_INITIALIZER) {}
+	constexpr PosixCond() noexcept:cond(PTHREAD_COND_INITIALIZER) {}
 #else
 	/* slow fallback for pthread implementations that are not
 	   compatible with "constexpr" */
-	PosixCond() {
+	PosixCond() noexcept {
 		pthread_cond_init(&cond, nullptr);
 	}
 
-	~PosixCond() {
+	~PosixCond() noexcept {
 		pthread_cond_destroy(&cond);
 	}
 #endif
@@ -60,25 +62,26 @@ public:
 	PosixCond(const PosixCond &other) = delete;
 	PosixCond &operator=(const PosixCond &other) = delete;
 
-	void signal() {
+	void signal() noexcept {
 		pthread_cond_signal(&cond);
 	}
 
-	void broadcast() {
+	void broadcast() noexcept {
 		pthread_cond_broadcast(&cond);
 	}
 
-	void wait(PosixMutex &mutex) {
+	void wait(PosixMutex &mutex) noexcept {
 		pthread_cond_wait(&cond, &mutex.mutex);
 	}
 
-	bool timed_wait(PosixMutex &mutex, unsigned timeout_ms) {
+private:
+	bool timed_wait(PosixMutex &mutex, uint_least32_t timeout_us) noexcept {
 		struct timeval now;
 		gettimeofday(&now, nullptr);
 
 		struct timespec ts;
-		ts.tv_sec = now.tv_sec + timeout_ms / 1000;
-		ts.tv_nsec = (now.tv_usec + (timeout_ms % 1000) * 1000) * 1000;
+		ts.tv_sec = now.tv_sec + timeout_us / 1000000;
+		ts.tv_nsec = (now.tv_usec + (timeout_us % 1000000)) * 1000;
 		// Keep tv_nsec < 1E9 to prevent return of EINVAL
 		if (ts.tv_nsec >= 1000000000) {
 			ts.tv_nsec -= 1000000000;
@@ -86,6 +89,18 @@ public:
 		}
 
 		return pthread_cond_timedwait(&cond, &mutex.mutex, &ts) == 0;
+	}
+
+public:
+	bool timed_wait(PosixMutex &mutex,
+			std::chrono::steady_clock::duration timeout) noexcept {
+		auto timeout_us = std::chrono::duration_cast<std::chrono::microseconds>(timeout).count();
+		if (timeout_us < 0)
+			timeout_us = 0;
+		else if (timeout_us > std::numeric_limits<uint_least32_t>::max())
+			timeout_us = std::numeric_limits<uint_least32_t>::max();
+
+		return timed_wait(mutex, timeout_us);
 	}
 };
 

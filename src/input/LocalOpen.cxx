@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "LocalOpen.hxx"
 #include "InputStream.hxx"
 #include "plugins/FileInputPlugin.hxx"
+#include "config.h"
 
 #ifdef ENABLE_ARCHIVE
 #include "plugins/ArchiveInputPlugin.hxx"
@@ -31,25 +31,21 @@
 
 #include <assert.h>
 
-#ifdef ENABLE_ARCHIVE
-#include <errno.h>
-#endif
-
 InputStreamPtr
-OpenLocalInputStream(Path path, Mutex &mutex, Cond &cond)
+OpenLocalInputStream(Path path, Mutex &mutex)
 {
 	InputStreamPtr is;
 
 #ifdef ENABLE_ARCHIVE
 	try {
 #endif
-		is = OpenFileInputStream(path, mutex, cond);
+		is = OpenFileInputStream(path, mutex);
 #ifdef ENABLE_ARCHIVE
 	} catch (const std::system_error &e) {
 		if (IsPathNotFound(e)) {
 			/* ENOTDIR means this may be a path inside an archive
 			   file */
-			is = OpenArchiveInputStream(path, mutex, cond);
+			is = OpenArchiveInputStream(path, mutex);
 			if (!is)
 				throw;
 		} else
@@ -57,7 +53,8 @@ OpenLocalInputStream(Path path, Mutex &mutex, Cond &cond)
 	}
 #endif
 
-	assert(is == nullptr || is->IsReady());
+	assert(is);
+	assert(is->IsReady());
 
 	return is;
 }

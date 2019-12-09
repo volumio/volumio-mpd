@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include "config.h"
 #include "PlaylistCommands.hxx"
 #include "Request.hxx"
+#include "Instance.hxx"
 #include "db/DatabasePlaylist.hxx"
 #include "CommandError.hxx"
 #include "PlaylistSave.hxx"
@@ -27,6 +28,7 @@
 #include "PlaylistError.hxx"
 #include "db/PlaylistVector.hxx"
 #include "SongLoader.hxx"
+#include "song/DetachedSong.hxx"
 #include "BulkEdit.hxx"
 #include "playlist/PlaylistQueue.hxx"
 #include "playlist/Print.hxx"
@@ -37,9 +39,11 @@
 #include "fs/AllocatedPath.hxx"
 #include "util/UriUtil.hxx"
 #include "util/ConstBuffer.hxx"
+#include "util/ChronoUtil.hxx"
+#include "LocateUri.hxx"
 
 bool
-playlist_commands_available()
+playlist_commands_available() noexcept
 {
 	return !map_spl_path().IsNull();
 }
@@ -50,7 +54,7 @@ print_spl_list(Response &r, const PlaylistVector &list)
 	for (const auto &i : list) {
 		r.Format("playlist: %s\n", i.name.c_str());
 
-		if (i.mtime > 0)
+		if (!IsNegative(i.mtime))
 			time_print(r, "Last-Modified", i.mtime);
 	}
 }
@@ -58,32 +62,53 @@ print_spl_list(Response &r, const PlaylistVector &list)
 CommandResult
 handle_save(Client &client, Request args, gcc_unused Response &r)
 {
-	spl_save_playlist(args.front(), client.playlist);
+	spl_save_playlist(args.front(), client.GetPlaylist());
 	return CommandResult::OK;
 }
 
 CommandResult
 handle_load(Client &client, Request args, gcc_unused Response &r)
 {
+	const auto uri = LocateUri(UriPluginKind::PLAYLIST, args.front(),
+				   &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
 	RangeArg range = args.ParseOptional(1, RangeArg::All());
 
-	const ScopeBulkEdit bulk_edit(client.partition);
+	const ScopeBulkEdit bulk_edit(client.GetPartition());
+
+	auto &playlist = client.GetPlaylist();
+	const unsigned old_size = playlist.GetLength();
 
 	const SongLoader loader(client);
-	playlist_open_into_queue(args.front(),
+	playlist_open_into_queue(uri,
 				 range.start, range.end,
-				 client.playlist,
-				 client.player_control, loader);
+				 playlist,
+				 client.GetPlayerControl(), loader);
+
+	/* invoke the RemoteTagScanner on all newly added songs */
+	auto &instance = client.GetInstance();
+	const unsigned new_size = playlist.GetLength();
+	for (unsigned i = old_size; i < new_size; ++i)
+		instance.LookupRemoteTag(playlist.queue.Get(i).GetURI());
+
 	return CommandResult::OK;
 }
 
 CommandResult
 handle_listplaylist(Client &client, Request args, Response &r)
 {
-	const char *const name = args.front();
+	const auto name = LocateUri(UriPluginKind::PLAYLIST, args.front(),
+				    &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
 
-	if (playlist_file_print(r, client.partition, SongLoader(client),
-				 name, false))
+	if (playlist_file_print(r, client.GetPartition(), SongLoader(client),
+				name, false))
 		return CommandResult::OK;
 
 	throw PlaylistError::NoSuchList();
@@ -92,9 +117,14 @@ handle_listplaylist(Client &client, Request args, Response &r)
 CommandResult
 handle_listplaylistinfo(Client &client, Request args, Response &r)
 {
-	const char *const name = args.front();
+	const auto name = LocateUri(UriPluginKind::PLAYLIST, args.front(),
+				    &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
 
-	if (playlist_file_print(r, client.partition, SongLoader(client),
+	if (playlist_file_print(r, client.GetPartition(), SongLoader(client),
 				name, true))
 		return CommandResult::OK;
 
@@ -166,7 +196,7 @@ handle_playlistadd(Client &client, Request args, gcc_unused Response &r)
 #ifdef ENABLE_DATABASE
 		const Database &db = client.GetDatabaseOrThrow();
 
-		search_add_to_playlist(db, *client.GetStorage(),
+		search_add_to_playlist(db, client.GetStorage(),
 				       uri, playlist, nullptr);
 #else
 		r.Error(ACK_ERROR_NO_EXIST, "directory or file not found");

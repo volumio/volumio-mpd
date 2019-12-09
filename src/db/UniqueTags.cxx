@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2019 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,35 +19,35 @@
 
 #include "UniqueTags.hxx"
 #include "Interface.hxx"
-#include "LightSong.hxx"
-#include "tag/Set.hxx"
-
-#include <functional>
-
-#include <assert.h>
+#include "song/LightSong.hxx"
+#include "tag/VisitFallback.hxx"
+#include "util/ConstBuffer.hxx"
+#include "util/RecursiveMap.hxx"
 
 static void
-CollectTags(TagSet &set, TagType tag_type, tag_mask_t group_mask,
-	    const LightSong &song)
+CollectUniqueTags(RecursiveMap<std::string> &result,
+		  const Tag &tag,
+		  ConstBuffer<TagType> tag_types) noexcept
 {
-	assert(song.tag != nullptr);
-	const Tag &tag = *song.tag;
+	if (tag_types.empty())
+		return;
 
-	set.InsertUnique(tag, tag_type, group_mask);
+	const auto tag_type = tag_types.shift();
+
+	VisitTagWithFallbackOrEmpty(tag, tag_type, [&result, &tag, tag_types](const char *value){
+			CollectUniqueTags(result[value], tag, tag_types);
+		});
 }
 
-void
-VisitUniqueTags(const Database &db, const DatabaseSelection &selection,
-		TagType tag_type, tag_mask_t group_mask,
-		VisitTag visit_tag)
+RecursiveMap<std::string>
+CollectUniqueTags(const Database &db, const DatabaseSelection &selection,
+		  ConstBuffer<TagType> tag_types)
 {
-	TagSet set;
+	RecursiveMap<std::string> result;
 
-	using namespace std::placeholders;
-	const auto f = std::bind(CollectTags, std::ref(set),
-				 tag_type, group_mask, _1);
-	db.Visit(selection, f);
+	db.Visit(selection, [&result, tag_types](const LightSong &song){
+			CollectUniqueTags(result, song.tag, tag_types);
+		});
 
-	for (const auto &value : set)
-		visit_tag(value);
+	return result;
 }

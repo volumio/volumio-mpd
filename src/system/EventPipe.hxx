@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_EVENT_PIPE_HXX
 #define MPD_EVENT_PIPE_HXX
 
-#include "check.h"
-
 /**
  * A pipe that can be used to trigger an event to the read side.
  *
@@ -31,13 +29,17 @@ class EventPipe {
 	int fds[2];
 
 public:
+	/**
+	 * Throws on error.
+	 */
 	EventPipe();
-	~EventPipe();
+
+	~EventPipe() noexcept;
 
 	EventPipe(const EventPipe &other) = delete;
 	EventPipe &operator=(const EventPipe &other) = delete;
 
-	int Get() const {
+	int Get() const noexcept {
 		return fds[0];
 	}
 
@@ -45,13 +47,13 @@ public:
 	 * Checks if Write() was called at least once since the last
 	 * Read() call.
 	 */
-	bool Read();
+	bool Read() noexcept;
 
 	/**
 	 * Wakes up the reader.  Multiple calls to this function will
 	 * be combined to one wakeup.
 	 */
-	void Write();
+	void Write() noexcept;
 };
 
 #endif /* MAIN_NOTIFY_H */

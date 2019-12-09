@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Id3Load.hxx"
 #include "Log.hxx"
 #include "Riff.hxx"
@@ -27,13 +26,12 @@
 #include <id3tag.h>
 
 #include <algorithm>
-#include <stdexcept>
 
 static constexpr size_t ID3V1_SIZE = 128;
 
 gcc_pure
 static inline bool
-tag_is_id3v1(struct id3_tag *tag)
+tag_is_id3v1(struct id3_tag *tag) noexcept
 {
 	return (id3_tag_options(tag, 0, 0) & ID3_TAG_OPTION_ID3V1) != 0;
 }
@@ -46,7 +44,7 @@ try {
 	is.ReadFull(buf, sizeof(buf));
 
 	return id3_tag_query(buf, sizeof(buf));
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return 0;
 }
 
@@ -77,7 +75,7 @@ try {
 	is.ReadFull(end, remaining);
 
 	return UniqueId3Tag(id3_tag_parse(tag_buffer.get(), tag_size));
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -87,7 +85,7 @@ try {
 	is.Seek(offset);
 
 	return ReadId3Tag(is);
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -98,7 +96,7 @@ try {
 	is.ReadFull(buffer, ID3V1_SIZE);
 
 	return UniqueId3Tag(id3_tag_parse(buffer, ID3V1_SIZE));
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -107,7 +105,7 @@ ReadId3v1Tag(InputStream &is, offset_type offset)
 try {
 	is.Seek(offset);
 	return ReadId3v1Tag(is);
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -140,7 +138,7 @@ try {
 	}
 
 	return tag;
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -181,7 +179,7 @@ try {
 
 	/* We have an id3v2 tag, so ditch v1tag */
 	return tag;
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
@@ -191,7 +189,7 @@ try {
 	size_t size;
 	try {
 		size = riff_seek_id3(is);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		size = aiff_seek_id3(is);
 	}
 
@@ -203,14 +201,14 @@ try {
 	is.ReadFull(buffer.get(), size);
 
 	return UniqueId3Tag(id3_tag_parse(buffer.get(), size));
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }
 
 UniqueId3Tag
 tag_id3_load(InputStream &is)
 try {
-	const ScopeLock protect(is.mutex);
+	const std::lock_guard<Mutex> protect(is.mutex);
 
 	auto tag = tag_id3_find_from_beginning(is);
 	if (tag == nullptr && is.CheapSeeking()) {
@@ -220,6 +218,6 @@ try {
 	}
 
 	return tag;
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return nullptr;
 }

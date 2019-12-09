@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,25 +20,30 @@
 #include "config.h"
 #include "Partition.hxx"
 #include "Instance.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "mixer/Volume.hxx"
 #include "IdleFlags.hxx"
+#include "client/Listener.hxx"
 
 Partition::Partition(Instance &_instance,
+		     const char *_name,
 		     unsigned max_length,
 		     unsigned buffer_chunks,
-		     unsigned buffered_before_play,
 		     AudioFormat configured_audio_format,
 		     const ReplayGainConfig &replay_gain_config)
 	:instance(_instance),
+	 name(_name),
+	 listener(new ClientListener(instance.event_loop, *this)),
 	 global_events(instance.event_loop, BIND_THIS_METHOD(OnGlobalEvent)),
 	 playlist(max_length, *this),
 	 outputs(*this),
-	 pc(*this, outputs, buffer_chunks, buffered_before_play,
+	 pc(*this, outputs, buffer_chunks,
 	    configured_audio_format, replay_gain_config)
 {
 	UpdateEffectiveReplayGainMode();
 }
+
+Partition::~Partition() noexcept = default;
 
 void
 Partition::EmitIdle(unsigned mask)
@@ -86,17 +91,27 @@ Partition::DatabaseModified(const Database &db)
 void
 Partition::TagModified()
 {
-	DetachedSong *song = pc.LockReadTaggedSong();
-	if (song != nullptr) {
+	auto song = pc.LockReadTaggedSong();
+	if (song)
 		playlist.TagModified(std::move(*song));
-		delete song;
-	}
+}
+
+void
+Partition::TagModified(const char *uri, const Tag &tag) noexcept
+{
+	playlist.TagModified(uri, tag);
 }
 
 void
 Partition::SyncWithPlayer()
 {
 	playlist.SyncWithPlayer(pc);
+}
+
+void
+Partition::BorderPause()
+{
+	playlist.BorderPause(pc);
 }
 
 void
@@ -118,15 +133,21 @@ Partition::OnQueueSongStarted()
 }
 
 void
-Partition::OnPlayerSync()
+Partition::OnPlayerSync() noexcept
 {
 	EmitGlobalEvent(SYNC_WITH_PLAYER);
 }
 
 void
-Partition::OnPlayerTagModified()
+Partition::OnPlayerTagModified() noexcept
 {
 	EmitGlobalEvent(TAG_MODIFIED);
+}
+
+void
+Partition::OnBorderPause() noexcept
+{
+	EmitGlobalEvent(BORDER_PAUSE);
 }
 
 void
@@ -141,9 +162,12 @@ Partition::OnMixerVolumeChanged(gcc_unused Mixer &mixer, gcc_unused int volume)
 void
 Partition::OnGlobalEvent(unsigned mask)
 {
+	if ((mask & SYNC_WITH_PLAYER) != 0)
+		SyncWithPlayer();
+
 	if ((mask & TAG_MODIFIED) != 0)
 		TagModified();
 
-	if ((mask & SYNC_WITH_PLAYER) != 0)
-		SyncWithPlayer();
+	if ((mask & BORDER_PAUSE) != 0)
+		BorderPause();
 }

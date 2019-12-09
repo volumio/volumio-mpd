@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include "db/DatabaseError.hxx"
 #include "client/Response.hxx"
 #include "Log.hxx"
+#include "util/Exception.hxx"
 
 #include <system_error>
 
@@ -30,7 +31,7 @@
 
 gcc_const
 static enum ack
-ToAck(PlaylistResult result)
+ToAck(PlaylistResult result) noexcept
 {
 	switch (result) {
 	case PlaylistResult::SUCCESS:
@@ -66,7 +67,7 @@ ToAck(PlaylistResult result)
 #ifdef ENABLE_DATABASE
 gcc_const
 static enum ack
-ToAck(DatabaseErrorCode code)
+ToAck(DatabaseErrorCode code) noexcept
 {
 	switch (code) {
 	case DatabaseErrorCode::DISABLED:
@@ -83,7 +84,7 @@ ToAck(DatabaseErrorCode code)
 
 gcc_pure
 static enum ack
-ToAck(std::exception_ptr ep)
+ToAck(std::exception_ptr ep) noexcept
 {
 	try {
 		std::rethrow_exception(ep);
@@ -99,19 +100,13 @@ ToAck(std::exception_ptr ep)
 		return ACK_ERROR_SYSTEM;
 	} catch (const std::invalid_argument &e) {
 		return ACK_ERROR_ARG;
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20151204
-	} catch (const std::exception &e) {
-#else
+	} catch (const std::length_error &e) {
+		return ACK_ERROR_ARG;
+	} catch (const std::out_of_range &e) {
+		return ACK_ERROR_ARG;
 	} catch (...) {
-#endif
 		try {
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20151204
-			/* workaround for g++ 4.x: no overload for
-			   rethrow_exception(exception_ptr) */
-			std::rethrow_if_nested(e);
-#else
 			std::rethrow_if_nested(ep);
-#endif
 			return ACK_ERROR_UNKNOWN;
 		} catch (...) {
 			return ToAck(std::current_exception());
@@ -122,12 +117,6 @@ ToAck(std::exception_ptr ep)
 void
 PrintError(Response &r, std::exception_ptr ep)
 {
-	try {
-		std::rethrow_exception(ep);
-	} catch (const std::exception &e) {
-		LogError(e);
-		r.Error(ToAck(ep), e.what());
-	} catch (...) {
-		r.Error(ACK_ERROR_UNKNOWN, "Unknown error");
-	}
+	LogError(ep);
+	r.Error(ToAck(ep), GetFullMessage(ep).c_str());
 }

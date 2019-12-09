@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,14 +20,21 @@
 #include "config.h"
 #include "SidplayDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
-#include "DetachedSong.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
+#include "song/DetachedSong.hxx"
 #include "fs/Path.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "lib/icu/Converter.hxx"
+#ifdef HAVE_SIDPLAYFP
+#include "fs/io/FileReader.hxx"
+#include "util/RuntimeError.hxx"
+#endif
 #include "util/Macros.hxx"
-#include "util/FormatString.hxx"
+#include "util/StringFormat.hxx"
 #include "util/Domain.hxx"
+#include "util/AllocatedString.hxx"
+#include "util/CharUtil.hxx"
 #include "system/ByteOrder.hxx"
 #include "Log.hxx"
 
@@ -50,6 +57,10 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifdef HAVE_SIDPLAYFP
+#define LIBSIDPLAYFP_VERSION GCC_MAKE_VERSION(LIBSIDPLAYFP_VERSION_MAJ, LIBSIDPLAYFP_VERSION_MIN, LIBSIDPLAYFP_VERSION_LEV)
+#endif
+
 #define SUBTUNE_PREFIX "tune_"
 
 static constexpr Domain sidplay_domain("sidplay");
@@ -60,6 +71,21 @@ static bool all_files_are_containers;
 static unsigned default_songlength;
 
 static bool filter_setting;
+
+#ifdef HAVE_SIDPLAYFP
+static constexpr unsigned rom_size = 8192;
+static uint8_t *kernal, *basic = nullptr;
+
+static void loadRom(const Path rom_path, uint8_t *dump)
+{
+	FileReader romDump(rom_path);
+	if (romDump.Read(dump, rom_size) != rom_size)
+	{
+		throw FormatRuntimeError
+			("Could not load rom dump '%s'", rom_path.c_str());
+	}
+}
+#endif
 
 static SidDatabase *
 sidplay_load_songlength_db(const Path path)
@@ -89,20 +115,43 @@ sidplay_init(const ConfigBlock &block)
 	if (!database_path.IsNull())
 		songlength_database = sidplay_load_songlength_db(database_path);
 
-	default_songlength = block.GetBlockValue("default_songlength", 0u);
+	default_songlength = block.GetPositiveValue("default_songlength", 0u);
 
 	all_files_are_containers =
 		block.GetBlockValue("all_files_are_containers", true);
 
 	filter_setting = block.GetBlockValue("filter", true);
 
+#ifdef HAVE_SIDPLAYFP
+	/* read kernal rom dump file */
+	const auto kernal_path = block.GetPath("kernal");
+	if (!kernal_path.IsNull())
+	{
+		kernal = new uint8_t[rom_size];
+		loadRom(kernal_path, kernal);
+	}
+
+	/* read basic rom dump file */
+	const auto basic_path = block.GetPath("basic");
+	if (!basic_path.IsNull())
+	{
+		basic = new uint8_t[rom_size];
+		loadRom(basic_path, basic);
+	}
+#endif
+
 	return true;
 }
 
 static void
-sidplay_finish()
+sidplay_finish() noexcept
 {
 	delete songlength_database;
+
+#ifdef HAVE_SIDPLAYFP
+	delete[] basic;
+	delete[] kernal;
+#endif
 }
 
 struct SidplayContainerPath {
@@ -112,7 +161,7 @@ struct SidplayContainerPath {
 
 gcc_pure
 static unsigned
-ParseSubtuneName(const char *base)
+ParseSubtuneName(const char *base) noexcept
 {
 	if (memcmp(base, SUBTUNE_PREFIX, sizeof(SUBTUNE_PREFIX) - 1) != 0)
 		return 0;
@@ -198,6 +247,8 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 
 #ifdef HAVE_SIDPLAYFP
 	sidplayfp player;
+
+	player.setRoms(kernal, basic, nullptr);
 #else
 	sidplay2 player;
 #endif
@@ -285,7 +336,11 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 #endif
 
 #ifdef HAVE_SIDPLAYFP
+#if LIBSIDPLAYFP_VERSION >= GCC_MAKE_VERSION(1,8,0)
 	const bool stereo = tune.getInfo()->sidChips() >= 2;
+#else
+	const bool stereo = tune.getInfo()->isStereo();
+#endif
 #else
 	const bool stereo = tune.isStereo();
 #endif
@@ -351,7 +406,7 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 		const size_t nbytes = result;
 #endif
 
-		client.SubmitTimestamp((double)player.time() / timebase);
+		client.SubmitTimestamp(FloatDuration(player.time()) / timebase);
 
 		cmd = client.SubmitData(nullptr, buffer, nbytes, 0);
 
@@ -380,61 +435,103 @@ sidplay_file_decode(DecoderClient &client, Path path_fs)
 	} while (cmd != DecoderCommand::STOP);
 }
 
+static AllocatedString<char>
+Windows1252ToUTF8(const char *s) noexcept
+{
+#ifdef HAVE_ICU_CONVERTER
+	try {
+		std::unique_ptr<IcuConverter>
+			converter(IcuConverter::Create("windows-1252"));
+
+		return converter->ToUTF8(s);
+	} catch (...) { }
+#endif
+
+	/*
+	 * Fallback to not transcoding windows-1252 to utf-8, that may result
+	 * in invalid utf-8 unless nonprintable characters are replaced.
+	 */
+	auto t = AllocatedString<char>::Duplicate(s);
+
+	for (size_t i = 0; t[i] != AllocatedString<char>::SENTINEL; i++)
+		if (!IsPrintableASCII(t[i]))
+			t[i] = '?';
+
+	return t;
+}
+
 gcc_pure
-static const char *
-GetInfoString(const SidTuneInfo &info, unsigned i)
+static AllocatedString<char>
+GetInfoString(const SidTuneInfo &info, unsigned i) noexcept
 {
 #ifdef HAVE_SIDPLAYFP
-	return info.numberOfInfoStrings() > i
+	const char *s = info.numberOfInfoStrings() > i
 		? info.infoString(i)
-		: nullptr;
+		: "";
 #else
-	return info.numberOfInfoStrings > i
+	const char *s = info.numberOfInfoStrings > i
 		? info.infoString[i]
-		: nullptr;
+		: "";
 #endif
+
+	return Windows1252ToUTF8(s);
+}
+
+gcc_pure
+static AllocatedString<char>
+GetDateString(const SidTuneInfo &info) noexcept
+{
+	/*
+	 * Field 2 is called <released>, previously used as <copyright>.
+	 * It is formatted <year><space><company or author or group>,
+	 * where <year> may be <YYYY>, <YYY?>, <YY??> or <YYYY-YY>, for
+	 * example "1987", "199?", "19??" or "1985-87". The <company or
+	 * author or group> may be for example Rob Hubbard. A full field
+	 * may be for example "1987 Rob Hubbard".
+	 */
+	AllocatedString<char> release = GetInfoString(info, 2);
+
+	/* Keep the <year> part only for the date. */
+	for (size_t i = 0; release[i] != AllocatedString<char>::SENTINEL; i++)
+		if (std::isspace(release[i])) {
+			release[i] = AllocatedString<char>::SENTINEL;
+			break;
+		}
+
+	return release;
 }
 
 static void
 ScanSidTuneInfo(const SidTuneInfo &info, unsigned track, unsigned n_tracks,
-		const TagHandler &handler, void *handler_ctx)
+		TagHandler &handler) noexcept
 {
 	/* title */
-	const char *title = GetInfoString(info, 0);
-	if (title == nullptr)
-		title = "";
+	const auto title = GetInfoString(info, 0);
 
 	if (n_tracks > 1) {
-		char tag_title[1024];
-		snprintf(tag_title, sizeof(tag_title),
-			 "%s (%u/%u)",
-			 title, track, n_tracks);
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_TITLE, tag_title);
+		const auto tag_title =
+			StringFormat<1024>("%s (%u/%u)",
+					   title.c_str(), track, n_tracks);
+		handler.OnTag(TAG_TITLE, tag_title.c_str());
 	} else
-		tag_handler_invoke_tag(handler, handler_ctx, TAG_TITLE, title);
+		handler.OnTag(TAG_TITLE, title.c_str());
 
 	/* artist */
-	const char *artist = GetInfoString(info, 1);
-	if (artist != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx, TAG_ARTIST,
-				       artist);
+	const auto artist = GetInfoString(info, 1);
+	if (!artist.empty())
+		handler.OnTag(TAG_ARTIST, artist.c_str());
 
 	/* date */
-	const char *date = GetInfoString(info, 2);
-	if (date != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx, TAG_DATE,
-				       date);
+	const auto date = GetDateString(info);
+	if (!date.empty())
+		handler.OnTag(TAG_DATE, date.c_str());
 
 	/* track */
-	char track_buffer[16];
-	sprintf(track_buffer, "%d", track);
-	tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK, track_buffer);
+	handler.OnTag(TAG_TRACK, StringFormat<16>("%u", track));
 }
 
 static bool
-sidplay_scan_file(Path path_fs,
-		  const TagHandler &handler, void *handler_ctx)
+sidplay_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	const auto container = ParseContainerPath(path_fs);
 	const unsigned song_num = container.track;
@@ -457,13 +554,12 @@ sidplay_scan_file(Path path_fs,
 	const unsigned n_tracks = info.songs;
 #endif
 
-	ScanSidTuneInfo(info, song_num, n_tracks, handler, handler_ctx);
+	ScanSidTuneInfo(info, song_num, n_tracks, handler);
 
 	/* time */
 	const auto duration = get_song_length(tune);
 	if (!duration.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx,
-					    SongTime(duration));
+		handler.OnDuration(SongTime(duration));
 
 	return true;
 }
@@ -500,8 +596,12 @@ sidplay_container_scan(Path path_fs)
 	for (unsigned i = 1; i <= n_tracks; ++i) {
 		tune.selectSong(i);
 
-		ScanSidTuneInfo(info, i, n_tracks,
-				add_tag_handler, &tag_builder);
+		AddTagHandler h(tag_builder);
+		ScanSidTuneInfo(info, i, n_tracks, h);
+
+		const SignedSongTime duration = get_song_length(tune);
+		if (!duration.IsNegative())
+			h.OnDuration(SongTime(duration));
 
 		char track_name[32];
 		/* Construct container/tune path names, eg.

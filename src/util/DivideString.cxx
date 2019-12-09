@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,11 +18,11 @@
  */
 
 #include "DivideString.hxx"
-#include "StringUtil.hxx"
+#include "StringStrip.hxx"
 
 #include <string.h>
 
-DivideString::DivideString(const char *s, char separator, bool strip)
+DivideString::DivideString(const char *s, char separator, bool strip) noexcept
 	:first(nullptr)
 {
 	const char *x = strchr(s, separator);

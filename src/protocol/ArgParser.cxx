@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ArgParser.hxx"
+#include "RangeArg.hxx"
 #include "Ack.hxx"
 #include "Chrono.hxx"
+#include "util/NumberParser.hxx"
 
 #include <stdlib.h>
 
@@ -151,7 +152,7 @@ float
 ParseCommandArgFloat(const char *s)
 {
 	char *endptr;
-	auto value = strtof(s, &endptr);
+	auto value = ParseFloat(s, &endptr);
 	if (endptr == s || *endptr != 0)
 		throw FormatProtocolError(ACK_ERROR_ARG,
 					  "Float expected: %s", s);
@@ -163,6 +164,10 @@ SongTime
 ParseCommandArgSongTime(const char *s)
 {
 	auto value = ParseCommandArgFloat(s);
+	if (value < 0)
+		throw FormatProtocolError(ACK_ERROR_ARG,
+					  "Negative value not allowed: %s", s);
+
 	return SongTime::FromS(value);
 }
 

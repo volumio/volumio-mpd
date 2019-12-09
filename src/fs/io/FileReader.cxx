@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FileReader.hxx"
 #include "fs/FileInfo.hxx"
 #include "system/Error.hxx"
+#include "system/Open.hxx"
 
 #include <assert.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 
 FileReader::FileReader(Path _path)
 	:path(_path),
@@ -78,7 +78,7 @@ FileReader::Skip(off_t offset)
 }
 
 void
-FileReader::Close()
+FileReader::Close() noexcept
 {
 	assert(IsDefined());
 
@@ -88,11 +88,8 @@ FileReader::Close()
 #else
 
 FileReader::FileReader(Path _path)
-	:path(_path)
+	:path(_path), fd(OpenReadOnly(path.c_str()))
 {
-	fd.OpenReadOnly(path.c_str());
-	if (!fd.IsDefined())
-		throw FormatErrno("Failed to open %s", path.ToUTF8().c_str());
 }
 
 FileInfo
@@ -144,7 +141,7 @@ FileReader::Skip(off_t offset)
 }
 
 void
-FileReader::Close()
+FileReader::Close() noexcept
 {
 	assert(IsDefined());
 

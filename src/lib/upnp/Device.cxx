@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Device.hxx"
 #include "Util.hxx"
 #include "lib/expat/ExpatParser.hxx"
 
 #include <string.h>
 
-UPnPDevice::~UPnPDevice()
+UPnPDevice::~UPnPDevice() noexcept
 {
 	/* this destructor exists here just so it won't get inlined */
 }
@@ -115,7 +114,7 @@ UPnPDevice::Parse(const std::string &url, const char *description)
 			// ???
 			URLBase = url;
 		} else {
-			auto hostslash = url.find_first_of("/", 7);
+			auto hostslash = url.find('/', 7);
 			if (hostslash == std::string::npos || hostslash == url.size()-1) {
 				URLBase = url;
 			} else {

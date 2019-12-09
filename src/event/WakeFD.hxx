@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,7 @@
 #ifndef MPD_WAKE_FD_HXX
 #define MPD_WAKE_FD_HXX
 
-#include "check.h"
-
-#include <assert.h>
+#include "config.h"
 
 #ifdef USE_EVENTFD
 #include "system/EventFD.hxx"
@@ -32,4 +30,4 @@
 #define WakeFD EventPipe
 #endif
 
-#endif /* MAIN_NOTIFY_H */
+#endif

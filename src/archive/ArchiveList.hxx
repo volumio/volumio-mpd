@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,10 +33,10 @@ extern const ArchivePlugin *const archive_plugins[];
 /* interface for using plugins */
 
 const ArchivePlugin *
-archive_plugin_from_suffix(const char *suffix);
+archive_plugin_from_suffix(const char *suffix) noexcept;
 
 const ArchivePlugin *
-archive_plugin_from_name(const char *name);
+archive_plugin_from_name(const char *name) noexcept;
 
 /* this is where we "load" all the "plugins" ;-) */
 void
@@ -44,6 +44,17 @@ archive_plugin_init_all();
 
 /* this is where we "unload" all the "plugins" */
 void
-archive_plugin_deinit_all();
+archive_plugin_deinit_all() noexcept;
+
+class ScopeArchivePluginsInit {
+public:
+	ScopeArchivePluginsInit() {
+		archive_plugin_init_all();
+	}
+
+	~ScopeArchivePluginsInit() noexcept {
+		archive_plugin_deinit_all();
+	}
+};
 
 #endif

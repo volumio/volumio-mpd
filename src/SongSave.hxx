@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,12 @@
 #ifndef MPD_SONG_SAVE_HXX
 #define MPD_SONG_SAVE_HXX
 
+#include <memory>
+
 #define SONG_BEGIN "song_begin: "
 
 struct Song;
+struct AudioFormat;
 class DetachedSong;
 class BufferedOutputStream;
 class TextFile;
@@ -39,7 +42,8 @@ song_save(BufferedOutputStream &os, const DetachedSong &song);
  *
  * Throws #std::runtime_error on error.
  */
-DetachedSong *
-song_load(TextFile &file, const char *uri);
+std::unique_ptr<DetachedSong>
+song_load(TextFile &file, const char *uri,
+	  AudioFormat *audio_format_r=nullptr);
 
 #endif

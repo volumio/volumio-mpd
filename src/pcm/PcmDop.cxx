@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmDop.hxx"
 #include "PcmBuffer.hxx"
 #include "AudioFormat.hxx"
@@ -27,40 +26,39 @@
 
 constexpr
 static inline uint32_t
-pcm_two_dsd_to_dop_marker1(uint8_t a, uint8_t b)
+pcm_two_dsd_to_dop_marker1(uint8_t a, uint8_t b) noexcept
 {
 	return 0xff050000 | (a << 8) | b;
 }
 
 constexpr
 static inline uint32_t
-pcm_two_dsd_to_dop_marker2(uint8_t a, uint8_t b)
+pcm_two_dsd_to_dop_marker2(uint8_t a, uint8_t b) noexcept
 {
 	return 0xfffa0000 | (a << 8) | b;
 }
 
 ConstBuffer<uint32_t>
 pcm_dsd_to_dop(PcmBuffer &buffer, unsigned channels,
-	       ConstBuffer<uint8_t> _src)
+	       ConstBuffer<uint8_t> _src) noexcept
 {
 	assert(audio_valid_channel_count(channels));
-	assert(!_src.IsNull());
-	assert(_src.size > 0);
 	assert(_src.size % channels == 0);
 
-	const unsigned num_src_samples = _src.size;
-	const unsigned num_src_frames = num_src_samples / channels;
+	const size_t num_src_samples = _src.size;
+	const size_t num_src_frames = num_src_samples / channels;
 
-	/* this rounds down and discards the last odd frame; not
+	/* this rounds down and discards up to 3 odd frames; not
 	   elegant, but good enough for now */
-	const unsigned num_frames = num_src_frames / 2;
-	const unsigned num_samples = num_frames * channels;
+	const size_t num_dop_quads = num_src_frames / 4;
+	const size_t num_frames = num_dop_quads * 2;
+	const size_t num_samples = num_frames * channels;
 
 	uint32_t *const dest0 = (uint32_t *)buffer.GetT<uint32_t>(num_samples),
 		*dest = dest0;
 
 	auto src = _src.data;
-	for (unsigned i = num_frames / 2; i > 0; --i) {
+	for (size_t i = num_dop_quads; i > 0; --i) {
 		for (unsigned c = channels; c > 0; --c) {
 			/* each 24 bit sample has 16 DSD sample bits
 			   plus the magic 0x05 marker */

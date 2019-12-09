@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,11 @@
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
 
-#include "config.h"
 #include "FfmpegIo.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 AvioStream::~AvioStream()
 {
@@ -72,7 +71,7 @@ AvioStream::Seek(int64_t pos, int whence)
 	try {
 		input.LockSeek(pos);
 		return input.GetOffset();
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return -1;
 	}
 }

@@ -2,65 +2,42 @@
  * Unit tests for playlist_check_translate_song().
  */
 
-#include "config.h"
+#include "MakeTag.hxx"
 #include "playlist/PlaylistSong.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongLoader.hxx"
 #include "client/Client.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 #include "tag/Tag.hxx"
 #include "util/Domain.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "ls.hxx"
 #include "Log.hxx"
 #include "db/DatabaseSong.hxx"
+#include "storage/StorageInterface.hxx"
 #include "storage/plugins/LocalStorage.hxx"
 #include "Mapper.hxx"
+#include "util/ChronoUtil.hxx"
 
-#include <cppunit/TestFixture.h>
-#include <cppunit/extensions/TestFactoryRegistry.h>
-#include <cppunit/ui/text/TestRunner.h>
-#include <cppunit/extensions/HelperMacros.h>
+#include <gtest/gtest.h>
 
 #include <string.h>
 #include <stdio.h>
 
 void
-Log(const Domain &domain, gcc_unused LogLevel level, const char *msg)
+Log(const Domain &domain, gcc_unused LogLevel level, const char *msg) noexcept
 {
 	fprintf(stderr, "[%s] %s\n", domain.GetName(), msg);
 }
 
 bool
-uri_supported_scheme(const char *uri)
+uri_supported_scheme(const char *uri) noexcept
 {
-	return memcmp(uri, "http://", 7) == 0;
+	return strncmp(uri, "http://", 7) == 0;
 }
 
 static constexpr auto music_directory = PATH_LITERAL("/music");
 static Storage *storage;
-
-static void
-BuildTag(gcc_unused TagBuilder &tag)
-{
-}
-
-template<typename... Args>
-static void
-BuildTag(TagBuilder &tag, TagType type, const char *value, Args&&... args)
-{
-	tag.AddItem(type, value);
-	BuildTag(tag, std::forward<Args>(args)...);
-}
-
-template<typename... Args>
-static Tag
-MakeTag(Args&&... args)
-{
-	TagBuilder tag;
-	BuildTag(tag, std::forward<Args>(args)...);
-	return tag.Commit();
-}
 
 static Tag
 MakeTag1a()
@@ -107,19 +84,19 @@ MakeTag2c()
 static const char *uri1 = "/foo/bar.ogg";
 static const char *uri2 = "foo/bar.ogg";
 
-DetachedSong *
+DetachedSong
 DatabaseDetachSong(gcc_unused const Database &db,
-		   gcc_unused const Storage &_storage,
+		   gcc_unused const Storage *_storage,
 		   const char *uri)
 {
 	if (strcmp(uri, uri2) == 0)
-		return new DetachedSong(uri, MakeTag2a());
+		return DetachedSong(uri, MakeTag2a());
 
-	return nullptr;
+	throw std::runtime_error("No such song");
 }
 
 bool
-DetachedSong::LoadFile(Path path)
+DetachedSong::LoadFile(Path path) noexcept
 {
 	if (path.ToUTF8() == uri1) {
 		SetTag(MakeTag1a());
@@ -130,13 +107,13 @@ DetachedSong::LoadFile(Path path)
 }
 
 const Database *
-Client::GetDatabase() const
+Client::GetDatabase() const noexcept
 {
 	return reinterpret_cast<const Database *>(this);
 }
 
 const Storage *
-Client::GetStorage() const
+Client::GetStorage() const noexcept
 {
 	return ::storage;
 }
@@ -155,11 +132,8 @@ ToString(const Tag &tag)
 {
 	std::string result;
 
-	if (!tag.duration.IsNegative()) {
-		char buffer[64];
-		sprintf(buffer, "%d", tag.duration.ToMS());
-		result.append(buffer);
-	}
+	if (!tag.duration.IsNegative())
+		result.append(std::to_string(tag.duration.ToMS()));
 
 	for (const auto &item : tag) {
 		result.push_back('|');
@@ -177,26 +151,18 @@ ToString(const DetachedSong &song)
 	std::string result = song.GetURI();
 	result.push_back('|');
 
-	char buffer[64];
-
-	if (song.GetLastModified() > 0) {
-		sprintf(buffer, "%lu", (unsigned long)song.GetLastModified());
-		result.append(buffer);
-	}
+	if (!IsNegative(song.GetLastModified()))
+		result.append(std::to_string(std::chrono::system_clock::to_time_t(song.GetLastModified())));
 
 	result.push_back('|');
 
-	if (song.GetStartTime().IsPositive()) {
-		sprintf(buffer, "%u", song.GetStartTime().ToMS());
-		result.append(buffer);
-	}
+	if (song.GetStartTime().IsPositive())
+		result.append(std::to_string(song.GetStartTime().ToMS()));
 
 	result.push_back('-');
 
-	if (song.GetEndTime().IsPositive()) {
-		sprintf(buffer, "%u", song.GetEndTime().ToMS());
-		result.append(buffer);
-	}
+	if (song.GetEndTime().IsPositive())
+		result.append(std::to_string(song.GetEndTime().ToMS()));
 
 	result.push_back('|');
 
@@ -205,112 +171,122 @@ ToString(const DetachedSong &song)
 	return result;
 }
 
-class TranslateSongTest : public CppUnit::TestFixture {
-	CPPUNIT_TEST_SUITE(TranslateSongTest);
-	CPPUNIT_TEST(TestAbsoluteURI);
-	CPPUNIT_TEST(TestInsecure);
-	CPPUNIT_TEST(TestSecure);
-	CPPUNIT_TEST(TestInDatabase);
-	CPPUNIT_TEST(TestRelative);
-	CPPUNIT_TEST_SUITE_END();
+class TranslateSongTest : public ::testing::Test {
+	std::unique_ptr<Storage> _storage;
 
-	void TestAbsoluteURI() {
-		DetachedSong song1("http://example.com/foo.ogg");
-		auto se = ToString(song1);
-		const SongLoader loader(nullptr, nullptr);
-		CPPUNIT_ASSERT(playlist_check_translate_song(song1, "/ignored",
-							     loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song1));
+protected:
+	void SetUp() override {
+		_storage = CreateLocalStorage(Path::FromFS(music_directory));
+		storage = _storage.get();
 	}
 
-	void TestInsecure() {
-		/* illegal because secure=false */
-		DetachedSong song1 (uri1);
-		const SongLoader loader(*reinterpret_cast<const Client *>(1));
-		CPPUNIT_ASSERT(!playlist_check_translate_song(song1, nullptr,
-							      loader));
-	}
-
-	void TestSecure() {
-		DetachedSong song1(uri1, MakeTag1b());
-		auto s1 = ToString(song1);
-		auto se = ToString(DetachedSong(uri1, MakeTag1c()));
-
-		const SongLoader loader(nullptr, nullptr);
-		CPPUNIT_ASSERT(playlist_check_translate_song(song1, "/ignored",
-							     loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song1));
-	}
-
-	void TestInDatabase() {
-		const SongLoader loader(reinterpret_cast<const Database *>(1),
-					storage);
-
-		DetachedSong song1("doesntexist");
-		CPPUNIT_ASSERT(!playlist_check_translate_song(song1, nullptr,
-							      loader));
-
-		DetachedSong song2(uri2, MakeTag2b());
-		auto s1 = ToString(song2);
-		auto se = ToString(DetachedSong(uri2, MakeTag2c()));
-		CPPUNIT_ASSERT(playlist_check_translate_song(song2, nullptr,
-							     loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song2));
-
-		DetachedSong song3("/music/foo/bar.ogg", MakeTag2b());
-		s1 = ToString(song3);
-		se = ToString(DetachedSong(uri2, MakeTag2c()));
-		CPPUNIT_ASSERT(playlist_check_translate_song(song3, nullptr,
-							     loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song3));
-	}
-
-	void TestRelative() {
-		const Database &db = *reinterpret_cast<const Database *>(1);
-		const SongLoader secure_loader(&db, storage);
-		const SongLoader insecure_loader(*reinterpret_cast<const Client *>(1),
-						 &db, storage);
-
-		/* map to music_directory */
-		DetachedSong song1("bar.ogg", MakeTag2b());
-		auto s1 = ToString(song1);
-		auto se = ToString(DetachedSong(uri2, MakeTag2c()));
-		CPPUNIT_ASSERT(playlist_check_translate_song(song1, "/music/foo",
-							     insecure_loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song1));
-
-		/* illegal because secure=false */
-		DetachedSong song2("bar.ogg", MakeTag2b());
-		CPPUNIT_ASSERT(!playlist_check_translate_song(song1, "/foo",
-							      insecure_loader));
-
-		/* legal because secure=true */
-		DetachedSong song3("bar.ogg", MakeTag1b());
-		s1 = ToString(song3);
-		se = ToString(DetachedSong(uri1, MakeTag1c()));
-		CPPUNIT_ASSERT(playlist_check_translate_song(song3, "/foo",
-							     secure_loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song3));
-
-		/* relative to http:// */
-		DetachedSong song4("bar.ogg", MakeTag2a());
-		s1 = ToString(song4);
-		se = ToString(DetachedSong("http://example.com/foo/bar.ogg", MakeTag2a()));
-		CPPUNIT_ASSERT(playlist_check_translate_song(song4, "http://example.com/foo",
-							     insecure_loader));
-		CPPUNIT_ASSERT_EQUAL(se, ToString(song4));
+	void TearDown() override {
+		_storage.reset();
 	}
 };
 
-CPPUNIT_TEST_SUITE_REGISTRATION(TranslateSongTest);
-
-int
-main(gcc_unused int argc, gcc_unused char **argv)
+TEST_F(TranslateSongTest, AbsoluteURI)
 {
-	storage = CreateLocalStorage(Path::FromFS(music_directory));
+	DetachedSong song1("http://example.com/foo.ogg");
+	auto se = ToString(song1);
+	const SongLoader loader(nullptr, nullptr);
+	EXPECT_TRUE(playlist_check_translate_song(song1, "/ignored",
+						  loader));
+	EXPECT_EQ(se, ToString(song1));
+}
 
-	CppUnit::TextUi::TestRunner runner;
-	auto &registry = CppUnit::TestFactoryRegistry::getRegistry();
-	runner.addTest(registry.makeTest());
-	return runner.run() ? EXIT_SUCCESS : EXIT_FAILURE;
+TEST_F(TranslateSongTest, Insecure)
+{
+	/* illegal because secure=false */
+	DetachedSong song1 (uri1);
+	const SongLoader loader(*reinterpret_cast<const Client *>(1));
+	EXPECT_FALSE(playlist_check_translate_song(song1, nullptr,
+						   loader));
+}
+
+TEST_F(TranslateSongTest, Secure)
+{
+	DetachedSong song1(uri1, MakeTag1b());
+	auto se = ToString(DetachedSong(uri1, MakeTag1c()));
+
+	const SongLoader loader(nullptr, nullptr);
+	EXPECT_TRUE(playlist_check_translate_song(song1, "/ignored",
+						  loader));
+	EXPECT_EQ(se, ToString(song1));
+}
+
+TEST_F(TranslateSongTest, InDatabase)
+{
+	const SongLoader loader(reinterpret_cast<const Database *>(1),
+				storage);
+
+	DetachedSong song1("doesntexist");
+	EXPECT_FALSE(playlist_check_translate_song(song1, nullptr,
+						   loader));
+
+	DetachedSong song2(uri2, MakeTag2b());
+	auto se = ToString(DetachedSong(uri2, MakeTag2c()));
+	EXPECT_TRUE(playlist_check_translate_song(song2, nullptr,
+						  loader));
+	EXPECT_EQ(se, ToString(song2));
+
+	DetachedSong song3("/music/foo/bar.ogg", MakeTag2b());
+	se = ToString(DetachedSong(uri2, MakeTag2c()));
+	EXPECT_TRUE(playlist_check_translate_song(song3, nullptr,
+						  loader));
+	EXPECT_EQ(se, ToString(song3));
+}
+
+TEST_F(TranslateSongTest, Relative)
+{
+	const Database &db = *reinterpret_cast<const Database *>(1);
+	const SongLoader secure_loader(&db, storage);
+	const SongLoader insecure_loader(*reinterpret_cast<const Client *>(1),
+					 &db, storage);
+
+	/* map to music_directory */
+	DetachedSong song1("bar.ogg", MakeTag2b());
+	auto se = ToString(DetachedSong(uri2, MakeTag2c()));
+	EXPECT_TRUE(playlist_check_translate_song(song1, "/music/foo",
+						  insecure_loader));
+	EXPECT_EQ(se, ToString(song1));
+
+	/* illegal because secure=false */
+	DetachedSong song2("bar.ogg", MakeTag2b());
+	EXPECT_FALSE(playlist_check_translate_song(song1, "/foo",
+						   insecure_loader));
+
+	/* legal because secure=true */
+	DetachedSong song3("bar.ogg", MakeTag1b());
+	se = ToString(DetachedSong(uri1, MakeTag1c()));
+	EXPECT_TRUE(playlist_check_translate_song(song3, "/foo",
+						  secure_loader));
+	EXPECT_EQ(se, ToString(song3));
+
+	/* relative to http:// */
+	DetachedSong song4("bar.ogg", MakeTag2a());
+	se = ToString(DetachedSong("http://example.com/foo/bar.ogg", MakeTag2a()));
+	EXPECT_TRUE(playlist_check_translate_song(song4, "http://example.com/foo",
+						  insecure_loader));
+	EXPECT_EQ(se, ToString(song4));
+}
+
+TEST_F(TranslateSongTest, Backslash)
+{
+	const SongLoader loader(reinterpret_cast<const Database *>(1),
+				storage);
+
+	DetachedSong song1("foo\\bar.ogg", MakeTag2b());
+#ifdef _WIN32
+	/* on Windows, all backslashes are converted to slashes in
+	   relative paths from playlists */
+	auto se = ToString(DetachedSong(uri2, MakeTag2c()));
+	EXPECT_TRUE(playlist_check_translate_song(song1, nullptr,
+						  loader));
+	EXPECT_EQ(se, ToString(song1));
+#else
+	/* backslash only supported on Windows */
+	EXPECT_FALSE(playlist_check_translate_song(song1, nullptr,
+						   loader));
+#endif
 }

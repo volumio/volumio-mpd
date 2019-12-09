@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FullyBufferedSocket.hxx"
 #include "net/SocketError.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <assert.h>
 #include <string.h>
 
 FullyBufferedSocket::ssize_t
-FullyBufferedSocket::DirectWrite(const void *data, size_t length)
+FullyBufferedSocket::DirectWrite(const void *data, size_t length) noexcept
 {
-	const auto nbytes = SocketMonitor::Write((const char *)data, length);
+	const auto nbytes = GetSocket().Write((const char *)data, length);
 	if (gcc_unlikely(nbytes < 0)) {
 		const auto code = GetSocketError();
 		if (IsSocketErrorAgain(code))
@@ -47,12 +46,12 @@ FullyBufferedSocket::DirectWrite(const void *data, size_t length)
 }
 
 bool
-FullyBufferedSocket::Flush()
+FullyBufferedSocket::Flush() noexcept
 {
 	assert(IsDefined());
 
 	const auto data = output.Read();
-	if (data.IsEmpty()) {
+	if (data.empty()) {
 		IdleMonitor::Cancel();
 		CancelWrite();
 		return true;
@@ -64,7 +63,7 @@ FullyBufferedSocket::Flush()
 
 	output.Consume(nbytes);
 
-	if (output.IsEmpty()) {
+	if (output.empty()) {
 		IdleMonitor::Cancel();
 		CancelWrite();
 	}
@@ -73,14 +72,14 @@ FullyBufferedSocket::Flush()
 }
 
 bool
-FullyBufferedSocket::Write(const void *data, size_t length)
+FullyBufferedSocket::Write(const void *data, size_t length) noexcept
 {
 	assert(IsDefined());
 
 	if (length == 0)
 		return true;
 
-	const bool was_empty = output.IsEmpty();
+	const bool was_empty = output.empty();
 
 	if (!output.Append(data, length)) {
 		OnSocketError(std::make_exception_ptr(std::runtime_error("Output buffer is full")));
@@ -93,10 +92,10 @@ FullyBufferedSocket::Write(const void *data, size_t length)
 }
 
 bool
-FullyBufferedSocket::OnSocketReady(unsigned flags)
+FullyBufferedSocket::OnSocketReady(unsigned flags) noexcept
 {
 	if (flags & WRITE) {
-		assert(!output.IsEmpty());
+		assert(!output.empty());
 		assert(!IdleMonitor::IsActive());
 
 		if (!Flush())
@@ -110,8 +109,8 @@ FullyBufferedSocket::OnSocketReady(unsigned flags)
 }
 
 void
-FullyBufferedSocket::OnIdle()
+FullyBufferedSocket::OnIdle() noexcept
 {
-	if (Flush() && !output.IsEmpty())
+	if (Flush() && !output.empty())
 		ScheduleWrite();
 }

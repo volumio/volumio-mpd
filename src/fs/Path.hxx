@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_FS_PATH_HXX
 #define MPD_FS_PATH_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 #include "Traits.hxx"
 
 #include <string>
@@ -37,25 +36,24 @@ class AllocatedPath;
  * instance lives, the string must not be invalidated.
  */
 class Path : public PathTraitsFS::Pointer {
-	typedef PathTraitsFS::Pointer Base;
+	using Traits = PathTraitsFS;
+	typedef Traits::Pointer Base;
 
 	constexpr Path(const_pointer_type _value):Base(_value) {}
 
 public:
 	/**
-	 * Copy a #Path object.
-	 */
-	constexpr Path(const Path &) = default;
-
-	/**
-	 * Return a "nulled" instance.  Its IsNull() method will
+	 * Construct a "nulled" instance.  Its IsNull() method will
 	 * return true.  Such an object must not be used.
 	 *
 	 * @see IsNull()
 	 */
-	static constexpr Path Null() {
-		return Path(nullptr);
-	}
+	constexpr Path(std::nullptr_t):Base(nullptr) {}
+
+	/**
+	 * Copy a #Path object.
+	 */
+	constexpr Path(const Path &) = default;
 
 	/**
 	 * Create a new instance pointing to the specified path
@@ -92,10 +90,10 @@ public:
 	 * elements (which may not be the number of characters).
 	 */
 	gcc_pure
-	size_t length() const {
+	size_t length() const noexcept {
 		assert(!IsNull());
 
-		return PathTraitsFS::GetLength(c_str());
+		return Traits::GetLength(c_str());
 	}
 
 	/**
@@ -104,7 +102,7 @@ public:
 	 * instance ends.
 	 */
 	gcc_pure
-	const_pointer_type c_str() const {
+	const_pointer_type c_str() const noexcept {
 		return Base::c_str();
 	}
 
@@ -113,7 +111,7 @@ public:
 	 * null-terminated.
 	 */
 	gcc_pure
-	const_pointer_type data() const {
+	const_pointer_type data() const noexcept {
 		return c_str();
 	}
 
@@ -123,8 +121,8 @@ public:
 	 * transfer newline characters).
 	 */
 	gcc_pure
-	bool HasNewline() const {
-		return PathTraitsFS::Find(c_str(), '\n') != nullptr;
+	bool HasNewline() const noexcept {
+		return Traits::Find(c_str(), '\n') != nullptr;
 	}
 
 	/**
@@ -133,15 +131,20 @@ public:
 	 * (#IsNull returns true).
 	 */
 	gcc_pure
-	std::string ToUTF8() const;
+	std::string ToUTF8() const noexcept;
+
+	/**
+	 * Like ToUTF8(), but throws on error.
+	 */
+	std::string ToUTF8Throw() const;
 
 	/**
 	 * Determine the "base" file name.
 	 * The return value points inside this object.
 	 */
 	gcc_pure
-	Path GetBase() const {
-		return FromFS(PathTraitsFS::GetBase(c_str()));
+	Path GetBase() const noexcept {
+		return FromFS(Traits::GetBase(c_str()));
 	}
 
 	/**
@@ -149,7 +152,7 @@ public:
 	 * Returns a "nulled" instance on error.
 	 */
 	gcc_pure
-	AllocatedPath GetDirectoryName() const;
+	AllocatedPath GetDirectoryName() const noexcept;
 
 	/**
 	 * Determine the relative part of the given path to this
@@ -158,17 +161,25 @@ public:
 	 * nullptr on mismatch.
 	 */
 	gcc_pure
-	const_pointer_type Relative(Path other_fs) const {
-		return PathTraitsFS::Relative(c_str(), other_fs.c_str());
+	const_pointer_type Relative(Path other_fs) const noexcept {
+		return Traits::Relative(c_str(), other_fs.c_str());
 	}
 
 	gcc_pure
-	bool IsAbsolute() const {
-		return PathTraitsFS::IsAbsolute(c_str());
+	bool IsAbsolute() const noexcept {
+		return Traits::IsAbsolute(c_str());
 	}
 
 	gcc_pure
-	const_pointer_type GetSuffix() const;
+	const_pointer_type GetSuffix() const noexcept;
 };
+
+/**
+ * Concatenate two path components using the directory separator.
+ *
+ * Wrapper for AllocatedPath::Build().
+ */
+AllocatedPath
+operator/(Path a, Path b) noexcept;
 
 #endif

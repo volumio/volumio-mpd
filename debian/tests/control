@@ -1,0 +1,3 @@
+# run some tests from Audio::MPD
+Test-Command: prove -v debian/tests/*.t
+Depends: libaudio-mpd-perl, libtest-corpus-audio-mpd-perl, net-tools

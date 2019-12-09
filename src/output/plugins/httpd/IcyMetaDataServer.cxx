@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "IcyMetaDataServer.hxx"
-#include "Page.hxx"
 #include "tag/Tag.hxx"
 #include "util/FormatString.hxx"
 #include "util/AllocatedString.hxx"
-#include "util/StringUtil.hxx"
+#include "util/TruncateString.hxx"
 #include "util/Macros.hxx"
 
 #include <string.h>
@@ -31,9 +29,9 @@
 AllocatedString<>
 icy_server_metadata_header(const char *name,
 			   const char *genre, const char *url,
-			   const char *content_type, int metaint)
+			   const char *content_type, int metaint) noexcept
 {
-	return FormatString("ICY 200 OK\r\n"
+	return FormatString("HTTP/1.1 200 OK\r\n"
 			    "icy-notice1:<BR>This stream requires an audio player!<BR>\r\n" /* TODO */
 			    "icy-notice2:MPD - The music player daemon<BR>\r\n"
 			    "icy-name: %s\r\n"             /* TODO */
@@ -56,11 +54,16 @@ icy_server_metadata_header(const char *name,
 }
 
 static AllocatedString<>
-icy_server_metadata_string(const char *stream_title, const char* stream_url)
+icy_server_metadata_string(const char *stream_title,
+			   const char* stream_url) noexcept
 {
 	// The leading n is a placeholder for the length information
 	auto icy_metadata = FormatString("nStreamTitle='%s';"
-					 "StreamUrl='%s';",
+					 "StreamUrl='%s';"
+					 /* pad 15 spaces just in case
+					    the length needs to be
+					    rounded up */
+					 "               ",
 					 stream_title,
 					 stream_url);
 
@@ -68,7 +71,7 @@ icy_server_metadata_string(const char *stream_title, const char* stream_url)
 
 	meta_length--; // subtract placeholder
 
-	meta_length = ((int)meta_length / 16) + 1;
+	meta_length = meta_length / 16;
 
 	icy_metadata[0] = meta_length;
 
@@ -78,8 +81,8 @@ icy_server_metadata_string(const char *stream_title, const char* stream_url)
 	return icy_metadata;
 }
 
-Page *
-icy_server_metadata_page(const Tag &tag, const TagType *types)
+PagePtr
+icy_server_metadata_page(const Tag &tag, const TagType *types) noexcept
 {
 	const char *tag_items[TAG_NUM_OF_ITEM_TYPES];
 
@@ -98,10 +101,10 @@ icy_server_metadata_page(const Tag &tag, const TagType *types)
 	stream_title[0] =  '\0';
 
 	while (p < end && item <= last_item) {
-		p = CopyString(p, tag_items[item++], end - p);
+		p = CopyTruncateString(p, tag_items[item++], end - p);
 
 		if (item <= last_item)
-			p = CopyString(p, " - ", end - p);
+			p = CopyTruncateString(p, " - ", end - p);
 	}
 
 	const auto icy_string = icy_server_metadata_string(stream_title, "");
@@ -109,5 +112,6 @@ icy_server_metadata_page(const Tag &tag, const TagType *types)
 	if (icy_string.IsNull())
 		return nullptr;
 
-	return Page::Copy(icy_string.c_str(), (icy_string[0] * 16) + 1);
+	return std::make_shared<Page>(icy_string.c_str(),
+				      uint8_t(icy_string[0]) * 16 + 1);
 }

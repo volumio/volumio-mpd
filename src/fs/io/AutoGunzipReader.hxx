@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,8 @@
 #ifndef MPD_AUTO_GUNZIP_READER_HXX
 #define MPD_AUTO_GUNZIP_READER_HXX
 
-#include "check.h"
 #include "PeekReader.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 class GunzipReader;
 
@@ -31,13 +30,13 @@ class GunzipReader;
  * #GunzipReader.
  */
 class AutoGunzipReader final : public Reader {
-	Reader *next;
+	Reader *next = nullptr;
 	PeekReader peek;
-	GunzipReader *gunzip;
+	GunzipReader *gunzip = nullptr;
 
 public:
-	AutoGunzipReader(Reader &_next)
-		:next(nullptr), peek(_next), gunzip(nullptr) {}
+	explicit AutoGunzipReader(Reader &_next)
+		:peek(_next) {}
 	~AutoGunzipReader();
 
 	/* virtual methods from class Reader */

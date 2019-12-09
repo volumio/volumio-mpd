@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 
 class AllocatedPath;
 
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_init(const char *user, const char *group, AllocatedPath &&pidfile);
 #else
@@ -31,7 +31,7 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&pidfile)
 { (void)user; (void)group; (void)pidfile; }
 #endif
 
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_finish();
 #else
@@ -44,22 +44,22 @@ daemonize_finish()
  * Kill the MPD which is currently running, pid determined from the
  * pid file.
  */
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_kill();
 #else
-#include "system/FatalError.hxx"
+#include <stdexcept>
 static inline void
 daemonize_kill()
 {
-	FatalError("--kill is not available on WIN32");
+	throw std::runtime_error("--kill is not available on WIN32");
 }
 #endif
 
 /**
  * Close stdin (fd 0) and re-open it as /dev/null.
  */
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_close_stdin();
 #else
@@ -70,7 +70,7 @@ daemonize_close_stdin() {}
 /**
  * Change to the configured Unix user.
  */
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_set_user();
 #else
@@ -79,7 +79,7 @@ daemonize_set_user()
 { /* nop */ }
 #endif
 
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_begin(bool detach);
 #else
@@ -88,7 +88,7 @@ daemonize_begin(bool detach)
 { (void)detach; }
 #endif
 
-#ifndef WIN32
+#ifndef _WIN32
 void
 daemonize_commit();
 #else

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_MIX_RAMP_INFO_HXX
 #define MPD_MIX_RAMP_INFO_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 
@@ -31,45 +30,45 @@ class MixRampInfo {
 public:
 	MixRampInfo() = default;
 
-	void Clear() {
+	void Clear() noexcept {
 		start.clear();
 		end.clear();
 	}
 
 	gcc_pure
-	bool IsDefined() const {
+	bool IsDefined() const noexcept {
 		return !start.empty() || !end.empty();
 	}
 
 	gcc_pure
-	const char *GetStart() const {
+	const char *GetStart() const noexcept {
 		return start.empty() ? nullptr : start.c_str();
 	}
 
 	gcc_pure
-	const char *GetEnd() const {
+	const char *GetEnd() const noexcept {
 		return end.empty() ? nullptr : end.c_str();
 	}
 
-	void SetStart(const char *new_value) {
+	void SetStart(const char *new_value) noexcept {
 		if (new_value == nullptr)
 			start.clear();
 		else
 			start = new_value;
 	}
 
-	void SetStart(std::string &&new_value) {
+	void SetStart(std::string &&new_value) noexcept {
 		start = std::move(new_value);
 	}
 
-	void SetEnd(const char *new_value) {
+	void SetEnd(const char *new_value) noexcept {
 		if (new_value == nullptr)
 			end.clear();
 		else
 			end = new_value;
 	}
 
-	void SetEnd(std::string &&new_value) {
+	void SetEnd(std::string &&new_value) noexcept {
 		end = std::move(new_value);
 	}
 };

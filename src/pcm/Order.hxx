@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_PCM_ORDER_HXX
 #define MPD_PCM_ORDER_HXX
 
-#include "check.h"
-#include "AudioFormat.hxx"
+#include "SampleFormat.hxx"
 
 class PcmBuffer;
 template<typename T> struct ConstBuffer;
@@ -32,6 +31,6 @@ template<typename T> struct ConstBuffer;
  */
 ConstBuffer<void>
 ToAlsaChannelOrder(PcmBuffer &buffer, ConstBuffer<void> src,
-		   SampleFormat sample_format, unsigned channels);
+		   SampleFormat sample_format, unsigned channels) noexcept;
 
 #endif

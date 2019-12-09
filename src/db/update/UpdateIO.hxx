@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_UPDATE_IO_HXX
 #define MPD_UPDATE_IO_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct Directory;
 struct StorageFileInfo;
@@ -33,23 +32,23 @@ class StorageDirectoryReader;
  * returning them.
  */
 bool
-GetInfo(Storage &storage, const char *uri_utf8, StorageFileInfo &info);
+GetInfo(Storage &storage, const char *uri_utf8, StorageFileInfo &info) noexcept;
 
 /**
  * Wrapper for LocalDirectoryReader::GetInfo() that logs errors
  * instead of returning them.
  */
 bool
-GetInfo(StorageDirectoryReader &reader, StorageFileInfo &info);
+GetInfo(StorageDirectoryReader &reader, StorageFileInfo &info) noexcept;
 
 gcc_pure
 bool
-DirectoryExists(Storage &storage, const Directory &directory);
+DirectoryExists(Storage &storage, const Directory &directory) noexcept;
 
 gcc_pure
 bool
 directory_child_is_regular(Storage &storage, const Directory &directory,
-			   const char *name_utf8);
+			   const char *name_utf8) noexcept;
 
 /**
  * Checks if the given permissions on the mapped file are given.
@@ -57,6 +56,6 @@ directory_child_is_regular(Storage &storage, const Directory &directory,
 gcc_pure
 bool
 directory_child_access(Storage &storage, const Directory &directory,
-		       const char *name, int mode);
+		       const char *name, int mode) noexcept;
 
 #endif

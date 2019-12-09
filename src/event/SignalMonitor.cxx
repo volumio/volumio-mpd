@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SignalMonitor.hxx"
+#include "config.h"
 
-#ifndef WIN32
+#ifndef _WIN32
 
 #include "SocketMonitor.hxx"
 #include "util/Manual.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
 
 #ifdef USE_SIGNALFD
 #include "system/SignalFD.hxx"
@@ -56,7 +56,7 @@ public:
 	SignalMonitor(EventLoop &_loop)
 		:SocketMonitor(_loop) {
 #ifndef USE_SIGNALFD
-		SocketMonitor::Open(fd.Get());
+		SocketMonitor::Open(SocketDescriptor(fd.Get()));
 		SocketMonitor::ScheduleRead();
 #endif
 	}
@@ -64,24 +64,24 @@ public:
 	using SocketMonitor::GetEventLoop;
 
 #ifdef USE_SIGNALFD
-	void Update(sigset_t &mask) {
+	void Update(sigset_t &mask) noexcept {
 		const bool was_open = SocketMonitor::IsDefined();
 
 		fd.Create(mask);
 
 		if (!was_open) {
-			SocketMonitor::Open(fd.Get());
+			SocketMonitor::Open(SocketDescriptor(fd.Get()));
 			SocketMonitor::ScheduleRead();
 		}
 	}
 #else
-	void WakeUp() {
+	void WakeUp() noexcept {
 		fd.Write();
 	}
 #endif
 
 private:
-	virtual bool OnSocketReady(unsigned flags) override;
+	bool OnSocketReady(unsigned flags) noexcept override;
 };
 
 /* this should be enough - is it? */
@@ -105,7 +105,7 @@ static Manual<SignalMonitor> monitor;
  * would inherit the blocked signals.
  */
 static void
-at_fork_child()
+at_fork_child() noexcept
 {
 	sigprocmask(SIG_UNBLOCK, &signal_mask, nullptr);
 }
@@ -113,7 +113,7 @@ at_fork_child()
 #else
 
 static void
-SignalCallback(int signo)
+SignalCallback(int signo) noexcept
 {
 	assert(signal_handlers[signo]);
 
@@ -141,13 +141,13 @@ static void
 x_sigaction(int signum, const struct sigaction &act)
 {
 	if (sigaction(signum, &act, nullptr) < 0)
-		FatalSystemError("sigaction() failed");
+		throw MakeErrno("sigaction() failed");
 }
 
 #endif
 
 void
-SignalMonitorFinish()
+SignalMonitorFinish() noexcept
 {
 #ifdef USE_SIGNALFD
 	std::fill_n(signal_handlers, MAX_SIGNAL, nullptr);
@@ -159,7 +159,7 @@ SignalMonitorFinish()
 
 	for (unsigned i = 0; i < MAX_SIGNAL; ++i) {
 		if (signal_handlers[i]) {
-			x_sigaction(i, sa);
+			sigaction(i, &sa, nullptr);
 			signal_handlers[i] = nullptr;
 		}
 	}
@@ -184,7 +184,7 @@ SignalMonitorRegister(int signo, SignalHandler handler)
 	sigaddset(&signal_mask, signo);
 
 	if (sigprocmask(SIG_BLOCK, &signal_mask, nullptr) < 0)
-		FatalSystemError("sigprocmask() failed");
+		throw MakeErrno("sigprocmask() failed");
 
 	monitor->Update(signal_mask);
 #else
@@ -197,7 +197,7 @@ SignalMonitorRegister(int signo, SignalHandler handler)
 }
 
 bool
-SignalMonitor::OnSocketReady(unsigned)
+SignalMonitor::OnSocketReady(unsigned) noexcept
 {
 #ifdef USE_SIGNALFD
 	int signo;

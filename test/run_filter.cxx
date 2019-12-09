@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2019 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,19 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "ConfigGlue.hxx"
 #include "fs/Path.hxx"
 #include "AudioParser.hxx"
 #include "AudioFormat.hxx"
-#include "filter/FilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
+#include "filter/LoadOne.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
 #include "pcm/Volume.hxx"
 #include "mixer/MixerControl.hxx"
 #include "util/ConstBuffer.hxx"
-#include "system/FatalError.hxx"
-#include "Log.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/RuntimeError.hxx"
+#include "util/PrintException.hxx"
 
 #include <memory>
 #include <stdexcept>
@@ -47,22 +47,20 @@ mixer_set_volume(gcc_unused Mixer *mixer,
 {
 }
 
-static PreparedFilter *
-load_filter(const char *name)
+static std::unique_ptr<PreparedFilter>
+LoadFilter(const ConfigData &config, const char *name)
 {
-	const auto *param = config_find_block(ConfigBlockOption::AUDIO_FILTER,
-					      "name", name);
-	if (param == NULL) {
-		fprintf(stderr, "No such configured filter: %s\n", name);
-		return nullptr;
-	}
+	const auto *param = config.FindBlock(ConfigBlockOption::AUDIO_FILTER,
+					     "name", name);
+	if (param == NULL)
+		throw FormatRuntimeError("No such configured filter: %s",
+					 name);
 
 	return filter_configured_new(*param);
 }
 
 int main(int argc, char **argv)
 try {
-	struct audio_format_string af_string;
 	char buffer[4096];
 
 	if (argc < 3 || argc > 4) {
@@ -76,8 +74,7 @@ try {
 
 	/* read configuration file (mpd.conf) */
 
-	config_global_init();
-	ReadConfigFile(config_path);
+	const auto config = AutoLoadConfigFile(config_path);
 
 	/* parse the audio format */
 
@@ -86,18 +83,16 @@ try {
 
 	/* initialize the filter */
 
-	std::unique_ptr<PreparedFilter> prepared_filter(load_filter(argv[2]));
-	if (!prepared_filter)
-		return EXIT_FAILURE;
+	auto prepared_filter = LoadFilter(config, argv[2]);
 
 	/* open the filter */
 
-	std::unique_ptr<Filter> filter(prepared_filter->Open(audio_format));
+	auto filter = prepared_filter->Open(audio_format);
 
 	const AudioFormat out_audio_format = filter->GetOutAudioFormat();
 
 	fprintf(stderr, "audio_format=%s\n",
-		audio_format_to_string(out_audio_format, &af_string));
+		ToString(out_audio_format).c_str());
 
 	/* play */
 
@@ -120,10 +115,8 @@ try {
 
 	/* cleanup and exit */
 
-	config_global_finish();
-
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

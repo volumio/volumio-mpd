@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Thread.hxx"
 #include "system/Error.hxx"
 
@@ -25,88 +24,72 @@
 #include "java/Global.hxx"
 #endif
 
-bool
-Thread::Start(void (*_f)(void *ctx), void *_ctx)
+void
+Thread::Start()
 {
 	assert(!IsDefined());
 
-	f = _f;
-	ctx = _ctx;
-
-#ifdef WIN32
+#ifdef _WIN32
 	handle = ::CreateThread(nullptr, 0, ThreadProc, this, 0, &id);
 	if (handle == nullptr)
 		throw MakeLastError("Failed to create thread");
 #else
-#ifndef NDEBUG
-	creating = true;
-#endif
-
 	int e = pthread_create(&handle, nullptr, ThreadProc, this);
 
-	if (e != 0) {
-#ifndef NDEBUG
-		creating = false;
-#endif
+	if (e != 0)
 		throw MakeErrno(e, "Failed to create thread");
-	}
-
-	defined = true;
-#ifndef NDEBUG
-	creating = false;
 #endif
-#endif
-
-	return true;
 }
 
 void
-Thread::Join()
+Thread::Join() noexcept
 {
 	assert(IsDefined());
 	assert(!IsInside());
 
-#ifdef WIN32
+#ifdef _WIN32
 	::WaitForSingleObject(handle, INFINITE);
 	::CloseHandle(handle);
 	handle = nullptr;
 #else
 	pthread_join(handle, nullptr);
-	defined = false;
+	handle = pthread_t();
 #endif
 }
 
-#ifdef WIN32
+inline void
+Thread::Run() noexcept
+{
+	f();
+
+#ifdef ANDROID
+	Java::DetachCurrentThread();
+#endif
+}
+
+#ifdef _WIN32
 
 DWORD WINAPI
-Thread::ThreadProc(LPVOID ctx)
+Thread::ThreadProc(LPVOID ctx) noexcept
 {
 	Thread &thread = *(Thread *)ctx;
 
-	thread.f(thread.ctx);
+	thread.Run();
 	return 0;
 }
 
 #else
 
 void *
-Thread::ThreadProc(void *ctx)
+Thread::ThreadProc(void *ctx) noexcept
 {
 	Thread &thread = *(Thread *)ctx;
 
 #ifndef NDEBUG
-	/* this works around a race condition that causes an assertion
-	   failure due to IsInside() spuriously returning false right
-	   after the thread has been created, and the calling thread
-	   hasn't initialised "defined" yet */
-	thread.defined = true;
+	thread.inside_handle = pthread_self();
 #endif
 
-	thread.f(thread.ctx);
-
-#ifdef ANDROID
-	Java::DetachCurrentThread();
-#endif
+	thread.Run();
 
 	return nullptr;
 }

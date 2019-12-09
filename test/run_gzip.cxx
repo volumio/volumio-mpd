@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "fs/io/GzipOutputStream.hxx"
 #include "fs/io/StdioOutputStream.hxx"
 #include "system/Error.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,17 +60,15 @@ CopyGzip(FILE *_dest, int src)
 
 int
 main(int argc, gcc_unused char **argv)
-{
+try {
 	if (argc != 1) {
 		fprintf(stderr, "Usage: run_gzip\n");
 		return EXIT_FAILURE;
 	}
 
-	try {
-		CopyGzip(stdout, STDIN_FILENO);
-		return EXIT_SUCCESS;
-	} catch (const std::exception &e) {
-		LogError(e);
-		return EXIT_FAILURE;
-	}
+	CopyGzip(stdout, STDIN_FILENO);
+	return EXIT_SUCCESS;
+} catch (...) {
+	PrintException(std::current_exception());
+	return EXIT_FAILURE;
 }

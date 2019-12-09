@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,9 @@
 #ifndef THREAD_MUTEX_HXX
 #define THREAD_MUTEX_HXX
 
-#ifdef WIN32
+#include <mutex>
+
+#ifdef _WIN32
 
 #include "CriticalSection.hxx"
 class Mutex : public CriticalSection {};
@@ -42,30 +44,6 @@ class Mutex : public PosixMutex {};
 
 #endif
 
-class ScopeLock {
-	Mutex &mutex;
-
-	bool active = true;
-
-public:
-	ScopeLock(Mutex &_mutex):mutex(_mutex) {
-		mutex.lock();
-	};
-
-	~ScopeLock() {
-		if (active)
-			mutex.unlock();
-	};
-
-	ScopeLock(const ScopeLock &other) = delete;
-	ScopeLock &operator=(const ScopeLock &other) = delete;
-
-	void Unlock() {
-		mutex.unlock();
-		active = false;
-	}
-};
-
 /**
  * Within the scope of an instance, this class will keep a #Mutex
  * unlocked.
@@ -74,11 +52,11 @@ class ScopeUnlock {
 	Mutex &mutex;
 
 public:
-	explicit ScopeUnlock(Mutex &_mutex):mutex(_mutex) {
+	explicit ScopeUnlock(Mutex &_mutex) noexcept:mutex(_mutex) {
 		mutex.unlock();
 	};
 
-	~ScopeUnlock() {
+	~ScopeUnlock() noexcept {
 		mutex.lock();
 	}
 

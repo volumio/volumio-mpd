@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,18 +20,29 @@
 #ifndef _UPNPPDISC_H_X_INCLUDED_
 #define _UPNPPDISC_H_X_INCLUDED_
 
+#include "Compat.hxx"
 #include "Callback.hxx"
 #include "Device.hxx"
-#include "WorkQueue.hxx"
+#include "lib/curl/Init.hxx"
+#include "lib/curl/Handler.hxx"
+#include "lib/curl/Request.hxx"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
+#include "event/DeferEvent.hxx"
+#include "util/Compiler.h"
 
-#include <upnp/upnp.h>
+#include <upnp.h>
+
+#include <boost/intrusive/list.hpp>
 
 #include <list>
 #include <vector>
 #include <string>
 #include <memory>
+#include <chrono>
+
+#if UPNP_VERSION < 10800
+#define UpnpDiscovery Upnp_Discovery
+#endif
 
 class ContentDirectoryService;
 
@@ -49,22 +60,6 @@ public:
  */
 class UPnPDeviceDirectory final : UpnpCallback {
 	/**
-	 * Each appropriate discovery event (executing in a libupnp thread
-	 * context) queues the following task object for processing by the
-	 * discovery thread.
-	 */
-	struct DiscoveredTask {
-		std::string url;
-		std::string device_id;
-		unsigned expires; // Seconds valid
-
-		DiscoveredTask(const Upnp_Discovery *disco)
-			:url(disco->Location),
-			 device_id(disco->DeviceId),
-			 expires(disco->Expires) {}
-	};
-
-	/**
 	 * Descriptor for one device having a Content Directory
 	 * service found on the network.
 	 */
@@ -75,48 +70,105 @@ class UPnPDeviceDirectory final : UpnpCallback {
 		UPnPDevice device;
 
 		/**
-		 * The MonotonicClockS() time stamp when this device
-		 * expires.
+		 * The time stamp when this device expires.
 		 */
-		unsigned expires;
+		std::chrono::steady_clock::time_point expires;
 
 		ContentDirectoryDescriptor() = default;
 
 		ContentDirectoryDescriptor(std::string &&_id,
-					   unsigned last, int exp)
-			:id(std::move(_id)), expires(last + exp + 20) {}
+					   std::chrono::steady_clock::time_point last,
+					   std::chrono::steady_clock::duration exp) noexcept
+			:id(std::move(_id)),
+			 expires(last + exp + std::chrono::seconds(20)) {}
 
 		void Parse(const std::string &url, const char *description) {
 			device.Parse(url, description);
 		}
 	};
 
+	class Downloader final
+		: public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>>,
+		CurlResponseHandler {
+
+		DeferEvent defer_start_event;
+
+		UPnPDeviceDirectory &parent;
+
+		std::string id;
+		const std::string url;
+		const std::chrono::steady_clock::duration expires;
+
+		CurlRequest request;
+
+		std::string data;
+
+	public:
+		Downloader(UPnPDeviceDirectory &_parent,
+			   const UpnpDiscovery &disco);
+
+		void Start() noexcept {
+			defer_start_event.Schedule();
+		}
+
+		void Destroy() noexcept;
+
+	private:
+		void OnDeferredStart() noexcept {
+			try {
+				request.Start();
+			} catch (...) {
+				OnError(std::current_exception());
+			}
+		}
+
+		/* virtual methods from CurlResponseHandler */
+		void OnHeaders(unsigned status,
+			       std::multimap<std::string, std::string> &&headers) override;
+		void OnData(ConstBuffer<void> data) override;
+		void OnEnd() override;
+		void OnError(std::exception_ptr e) noexcept override;
+	};
+
+	CurlInit curl;
+
 	const UpnpClient_Handle handle;
 	UPnPDiscoveryListener *const listener;
 
 	Mutex mutex;
+
+	/**
+	 * Protected by #mutex.
+	 */
+	boost::intrusive::list<Downloader,
+			       boost::intrusive::constant_time_size<false>> downloaders;
+
+	/**
+	 * Protected by #mutex.
+	 */
 	std::list<ContentDirectoryDescriptor> directories;
-	WorkQueue<std::unique_ptr<DiscoveredTask>> queue;
 
 	/**
 	 * The UPnP device search timeout, which should actually be
 	 * called delay because it's the base of a random delay that
 	 * the devices apply to avoid responding all at the same time.
 	 */
-	int search_timeout;
+	int search_timeout = 2;
 
 	/**
-	 * The MonotonicClockS() time stamp of the last search.
+	 * The time stamp of the last search.
 	 */
-	unsigned last_search;
+	std::chrono::steady_clock::time_point last_search = std::chrono::steady_clock::time_point();
 
 public:
-	UPnPDeviceDirectory(UpnpClient_Handle _handle,
+	UPnPDeviceDirectory(EventLoop &event_loop, UpnpClient_Handle _handle,
 			    UPnPDiscoveryListener *_listener=nullptr);
-	~UPnPDeviceDirectory();
+	~UPnPDeviceDirectory() noexcept;
 
 	UPnPDeviceDirectory(const UPnPDeviceDirectory &) = delete;
 	UPnPDeviceDirectory& operator=(const UPnPDeviceDirectory &) = delete;
+
+	EventLoop &GetEventLoop() noexcept;
 
 	void Start();
 
@@ -143,19 +195,11 @@ private:
 	void LockAdd(ContentDirectoryDescriptor &&d);
 	void LockRemove(const std::string &id);
 
-	/**
-	 * Worker routine for the discovery queue. Get messages about
-	 * devices appearing and disappearing, and update the
-	 * directory pool accordingly.
-	 */
-	static void *Explore(void *);
-	void Explore();
-
-	int OnAlive(Upnp_Discovery *disco);
-	int OnByeBye(Upnp_Discovery *disco);
+	int OnAlive(const UpnpDiscovery *disco) noexcept;
+	int OnByeBye(const UpnpDiscovery *disco) noexcept;
 
 	/* virtual methods from class UpnpCallback */
-	virtual int Invoke(Upnp_EventType et, void *evp) override;
+	int Invoke(Upnp_EventType et, const void *evp) noexcept override;
 };
 
 

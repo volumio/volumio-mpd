@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_UPNP_CALLBACK_HXX
 #define MPD_UPNP_CALLBACK_HXX
 
-#include <upnp/upnp.h>
+#include <upnp.h>
 
 /**
  * A class that is supposed to be used for libupnp asynchronous
@@ -32,15 +32,15 @@ public:
 	 * Pass this value as "cookie" pointer to libupnp asynchronous
 	 * functions.
 	 */
-	void *GetUpnpCookie() {
+	void *GetUpnpCookie() noexcept {
 		return this;
 	}
 
-	static UpnpCallback &FromUpnpCookie(void *cookie) {
+	static UpnpCallback &FromUpnpCookie(void *cookie) noexcept {
 		return *(UpnpCallback *)cookie;
 	}
 
-	virtual int Invoke(Upnp_EventType et, void *evp) = 0;
+	virtual int Invoke(Upnp_EventType et, const void *evp) noexcept = 0;
 };
 
 #endif

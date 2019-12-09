@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,14 @@
 #ifndef MPD_OPUS_TAGS_HXX
 #define MPD_OPUS_TAGS_HXX
 
-#include "check.h"
-
 #include <stddef.h>
 
 struct ReplayGainInfo;
-struct TagHandler;
+class TagHandler;
 
 bool
 ScanOpusTags(const void *data, size_t size,
 	     ReplayGainInfo *rgi,
-	     const TagHandler &handler, void *ctx);
+	     TagHandler &handler) noexcept;
 
 #endif

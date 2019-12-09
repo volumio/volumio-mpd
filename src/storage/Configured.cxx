@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Configured.hxx"
 #include "Registry.hxx"
+#include "StorageInterface.hxx"
 #include "plugins/LocalStorage.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Data.hxx"
+#include "config/Domain.hxx"
 #include "fs/StandardDirectory.hxx"
 #include "fs/CheckFile.hxx"
 #include "util/UriUtil.hxx"
@@ -30,10 +30,10 @@
 
 #include <assert.h>
 
-static Storage *
+static std::unique_ptr<Storage>
 CreateConfiguredStorageUri(EventLoop &event_loop, const char *uri)
 {
-	Storage *storage = CreateStorageURI(event_loop, uri);
+	auto storage = CreateStorageURI(event_loop, uri);
 	if (storage == nullptr)
 		throw FormatRuntimeError("Unrecognized storage URI: %s", uri);
 
@@ -41,19 +41,19 @@ CreateConfiguredStorageUri(EventLoop &event_loop, const char *uri)
 }
 
 static AllocatedPath
-GetConfiguredMusicDirectory()
+GetConfiguredMusicDirectory(const ConfigData &config)
 {
-	AllocatedPath path = config_get_path(ConfigOption::MUSIC_DIR);
+	AllocatedPath path = config.GetPath(ConfigOption::MUSIC_DIR);
 	if (path.IsNull())
 		path = GetUserMusicDir();
 
 	return path;
 }
 
-static Storage *
-CreateConfiguredStorageLocal()
+static std::unique_ptr<Storage>
+CreateConfiguredStorageLocal(const ConfigData &config)
 {
-	AllocatedPath path = GetConfiguredMusicDirectory();
+	AllocatedPath path = GetConfiguredMusicDirectory(config);
 	if (path.IsNull())
 		return nullptr;
 
@@ -62,18 +62,18 @@ CreateConfiguredStorageLocal()
 	return CreateLocalStorage(path);
 }
 
-Storage *
-CreateConfiguredStorage(EventLoop &event_loop)
+std::unique_ptr<Storage>
+CreateConfiguredStorage(const ConfigData &config, EventLoop &event_loop)
 {
-	auto uri = config_get_string(ConfigOption::MUSIC_DIR);
+	auto uri = config.GetString(ConfigOption::MUSIC_DIR);
 	if (uri != nullptr && uri_has_scheme(uri))
 		return CreateConfiguredStorageUri(event_loop, uri);
 
-	return CreateConfiguredStorageLocal();
+	return CreateConfiguredStorageLocal(config);
 }
 
 bool
-IsStorageConfigured()
+IsStorageConfigured(const ConfigData &config) noexcept
 {
-	return config_get_string(ConfigOption::MUSIC_DIR) != nullptr;
+	return config.GetParam(ConfigOption::MUSIC_DIR) != nullptr;
 }

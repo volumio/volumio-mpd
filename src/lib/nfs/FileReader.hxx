@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,22 +20,30 @@
 #ifndef MPD_NFS_FILE_READER_HXX
 #define MPD_NFS_FILE_READER_HXX
 
-#include "check.h"
 #include "Lease.hxx"
 #include "Callback.hxx"
-#include "event/DeferredMonitor.hxx"
-#include "Compiler.h"
+#include "event/DeferEvent.hxx"
+#include "util/Compiler.h"
 
 #include <string>
 #include <exception>
 
 #include <stdint.h>
 #include <stddef.h>
+#include <sys/stat.h>
 
 struct nfsfh;
 class NfsConnection;
 
-class NfsFileReader : NfsLease, NfsCallback, DeferredMonitor {
+/**
+ * A helper class which helps with reading from a file.  It obtains a
+ * connection lease (#NfsLease), opens the given file, "stats" the
+ * file, and finally allos you to read its contents.
+ *
+ * To get started, derive your class from it and implement the pure
+ * virtual methods, construct an instance, and call Open().
+ */
+class NfsFileReader : NfsLease, NfsCallback {
 	enum class State {
 		INITIAL,
 		DEFER,
@@ -46,7 +54,7 @@ class NfsFileReader : NfsLease, NfsCallback, DeferredMonitor {
 		IDLE,
 	};
 
-	State state;
+	State state = State::INITIAL;
 
 	std::string server, export_name;
 	const char *path;
@@ -55,54 +63,95 @@ class NfsFileReader : NfsLease, NfsCallback, DeferredMonitor {
 
 	nfsfh *fh;
 
-public:
-	NfsFileReader();
-	~NfsFileReader();
+	DeferEvent defer_open;
 
-	void Close();
-	void DeferClose();
+public:
+	NfsFileReader() noexcept;
+	~NfsFileReader() noexcept;
+
+	EventLoop &GetEventLoop() noexcept {
+		return defer_open.GetEventLoop();
+	}
+
+	void Close() noexcept;
+	void DeferClose() noexcept;
 
 	/**
+	 * Open the file.  This method is thread-safe.
+	 *
 	 * Throws std::runtime_error on error.
 	 */
 	void Open(const char *uri);
 
 	/**
+	 * Attempt to read from the file.  This may only be done after
+	 * OnNfsFileOpen() has been called.  Only one read operation
+	 * may be performed at a time.
+	 *
+	 * This method is not thread-safe and must be called from
+	 * within the I/O thread.
+	 *
 	 * Throws std::runtime_error on error.
 	 */
 	void Read(uint64_t offset, size_t size);
-	void CancelRead();
 
-	bool IsIdle() const {
+	/**
+	 * Cancel the most recent Read() call.
+	 *
+	 * This method is not thread-safe and must be called from
+	 * within the I/O thread.
+	 */
+	void CancelRead() noexcept;
+
+	bool IsIdle() const noexcept {
 		return state == State::IDLE;
 	}
 
 protected:
-	virtual void OnNfsFileOpen(uint64_t size) = 0;
-	virtual void OnNfsFileRead(const void *data, size_t size) = 0;
-	virtual void OnNfsFileError(std::exception_ptr &&e) = 0;
+	/**
+	 * The file has been opened successfully.  It is a regular
+	 * file, and its size is known.  It is ready to be read from
+	 * using Read().
+	 *
+	 * This method will be called from within the I/O thread.
+	 */
+	virtual void OnNfsFileOpen(uint64_t size) noexcept = 0;
+
+	/**
+	 * A Read() has completed successfully.
+	 *
+	 * This method will be called from within the I/O thread.
+	 */
+	virtual void OnNfsFileRead(const void *data, size_t size) noexcept = 0;
+
+	/**
+	 * An error has occurred, which can be either while waiting
+	 * for OnNfsFileOpen(), or while waiting for OnNfsFileRead(),
+	 * or if disconnected while idle.
+	 */
+	virtual void OnNfsFileError(std::exception_ptr &&e) noexcept = 0;
 
 private:
 	/**
 	 * Cancel the current operation, if any.  The NfsLease must be
 	 * unregistered already.
 	 */
-	void CancelOrClose();
+	void CancelOrClose() noexcept;
 
-	void OpenCallback(nfsfh *_fh);
-	void StatCallback(const struct stat *st);
+	void OpenCallback(nfsfh *_fh) noexcept;
+	void StatCallback(const struct stat *st) noexcept;
 
 	/* virtual methods from NfsLease */
-	void OnNfsConnectionReady() final;
-	void OnNfsConnectionFailed(std::exception_ptr e) final;
-	void OnNfsConnectionDisconnected(std::exception_ptr e) final;
+	void OnNfsConnectionReady() noexcept final;
+	void OnNfsConnectionFailed(std::exception_ptr e) noexcept final;
+	void OnNfsConnectionDisconnected(std::exception_ptr e) noexcept final;
 
 	/* virtual methods from NfsCallback */
-	void OnNfsCallback(unsigned status, void *data) final;
-	void OnNfsError(std::exception_ptr &&e) final;
+	void OnNfsCallback(unsigned status, void *data) noexcept final;
+	void OnNfsError(std::exception_ptr &&e) noexcept final;
 
-	/* virtual methods from DeferredMonitor */
-	void RunDeferred() final;
+	/* DeferEvent callback */
+	void OnDeferredOpen() noexcept;
 };
 
 #endif

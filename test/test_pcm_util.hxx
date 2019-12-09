@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,6 +18,8 @@
  */
 
 #include "util/ConstBuffer.hxx"
+
+#include <gtest/gtest.h>
 
 #include <array>
 #include <random>
@@ -92,13 +94,13 @@ template<typename T>
 bool
 AssertEqualWithTolerance(const T &a, const T &b, unsigned tolerance)
 {
-	CPPUNIT_ASSERT_EQUAL(a.size(), b.size());
+	EXPECT_EQ(a.size(), b.size());
 
 	for (unsigned i = 0; i < a.size(); ++i) {
 		int64_t x = a[i], y = b[i];
 
-		CPPUNIT_ASSERT(x >= y - int64_t(tolerance));
-		CPPUNIT_ASSERT(x <= y + int64_t(tolerance));
+		EXPECT_GE(x, y - int64_t(tolerance));
+		EXPECT_LE(x, y + int64_t(tolerance));
 	}
 
 	return true;

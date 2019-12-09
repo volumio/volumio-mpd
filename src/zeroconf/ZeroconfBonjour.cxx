@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ZeroconfBonjour.hxx"
 #include "ZeroconfInternal.hxx"
 #include "Listen.hxx"
 #include "event/SocketMonitor.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <dns_sd.h>
 
@@ -37,7 +36,8 @@ class BonjourMonitor final : public SocketMonitor {
 
 public:
 	BonjourMonitor(EventLoop &_loop, DNSServiceRef _service_ref)
-		:SocketMonitor(DNSServiceRefSockFD(_service_ref), _loop),
+		:SocketMonitor(SocketDescriptor(DNSServiceRefSockFD(_service_ref)),
+			       _loop),
 		 service_ref(_service_ref) {
 		ScheduleRead();
 	}
@@ -47,9 +47,10 @@ public:
 	}
 
 protected:
-	virtual bool OnSocketReady(gcc_unused unsigned flags) override {
+	/* virtual methods from class SocketMonitor */
+	bool OnSocketReady(gcc_unused unsigned flags) noexcept override {
 		DNSServiceProcessResult(service_ref);
-		return false;
+		return true;
 	}
 };
 

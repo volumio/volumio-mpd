@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,19 +22,19 @@
  *
  */
 
-#include "config.h"
 #include "PlaylistState.hxx"
 #include "PlaylistError.hxx"
 #include "Playlist.hxx"
+#include "SingleMode.hxx"
+#include "StateFileConfig.hxx"
 #include "queue/QueueSave.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "player/Control.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
 #include "util/CharUtil.hxx"
 #include "util/StringAPI.hxx"
 #include "util/StringCompare.hxx"
+#include "util/NumberParser.hxx"
 #include "Log.hxx"
 
 #include <string.h>
@@ -87,13 +87,14 @@ playlist_state_save(BufferedOutputStream &os, const struct playlist &playlist,
 
 	os.Format(PLAYLIST_STATE_FILE_RANDOM "%i\n", playlist.queue.random);
 	os.Format(PLAYLIST_STATE_FILE_REPEAT "%i\n", playlist.queue.repeat);
-	os.Format(PLAYLIST_STATE_FILE_SINGLE "%i\n", playlist.queue.single);
+	os.Format(PLAYLIST_STATE_FILE_SINGLE "%i\n",
+			  (int)playlist.queue.single);
 	os.Format(PLAYLIST_STATE_FILE_CONSUME "%i\n", playlist.queue.consume);
 	os.Format(PLAYLIST_STATE_FILE_CROSSFADE "%i\n",
-		  (int)pc.GetCrossFade());
+		  (int)pc.GetCrossFade().count());
 	os.Format(PLAYLIST_STATE_FILE_MIXRAMPDB "%f\n", pc.GetMixRampDb());
 	os.Format(PLAYLIST_STATE_FILE_MIXRAMPDELAY "%f\n",
-		  pc.GetMixRampDelay());
+		  pc.GetMixRampDelay().count());
 	os.Write(PLAYLIST_STATE_FILE_PLAYLIST_BEGIN "\n");
 	queue_save(os, playlist.queue);
 	os.Write(PLAYLIST_STATE_FILE_PLAYLIST_END "\n");
@@ -125,7 +126,8 @@ playlist_state_load(TextFile &file, const SongLoader &song_loader,
 }
 
 bool
-playlist_state_restore(const char *line, TextFile &file,
+playlist_state_restore(const StateFileConfig &config,
+		       const char *line, TextFile &file,
 		       const SongLoader &song_loader,
 		       struct playlist &playlist, PlayerControl &pc)
 {
@@ -148,22 +150,22 @@ playlist_state_restore(const char *line, TextFile &file,
 	while ((line = file.ReadLine()) != nullptr) {
 		const char *p;
 		if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_TIME))) {
-			seek_time = SongTime::FromS(atof(p));
+			seek_time = SongTime::FromS(ParseDouble(p));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_REPEAT))) {
 			playlist.SetRepeat(pc, StringIsEqual(p, "1"));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_SINGLE))) {
-			playlist.SetSingle(pc, StringIsEqual(p, "1"));
+			playlist.SetSingle(pc, SingleFromString(p));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CONSUME))) {
 			playlist.SetConsume(StringIsEqual(p, "1"));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CROSSFADE))) {
-			pc.SetCrossFade(atoi(p));
+			pc.SetCrossFade(FloatDuration(atoi(p)));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_MIXRAMPDB))) {
-			pc.SetMixRampDb(atof(p));
+			pc.SetMixRampDb(ParseFloat(p));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_MIXRAMPDELAY))) {
 			/* this check discards "nan" which was used
 			   prior to MPD 0.18 */
 			if (IsDigitASCII(*p))
-				pc.SetMixRampDelay(atof(p));
+				pc.SetMixRampDelay(FloatDuration(ParseFloat(p)));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_RANDOM))) {
 			random_mode = StringIsEqual(p, "1");
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CURRENT))) {
@@ -180,8 +182,7 @@ playlist_state_restore(const char *line, TextFile &file,
 		if (!playlist.queue.IsValidPosition(current))
 			current = 0;
 
-		if (state == PlayerState::PLAY &&
-		    config_get_bool(ConfigOption::RESTORE_PAUSED, false))
+		if (state == PlayerState::PLAY && config.restore_paused)
 			/* the user doesn't want MPD to auto-start
 			   playback after startup; fall back to
 			   "pause" */
@@ -230,11 +231,12 @@ playlist_state_get_hash(const playlist &playlist,
 		(playlist.current >= 0
 		 ? (playlist.queue.OrderToPosition(playlist.current) << 16)
 		 : 0) ^
-		((int)pc.GetCrossFade() << 20) ^
+		((int)pc.GetCrossFade().count() << 20) ^
 		(unsigned(player_status.state) << 24) ^
+		/* note that this takes 2 bits */
+		((int)playlist.queue.single << 25) ^
 		(playlist.queue.random << 27) ^
 		(playlist.queue.repeat << 28) ^
-		(playlist.queue.single << 29) ^
 		(playlist.queue.consume << 30) ^
 		(playlist.queue.random << 31);
 }

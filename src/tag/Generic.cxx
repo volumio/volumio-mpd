@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,47 +17,45 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Generic.hxx"
-#include "TagId3.hxx"
+#include "Id3Scan.hxx"
 #include "ApeTag.hxx"
 #include "fs/Path.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
 #include "Log.hxx"
+#include "config.h"
 
-#include <stdexcept>
+#include <exception>
 
 bool
-ScanGenericTags(InputStream &is, const TagHandler &handler, void *ctx)
+ScanGenericTags(InputStream &is, TagHandler &handler) noexcept
 {
-	if (tag_ape_scan2(is, handler, ctx))
+	if (tag_ape_scan2(is, handler))
 		return true;
 
 #ifdef ENABLE_ID3TAG
 	try {
 		is.LockRewind();
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 
-	return tag_id3_scan(is, handler, ctx);
+	return tag_id3_scan(is, handler);
 #else
 	return false;
 #endif
 }
 
 bool
-ScanGenericTags(Path path, const TagHandler &handler, void *ctx)
+ScanGenericTags(Path path, TagHandler &handler) noexcept
 try {
 	Mutex mutex;
-	Cond cond;
 
-	auto is = OpenLocalInputStream(path, mutex, cond);
-	return ScanGenericTags(*is, handler, ctx);
-} catch (const std::runtime_error &e) {
-	LogError(e);
+	auto is = OpenLocalInputStream(path, mutex);
+	return ScanGenericTags(*is, handler);
+} catch (...) {
+	LogError(std::current_exception());
 	return false;
 }

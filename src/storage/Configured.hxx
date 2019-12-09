@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,11 @@
 #ifndef MPD_STORAGE_CONFIG_HXX
 #define MPD_STORAGE_CONFIG_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
+#include <memory>
+
+struct ConfigData;
 class Storage;
 class EventLoop;
 
@@ -32,14 +34,14 @@ class EventLoop;
  *
  * Throws #std::runtime_error on error.
  */
-Storage *
-CreateConfiguredStorage(EventLoop &event_loop);
+std::unique_ptr<Storage>
+CreateConfiguredStorage(const ConfigData &config, EventLoop &event_loop);
 
 /**
  * Returns true if there is configuration for a #Storage instance.
  */
 gcc_const
 bool
-IsStorageConfigured();
+IsStorageConfigured(const ConfigData &config) noexcept;
 
 #endif

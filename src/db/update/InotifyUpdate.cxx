@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "InotifyUpdate.hxx"
 #include "InotifySource.hxx"
 #include "InotifyQueue.hxx"
@@ -62,10 +61,10 @@ struct WatchDirectory {
 	WatchDirectory &operator=(const WatchDirectory &) = delete;
 
 	gcc_pure
-	unsigned GetDepth() const;
+	unsigned GetDepth() const noexcept;
 
 	gcc_pure
-	AllocatedPath GetUriFS() const;
+	AllocatedPath GetUriFS() const noexcept;
 };
 
 static InotifySource *inotify_source;
@@ -132,16 +131,16 @@ remove_watch_directory(WatchDirectory *directory)
 }
 
 AllocatedPath
-WatchDirectory::GetUriFS() const
+WatchDirectory::GetUriFS() const noexcept
 {
 	if (parent == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	const auto uri = parent->GetUriFS();
 	if (uri.IsNull())
 		return name;
 
-	return AllocatedPath::Build(uri, name);
+	return uri / name;
 }
 
 /* we don't look at "." / ".." nor files with newlines in their name */
@@ -181,14 +180,14 @@ recursive_watch_subdirectories(WatchDirectory *directory,
 		if (skip_path(ent->d_name))
 			continue;
 
-		const auto child_path_fs =
-			AllocatedPath::Build(path_fs, ent->d_name);
+		const auto name_fs = Path::FromFS(ent->d_name);
+		const auto child_path_fs = path_fs / name_fs;
 
 		FileInfo fi;
 		try {
 			fi = FileInfo(child_path_fs);
-		} catch (const std::runtime_error &e) {
-			LogError(e);
+		} catch (...) {
+			LogError(std::current_exception());
 			continue;
 		}
 
@@ -198,8 +197,8 @@ recursive_watch_subdirectories(WatchDirectory *directory,
 		try {
 			ret = inotify_source->Add(child_path_fs.c_str(),
 						  IN_MASK);
-		} catch (const std::runtime_error &e) {
-			FormatError(e,
+		} catch (...) {
+			FormatError(std::current_exception(),
 				    "Failed to register %s",
 				    child_path_fs.c_str());
 			continue;
@@ -211,7 +210,7 @@ recursive_watch_subdirectories(WatchDirectory *directory,
 			continue;
 
 		directory->children.emplace_front(directory,
-						  AllocatedPath::FromFS(ent->d_name),
+						  name_fs,
 						  ret);
 		child = &directory->children.front();
 
@@ -225,7 +224,7 @@ recursive_watch_subdirectories(WatchDirectory *directory,
 
 gcc_pure
 unsigned
-WatchDirectory::GetDepth() const
+WatchDirectory::GetDepth() const noexcept
 {
 	const WatchDirectory *d = this;
 	unsigned depth = 0;
@@ -262,7 +261,7 @@ mpd_inotify_callback(int wd, unsigned mask,
 
 		const auto path_fs = uri_fs.IsNull()
 			? root
-			: AllocatedPath::Build(root, uri_fs.c_str());
+			: (root / uri_fs);
 
 		recursive_watch_subdirectories(directory, path_fs,
 					       directory->GetDepth());
@@ -302,8 +301,8 @@ mpd_inotify_init(EventLoop &loop, Storage &storage, UpdateService &update,
 		inotify_source = new InotifySource(loop,
 						   mpd_inotify_callback,
 						   nullptr);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		return;
 	}
 
@@ -312,8 +311,8 @@ mpd_inotify_init(EventLoop &loop, Storage &storage, UpdateService &update,
 	int descriptor;
 	try {
 		descriptor = inotify_source->Add(path.c_str(), IN_MASK);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		delete inotify_source;
 		inotify_source = nullptr;
 		return;
@@ -331,7 +330,7 @@ mpd_inotify_init(EventLoop &loop, Storage &storage, UpdateService &update,
 }
 
 void
-mpd_inotify_finish(void)
+mpd_inotify_finish(void) noexcept
 {
 	if (inotify_source == nullptr)
 		return;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,10 @@ class Context;
 struct Instance;
 
 #ifdef ANDROID
+#include "android/LogListener.hxx"
+
 extern Context *context;
+extern LogListener *logListener;
 #endif
 
 extern Instance *instance;
@@ -38,11 +41,12 @@ extern Instance *instance;
  * On Windows platform this is called from win32_main()
  * after doing some initialization.
  */
-int mpd_main(int argc, char *argv[]);
+int
+mpd_main(int argc, char *argv[]) noexcept;
 
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 
 /**
  * If program is run as windows service performs nessesary initialization

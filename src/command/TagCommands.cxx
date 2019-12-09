@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagCommands.hxx"
 #include "Request.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
-#include "tag/Tag.hxx"
+#include "tag/ParseName.hxx"
 #include "Partition.hxx"
 #include "util/ConstBuffer.hxx"
 
@@ -40,7 +39,7 @@ handle_addtagid(Client &client, Request args, Response &r)
 
 	const char *const value = args[2];
 
-	client.partition.playlist.AddSongIdTag(song_id, tag_type, value);
+	client.GetPlaylist().AddSongIdTag(song_id, tag_type, value);
 	return CommandResult::OK;
 }
 
@@ -60,6 +59,6 @@ handle_cleartagid(Client &client, Request args, Response &r)
 		}
 	}
 
-	client.partition.playlist.ClearSongIdTag(song_id, tag_type);
+	client.GetPlaylist().ClearSongIdTag(song_id, tag_type);
 	return CommandResult::OK;
 }

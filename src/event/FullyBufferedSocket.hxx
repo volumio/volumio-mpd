@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_FULLY_BUFFERED_SOCKET_HXX
 #define MPD_FULLY_BUFFERED_SOCKET_HXX
 
-#include "check.h"
 #include "BufferedSocket.hxx"
 #include "IdleMonitor.hxx"
 #include "util/PeakBuffer.hxx"
@@ -32,21 +31,26 @@ class FullyBufferedSocket : protected BufferedSocket, private IdleMonitor {
 	PeakBuffer output;
 
 public:
-	FullyBufferedSocket(int _fd, EventLoop &_loop,
-			    size_t normal_size, size_t peak_size=0)
+	FullyBufferedSocket(SocketDescriptor _fd, EventLoop &_loop,
+			    size_t normal_size, size_t peak_size=0) noexcept
 		:BufferedSocket(_fd, _loop), IdleMonitor(_loop),
 		 output(normal_size, peak_size) {
 	}
 
 	using BufferedSocket::IsDefined;
 
-	void Close() {
+	void Close() noexcept {
 		IdleMonitor::Cancel();
 		BufferedSocket::Close();
 	}
 
 private:
-	ssize_t DirectWrite(const void *data, size_t length);
+	/**
+	 * @return the number of bytes written to the socket, 0 if the
+	 * socket isn't ready for writing, -1 on error (the socket has
+	 * been closed and probably destructed)
+	 */
+	ssize_t DirectWrite(const void *data, size_t length) noexcept;
 
 protected:
 	/**
@@ -54,15 +58,17 @@ protected:
 	 *
 	 * @return false if the socket has been closed
 	 */
-	bool Flush();
+	bool Flush() noexcept;
 
 	/**
 	 * @return false if the socket has been closed
 	 */
-	bool Write(const void *data, size_t length);
+	bool Write(const void *data, size_t length) noexcept;
 
-	virtual bool OnSocketReady(unsigned flags) override;
-	virtual void OnIdle() override;
+	/* virtual methods from class SocketMonitor */
+	bool OnSocketReady(unsigned flags) noexcept override;
+
+	virtual void OnIdle() noexcept override;
 };
 
 #endif

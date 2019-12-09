@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2019 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "config/ConfigGlobal.hxx"
+#include "ConfigGlue.hxx"
 #include "neighbor/Listener.hxx"
 #include "neighbor/Info.hxx"
 #include "neighbor/Glue.hxx"
 #include "fs/Path.hxx"
 #include "event/Loop.hxx"
-#include "Log.hxx"
+#include "ShutdownHandler.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,12 +32,12 @@
 class MyNeighborListener final : public NeighborListener {
  public:
 	/* virtual methods from class NeighborListener */
-	virtual void FoundNeighbor(const NeighborInfo &info) override {
+	virtual void FoundNeighbor(const NeighborInfo &info) noexcept override {
 		printf("found '%s' (%s)\n",
 		       info.display_name.c_str(), info.uri.c_str());
 	}
 
-	virtual void LostNeighbor(const NeighborInfo &info) override {
+	virtual void LostNeighbor(const NeighborInfo &info) noexcept override {
 		printf("lost '%s' (%s)\n",
 		       info.display_name.c_str(), info.uri.c_str());
 	}
@@ -53,28 +53,34 @@ try {
 
 	const Path config_path = Path::FromFS(argv[1]);
 
-	/* read configuration file (mpd.conf) */
-
-	config_global_init();
-	ReadConfigFile(config_path);
-
 	/* initialize the core */
 
 	EventLoop loop;
+	const ShutdownHandler shutdown_handler(loop);
+
+	/* read configuration file (mpd.conf) */
+
+	const auto config = AutoLoadConfigFile(config_path);
 
 	/* initialize neighbor plugins */
 
 	MyNeighborListener listener;
 	NeighborGlue neighbor;
-	neighbor.Init(loop, listener);
+	neighbor.Init(config, loop, listener);
 	neighbor.Open();
+
+	/* dump initial list */
+
+	for (const auto &info : neighbor.GetList())
+		printf("have '%s' (%s)\n",
+		       info.display_name.c_str(), info.uri.c_str());
 
 	/* run */
 
 	loop.Run();
 	neighbor.Close();
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

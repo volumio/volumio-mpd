@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Init.hxx"
 #include "Mutex.hxx"
 #include "thread/Mutex.hxx"
@@ -43,7 +42,7 @@ mpd_smbc_get_auth_data(gcc_unused const char *srv,
 void
 SmbclientInit()
 {
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 
 	constexpr int debug = 0;
 	if (smbc_init(mpd_smbc_get_auth_data, debug) < 0)

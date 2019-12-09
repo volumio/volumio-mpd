@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,8 @@
 #ifndef MPD_PCM_MIX_HXX
 #define MPD_PCM_MIX_HXX
 
-#include "AudioFormat.hxx"
-#include "Compiler.h"
+#include "SampleFormat.hxx"
+#include "util/Compiler.h"
 
 #include <stddef.h>
 
@@ -47,6 +47,6 @@ class PcmDither;
 gcc_warn_unused_result
 bool
 pcm_mix(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
-	SampleFormat format, float portion1);
+	SampleFormat format, float portion1) noexcept;
 
 #endif

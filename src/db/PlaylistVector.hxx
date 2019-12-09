@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define MPD_PLAYLIST_VECTOR_HXX
 
 #include "db/PlaylistInfo.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <list>
 
@@ -31,7 +31,7 @@ protected:
 	 * Caller must lock the #db_mutex.
 	 */
 	gcc_pure
-	iterator find(const char *name);
+	iterator find(const char *name) noexcept;
 
 public:
 	using std::list<PlaylistInfo>::empty;
@@ -45,12 +45,12 @@ public:
 	 *
 	 * @return true if the vector or one of its items was modified
 	 */
-	bool UpdateOrInsert(PlaylistInfo &&pi);
+	bool UpdateOrInsert(PlaylistInfo &&pi) noexcept;
 
 	/**
 	 * Caller must lock the #db_mutex.
 	 */
-	bool erase(const char *name);
+	bool erase(const char *name) noexcept;
 };
 
 #endif /* SONGVEC_H */

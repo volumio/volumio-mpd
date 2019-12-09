@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,8 @@
 #ifndef MPD_REQUEST_HXX
 #define MPD_REQUEST_HXX
 
-#include "check.h"
 #include "protocol/ArgParser.hxx"
+#include "protocol/RangeArg.hxx"
 #include "Chrono.hxx"
 #include "util/ConstBuffer.hxx"
 
@@ -45,68 +45,57 @@ public:
 			     : default_value;
 	}
 
-	gcc_pure
 	int ParseInt(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgInt(data[idx]);
 	}
 
-	gcc_pure
 	int ParseInt(unsigned idx, int min_value, int max_value) const {
 		assert(idx < size);
 		return ParseCommandArgInt(data[idx], min_value, max_value);
 	}
 
-	gcc_pure
 	int ParseUnsigned(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgUnsigned(data[idx]);
 	}
 
-	gcc_pure
 	int ParseUnsigned(unsigned idx, unsigned max_value) const {
 		assert(idx < size);
 		return ParseCommandArgUnsigned(data[idx], max_value);
 	}
 
-	gcc_pure
 	bool ParseBool(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgBool(data[idx]);
 	}
 
-	gcc_pure
 	RangeArg ParseRange(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgRange(data[idx]);
 	}
 
-	gcc_pure
 	float ParseFloat(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgFloat(data[idx]);
 	}
 
-	gcc_pure
 	SongTime ParseSongTime(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgSongTime(data[idx]);
 	}
 
-	gcc_pure
 	SignedSongTime ParseSignedSongTime(unsigned idx) const {
 		assert(idx < size);
 		return ParseCommandArgSignedSongTime(data[idx]);
 	}
 
-	gcc_pure
 	int ParseOptional(unsigned idx, int default_value) const {
 		return idx < size
 			? ParseInt(idx)
 			: default_value;
 	}
 
-	gcc_pure
 	RangeArg ParseOptional(unsigned idx, RangeArg default_value) const {
 		return idx < size
 			? ParseRange(idx)

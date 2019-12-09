@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ArchiveInputPlugin.hxx"
 #include "archive/ArchiveDomain.hxx"
 #include "archive/ArchiveLookup.hxx"
@@ -35,7 +34,7 @@
 #include <stdlib.h>
 
 InputStreamPtr
-OpenArchiveInputStream(Path path, Mutex &mutex, Cond &cond)
+OpenArchiveInputStream(Path path, Mutex &mutex)
 {
 	const ArchivePlugin *arplug;
 
@@ -60,27 +59,6 @@ OpenArchiveInputStream(Path path, Mutex &mutex, Cond &cond)
 		return nullptr;
 	}
 
-	auto file = archive_file_open(arplug, Path::FromFS(archive));
-
-	AtScopeExit(file) {
-		file->Close();
-	};
-
-	return InputStreamPtr(file->OpenStream(filename, mutex, cond));
+	return archive_file_open(arplug, Path::FromFS(archive))
+		->OpenStream(filename, mutex);
 }
-
-static InputStream *
-input_archive_open(gcc_unused const char *filename,
-		   gcc_unused Mutex &mutex, gcc_unused Cond &cond)
-{
-	/* dummy method; use OpenArchiveInputStream() instead */
-
-	return nullptr;
-}
-
-const InputPlugin input_plugin_archive = {
-	"archive",
-	nullptr,
-	nullptr,
-	input_archive_open,
-};

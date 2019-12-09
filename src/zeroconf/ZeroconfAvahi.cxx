@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ZeroconfAvahi.hxx"
 #include "AvahiPoll.hxx"
 #include "ZeroconfInternal.hxx"
 #include "Listen.hxx"
-#include "system/FatalError.hxx"
 #include "util/Domain.hxx"
+#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
 #include <avahi-client/client.h>
@@ -33,8 +32,6 @@
 #include <avahi-common/domain.h>
 #include <avahi-common/malloc.h>
 #include <avahi-common/error.h>
-
-#include <dbus/dbus.h>
 
 static constexpr Domain avahi_domain("avahi");
 
@@ -240,7 +237,7 @@ AvahiInit(EventLoop &loop, const char *serviceName)
 	LogDebug(avahi_domain, "Initializing interface");
 
 	if (!avahi_is_valid_service_name(serviceName))
-		FormatFatalError("Invalid zeroconf_name \"%s\"", serviceName);
+		throw FormatRuntimeError("Invalid zeroconf_name \"%s\"", serviceName);
 
 	avahi_name = avahi_strdup(serviceName);
 
@@ -277,6 +274,4 @@ AvahiDeinit()
 
 	avahi_free(avahi_name);
 	avahi_name = nullptr;
-
-	dbus_shutdown();
 }

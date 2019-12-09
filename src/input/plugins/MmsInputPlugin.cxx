@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MmsInputPlugin.hxx"
 #include "input/ThreadInputStream.hxx"
 #include "input/InputPlugin.hxx"
 #include "system/Error.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 #include <libmms/mmsx.h>
 
@@ -34,16 +33,20 @@ class MmsInputStream final : public ThreadInputStream {
 	mmsx_t *mms;
 
 public:
-	MmsInputStream(const char *_uri, Mutex &_mutex, Cond &_cond)
-		:ThreadInputStream(input_plugin_mms.name, _uri, _mutex, _cond,
+	MmsInputStream(const char *_uri, Mutex &_mutex)
+		:ThreadInputStream(input_plugin_mms.name, _uri, _mutex,
 				   MMS_BUFFER_SIZE) {
+	}
+
+	~MmsInputStream() noexcept override {
+		Stop();
 	}
 
 protected:
 	virtual void Open() override;
 	virtual size_t ThreadRead(void *ptr, size_t size) override;
 
-	void Close() override {
+	void Close() noexcept override {
 		mmsx_close(mms);
 	}
 };
@@ -51,32 +54,24 @@ protected:
 void
 MmsInputStream::Open()
 {
-	Unlock();
+	{
+		const ScopeUnlock unlock(mutex);
 
-	mms = mmsx_connect(nullptr, nullptr, GetURI(), 128 * 1024);
-	if (mms == nullptr) {
-		Lock();
-		throw std::runtime_error("mmsx_connect() failed");
+		mms = mmsx_connect(nullptr, nullptr, GetURI(), 128 * 1024);
+		if (mms == nullptr)
+			throw std::runtime_error("mmsx_connect() failed");
 	}
-
-	Lock();
 
 	/* TODO: is this correct?  at least this selects the ffmpeg
 	   decoder, which seems to work fine */
 	SetMimeType("audio/x-ms-wma");
 }
 
-static InputStream *
+static InputStreamPtr
 input_mms_open(const char *url,
-	       Mutex &mutex, Cond &cond)
+	       Mutex &mutex)
 {
-	if (!StringStartsWith(url, "mms://") &&
-	    !StringStartsWith(url, "mmsh://") &&
-	    !StringStartsWith(url, "mmst://") &&
-	    !StringStartsWith(url, "mmsu://"))
-		return nullptr;
-
-	auto m = new MmsInputStream(url, mutex, cond);
+	auto m = std::make_unique<MmsInputStream>(url, mutex);
 	m->Start();
 	return m;
 }
@@ -101,8 +96,17 @@ MmsInputStream::ThreadRead(void *ptr, size_t read_size)
 	return (size_t)nbytes;
 }
 
+static constexpr const char *mms_prefixes[] = {
+	"mms://",
+	"mmsh://",
+	"mmst://",
+	"mmsu://",
+	nullptr
+};
+
 const InputPlugin input_plugin_mms = {
 	"mms",
+	mms_prefixes,
 	nullptr,
 	nullptr,
 	input_mms_open,

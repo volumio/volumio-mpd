@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Environment.hxx"
 #include "java/Class.hxx"
 #include "java/String.hxx"
@@ -60,7 +59,7 @@ Environment::getExternalStorageDirectory()
 		env->CallStaticObjectMethod(cls,
 					    getExternalStorageDirectory_method);
 	if (file == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
 }
@@ -70,7 +69,7 @@ Environment::getExternalStoragePublicDirectory(const char *type)
 {
 	if (getExternalStoragePublicDirectory_method == nullptr)
 		/* needs API level 8 */
-		return AllocatedPath::Null();
+		return nullptr;
 
 	JNIEnv *env = Java::GetEnv();
 
@@ -79,7 +78,7 @@ Environment::getExternalStoragePublicDirectory(const char *type)
 						   Environment::getExternalStoragePublicDirectory_method,
 						   type2.Get());
 	if (file == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
 }

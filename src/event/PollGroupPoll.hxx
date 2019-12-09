@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_EVENT_POLLGROUP_POLL_HXX
 #define MPD_EVENT_POLLGROUP_POLL_HXX
 
-#include "check.h"
 #include "PollResultGeneric.hxx"
 
 #include <vector>
@@ -48,14 +47,14 @@ public:
 	static constexpr unsigned ERROR = POLLERR;
 	static constexpr unsigned HANGUP = POLLHUP;
 
-	PollGroupPoll();
-	~PollGroupPoll();
+	PollGroupPoll() noexcept;
+	~PollGroupPoll() noexcept;
 
-	void ReadEvents(PollResultGeneric &result, int timeout_ms);
-	bool Add(int fd, unsigned events, void *obj);
-	bool Modify(int fd, unsigned events, void *obj);
-	bool Remove(int fd);
-	bool Abandon(int fd) {
+	void ReadEvents(PollResultGeneric &result, int timeout_ms) noexcept;
+	bool Add(int fd, unsigned events, void *obj) noexcept;
+	bool Modify(int fd, unsigned events, void *obj) noexcept;
+	bool Remove(int fd) noexcept;
+	bool Abandon(int fd) noexcept {
 		return Remove(fd);
 	}
 };

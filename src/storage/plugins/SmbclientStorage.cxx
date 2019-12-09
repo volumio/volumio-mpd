@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SmbclientStorage.hxx"
 #include "storage/StoragePlugin.hxx"
 #include "storage/StorageInterface.hxx"
@@ -27,6 +26,7 @@
 #include "fs/Traits.hxx"
 #include "thread/Mutex.hxx"
 #include "system/Error.hxx"
+#include "util/ASCII.hxx"
 #include "util/StringCompare.hxx"
 #include "util/ScopeExit.hxx"
 
@@ -45,7 +45,7 @@ public:
 	virtual ~SmbclientDirectoryReader();
 
 	/* virtual methods from class StorageDirectoryReader */
-	const char *Read() override;
+	const char *Read() noexcept override;
 	StorageFileInfo GetInfo(bool follow) override;
 };
 
@@ -67,15 +67,15 @@ public:
 	/* virtual methods from class Storage */
 	StorageFileInfo GetInfo(const char *uri_utf8, bool follow) override;
 
-	StorageDirectoryReader *OpenDirectory(const char *uri_utf8) override;
+	std::unique_ptr<StorageDirectoryReader> OpenDirectory(const char *uri_utf8) override;
 
-	std::string MapUTF8(const char *uri_utf8) const override;
+	std::string MapUTF8(const char *uri_utf8) const noexcept override;
 
-	const char *MapToRelativeUTF8(const char *uri_utf8) const override;
+	const char *MapToRelativeUTF8(const char *uri_utf8) const noexcept override;
 };
 
 std::string
-SmbclientStorage::MapUTF8(const char *uri_utf8) const
+SmbclientStorage::MapUTF8(const char *uri_utf8) const noexcept
 {
 	assert(uri_utf8 != nullptr);
 
@@ -86,7 +86,7 @@ SmbclientStorage::MapUTF8(const char *uri_utf8) const
 }
 
 const char *
-SmbclientStorage::MapToRelativeUTF8(const char *uri_utf8) const
+SmbclientStorage::MapToRelativeUTF8(const char *uri_utf8) const noexcept
 {
 	return PathTraitsUTF8::Relative(base.c_str(), uri_utf8);
 }
@@ -97,7 +97,7 @@ GetInfo(const char *path)
 	struct stat st;
 
 	{
-		const ScopeLock protect(smbclient_mutex);
+		const std::lock_guard<Mutex> protect(smbclient_mutex);
 		if (smbc_stat(path, &st) != 0)
 			throw MakeErrno("Failed to access file");
 	}
@@ -111,7 +111,7 @@ GetInfo(const char *path)
 		info.type = StorageFileInfo::Type::OTHER;
 
 	info.size = st.st_size;
-	info.mtime = st.st_mtime;
+	info.mtime = std::chrono::system_clock::from_time_t(st.st_mtime);
 	info.device = st.st_dev;
 	info.inode = st.st_ino;
 	return info;
@@ -124,7 +124,7 @@ SmbclientStorage::GetInfo(const char *uri_utf8, gcc_unused bool follow)
 	return ::GetInfo(mapped.c_str());
 }
 
-StorageDirectoryReader *
+std::unique_ptr<StorageDirectoryReader>
 SmbclientStorage::OpenDirectory(const char *uri_utf8)
 {
 	std::string mapped = MapUTF8(uri_utf8);
@@ -132,18 +132,19 @@ SmbclientStorage::OpenDirectory(const char *uri_utf8)
 	int handle;
 
 	{
-		const ScopeLock protect(smbclient_mutex);
+		const std::lock_guard<Mutex> protect(smbclient_mutex);
 		handle = smbc_opendir(mapped.c_str());
 		if (handle < 0)
 			throw MakeErrno("Failed to open directory");
 	}
 
-	return new SmbclientDirectoryReader(std::move(mapped.c_str()), handle);
+	return std::make_unique<SmbclientDirectoryReader>(std::move(mapped.c_str()),
+							  handle);
 }
 
 gcc_pure
 static bool
-SkipNameFS(const char *name)
+SkipNameFS(const char *name) noexcept
 {
 	return name[0] == '.' &&
 		(name[1] == 0 ||
@@ -158,9 +159,9 @@ SmbclientDirectoryReader::~SmbclientDirectoryReader()
 }
 
 const char *
-SmbclientDirectoryReader::Read()
+SmbclientDirectoryReader::Read() noexcept
 {
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 
 	struct smbc_dirent *e;
 	while ((e = smbc_readdir(handle)) != nullptr) {
@@ -179,15 +180,15 @@ SmbclientDirectoryReader::GetInfo(gcc_unused bool follow)
 	return ::GetInfo(path.c_str());
 }
 
-static Storage *
+static std::unique_ptr<Storage>
 CreateSmbclientStorageURI(gcc_unused EventLoop &event_loop, const char *base)
 {
-	if (memcmp(base, "smb://", 6) != 0)
+	if (!StringStartsWithCaseASCII(base, "smb://"))
 		return nullptr;
 
 	SmbclientInit();
 
-	const ScopeLock protect(smbclient_mutex);
+	const std::lock_guard<Mutex> protect(smbclient_mutex);
 	SMBCCTX *ctx = smbc_new_context();
 	if (ctx == nullptr)
 		throw MakeErrno("smbc_new_context() failed");
@@ -198,7 +199,7 @@ CreateSmbclientStorageURI(gcc_unused EventLoop &event_loop, const char *base)
 		throw MakeErrno("smbc_new_context() failed");
 	}
 
-	return new SmbclientStorage(base, ctx2);
+	return std::make_unique<SmbclientStorage>(base, ctx2);
 }
 
 const StoragePlugin smbclient_storage_plugin = {

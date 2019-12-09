@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_PCM_DOP_HXX
 #define MPD_PCM_DOP_HXX
 
-#include "check.h"
-
 #include <stdint.h>
 
 class PcmBuffer;
@@ -34,6 +32,6 @@ template<typename T> struct ConstBuffer;
  */
 ConstBuffer<uint32_t>
 pcm_dsd_to_dop(PcmBuffer &buffer, unsigned channels,
-	       ConstBuffer<uint8_t> src);
+	       ConstBuffer<uint8_t> src) noexcept;
 
 #endif

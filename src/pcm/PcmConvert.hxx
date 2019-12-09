@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,17 +20,18 @@
 #ifndef PCM_CONVERT_HXX
 #define PCM_CONVERT_HXX
 
-#include "check.h"
 #include "FormatConverter.hxx"
 #include "ChannelsConverter.hxx"
 #include "GlueResampler.hxx"
 #include "AudioFormat.hxx"
+#include "config.h"
 
 #ifdef ENABLE_DSD
 #include "PcmDsd.hxx"
 #endif
 
 template<typename T> struct ConstBuffer;
+struct ConfigData;
 
 /**
  * This object is statically allocated (within another struct), and
@@ -51,8 +52,8 @@ class PcmConvert {
 	bool enable_resampler, enable_format, enable_channels;
 
 public:
-	PcmConvert();
-	~PcmConvert();
+	PcmConvert() noexcept;
+	~PcmConvert() noexcept;
 
 	/**
 	 * Prepare the object.  Call Close() when done.
@@ -65,7 +66,12 @@ public:
 	 * Close the object after it was prepared with Open().  After
 	 * that, it may be reused by calling Open() again.
 	 */
-	void Close();
+	void Close() noexcept;
+
+	/**
+	 * Reset the filter's state, e.g. drop/flush buffers.
+	 */
+	void Reset() noexcept;
 
 	/**
 	 * Converts PCM data between two audio formats.
@@ -76,9 +82,15 @@ public:
 	 * @return the destination buffer
 	 */
 	ConstBuffer<void> Convert(ConstBuffer<void> src);
+
+	/**
+	 * Flush pending data and return it.  This should be called
+	 * repepatedly until it returns nullptr.
+	 */
+	ConstBuffer<void> Flush();
 };
 
 void
-pcm_convert_global_init();
+pcm_convert_global_init(const ConfigData &config);
 
 #endif

@@ -1,0 +1,151 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: MPD
+Source: https://www.musicpd.org/
+Upstream-Contact: Max Kellermann <max.kellermann@gmail.com>
+
+Files: *
+Copyright: 2003-2019, The Music Player Daemon Project (see AUTHORS for details)
+License: GPL-2+
+
+Files: src/mixer/plugins/HaikuMixerPlugin.cxx src/output/plugins/HaikuOutputPlugin.*
+Copyright: 2003-2018, The Music Player Daemon Project
+  2010-2011, Philipp 'ph3-der-loewe' Schafft
+  2010-2011, Hans-Kristian 'maister' Arntzen
+  2014-2015, François 'mmu_man' Revol
+License: GPL-2+
+
+Files: src/mixer/plugins/SndioMixerPlugin.cxx
+Copyright: Christopher Zimmermann <christopher@gmerlin.de>
+License: GPL-2+
+
+Files: src/mixer/plugins/volume_mapping.*
+Copyright: 2010, Clemens Ladisch <clemens@ladisch.de>
+License: ISC
+ Permission to use, copy, modify, and/or distribute this software for any
+ purpose with or without fee is hereby granted, provided that the above
+ copyright notice and this permission notice appear in all copies.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+ REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+ AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+ INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ PERFORMANCE OF THIS SOFTWARE.
+
+Files: src/java/* src/lib/cdio/* src/lib/curl/* src/lib/dbus/AsyncRequest.hxx
+ src/lib/dbus/Init.hxx src/lib/gcrypt/* src/lib/systemd/*
+ src/lib/yajl/Callbacks.hxx src/lib/yajl/Handle.hxx
+ src/lib/yajl/ResponseParser.* src/lib/zlib/* src/net/AddressInfo.*
+ src/net/AllocatedSocketAddress.* src/net/IPv* src/net/Resolver.*
+ src/net/SocketAddress.* src/net/SocketDescriptor.*
+ src/net/StaticSocketAddress.* src/net/ToString.*
+ src/net/UniqueSocketDescriptor.hxx
+ src/output/plugins/sles/AndroidSimpleBufferQueue.hxx
+ src/output/plugins/sles/Engine.hxx  src/output/plugins/sles/Object.hxx
+ src/output/plugins/sles/Play.hxx src/system/ByteOrder.hxx src/system/EpollFD.*
+ src/system/Error.hxx src/system/EventFD.* src/system/FileDescriptor.*
+ src/system/Open.* src/system/SignalFD.* src/system/UniqueFileDescriptor.hxx
+ src/thread/Cond.hxx src/thread/CriticalSection.hxx src/thread/Mutex.hxx
+ src/thread/PosixCond.hxx src/thread/PosixMutex.hxx src/thread/Util.*
+ src/thread/WindowsCond.hxx src/util/AllocatedArray.hxx
+ src/util/AllocatedString.* src/util/ASCII.hxx src/util/BindMethod.hxx
+ src/util/Cast.hxx src/util/CharUtil.hxx src/util/ChronoUtil.hxx
+ src/util/CircularBuffer.hxx src/util/Clamp.hxx src/util/ConcatString.hxx
+ src/util/ConstBuffer.hxx src/util/DeleteDisposer.hxx src/util/Domain.hxx
+ src/util/DynamicFifoBuffer.hxx src/util/Exception.*
+ src/util/ForeignFifoBuffer.hxx src/util/HexFormat.* src/util/HugeAllocator.*
+ src/util/IterableSplitString.hxx src/util/Macros.hxx src/util/Manual.hxx
+ src/util/NumberParser.hxx src/util/OffsetPointer.hxx src/util/ReusableArray.hxx
+ src/util/RuntimeError.hxx src/util/ScopeExit.hxx src/util/SparseBuffer.*
+ src/util/SplitString.* src/util/StaticFifoBuffer.hxx src/util/StringAPI.hxx
+ src/util/StringBuffer.hxx src/util/StringCompare.* src/util/StringFormat.hxx
+ src/util/StringPointer.hxx src/util/StringStrip.* src/util/StringView.*
+ src/util/TStringView.hxx src/util/TemplateString.hxx src/util/TextFile.hxx
+ src/util/TimeParser.* src/util/Tokenizer.* src/util/TruncateString.*
+ src/util/UTF8.* src/util/VarSize.hxx src/util/WCharUtil.hxx
+ src/util/WStringView.hxx src/util/WritableBuffer.hxx src/util/WStringAPI.hxx
+ src/util/WStringCompare.hxx test/net/*
+Copyright: 2003-2019, Max Kellermann <max.kellermann@gmail.com>
+License: BSD-2-clause
+
+Files: src/lib/dbus/AppendIter.hxx src/lib/dbus/Connection.*
+ src/lib/dbus/Error.* src/lib/dbus/Iter.hxx src/lib/dbus/Message.*
+ src/lib/dbus/PendingCall.hxx src/lib/dbus/ReadIter.hxx
+ src/lib/dbus/ScopeMatch.* src/lib/dbus/Types.hxx src/lib/dbus/Values.hxx
+ src/lib/dbus/Watch.* src/lib/nfs/Error.cxx src/lib/nfs/Error.hxx src/lib/pcre/*
+ src/net/HostParser.* src/util/PrintException.* src/util/TimeConvert.*
+ src/util/TimeISO8601.*
+Copyright: 2007-2017, Content Management AG
+License: BSD-2-clause
+
+Files: src/pcm/dsd2pcm/*
+Copyright: 2009-2011, Sebastian Gesemann
+License: BSD-2-clause
+
+Files: debian/*
+Copyright: 2003-2004, Warren Dukes (aka shank) <shank@mercury.chem.pitt.edu>
+ 2004-2005, Eric Wong <eric@petta-tech.com>
+ 2006-2011, Decklin Foster <decklin@red-bean.com>
+ 2011-2012, Alexander Wirt <formorer@debian.org>
+ 2013-2019, Florian Schlichting <fsfs@debian.org>
+ 2018-2019, Geoffroy Youri Berret <efrim@azylum.org>
+License: GPL-2+
+
+Files: debian/source_mpd.py
+Copyright: 2012, Ronny Cardona <rcart19@gmail.com>
+License: GPL-2+
+
+Files: debian/tests/*.t
+Copyright: 2007, Jerome Quelin <jquelin@cpan.org>
+License: Artistic or GPL-1+
+Comment: Perl tests copied from the libaudio-mpd-perl package
+
+License: Artistic
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the Artistic License, which comes with Perl.
+ .
+ On Debian systems, the complete text of the Artistic License can be
+ found in `/usr/share/common-licenses/Artistic'.
+
+License: BSD-2-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions
+ are met:
+ .
+ - Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+ .
+ - Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+ CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: GPL-1+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 1, or (at your option)
+ any later version.
+ .
+ On Debian systems, the complete text of version 1 of the General Public
+ License can be found in `/usr/share/common-licenses/GPL-1'.
+
+License: GPL-2+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2, or (at your option)
+ any later version.
+ .
+ On Debian systems, the complete text of version 2 of the GNU General
+ Public License can be found in `/usr/share/common-licenses/GPL-2'.

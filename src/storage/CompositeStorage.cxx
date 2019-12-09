@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "CompositeStorage.hxx"
 #include "FileInfo.hxx"
 #include "fs/AllocatedPath.hxx"
@@ -33,32 +32,27 @@
  * instance and the virtual directory entries.
  */
 class CompositeDirectoryReader final : public StorageDirectoryReader {
-	StorageDirectoryReader *other;
+	std::unique_ptr<StorageDirectoryReader> other;
 
 	std::set<std::string> names;
 	std::set<std::string>::const_iterator current, next;
 
 public:
-	template<typename M>
-	CompositeDirectoryReader(StorageDirectoryReader *_other,
-				 const M &map)
-		:other(_other) {
+	template<typename O, typename M>
+	CompositeDirectoryReader(O &&_other, const M &map)
+		:other(std::forward<O>(_other)) {
 		for (const auto &i : map)
 			names.insert(i.first);
 		next = names.begin();
 	}
 
-	virtual ~CompositeDirectoryReader() {
-		delete other;
-	}
-
 	/* virtual methods from class StorageDirectoryReader */
-	const char *Read() override;
+	const char *Read() noexcept override;
 	StorageFileInfo GetInfo(bool follow) override;
 };
 
 const char *
-CompositeDirectoryReader::Read()
+CompositeDirectoryReader::Read() noexcept
 {
 	if (other != nullptr) {
 		const char *name = other->Read();
@@ -67,8 +61,7 @@ CompositeDirectoryReader::Read()
 			return name;
 		}
 
-		delete other;
-		other = nullptr;
+		other.reset();
 	}
 
 	if (next == names.end())
@@ -86,12 +79,7 @@ CompositeDirectoryReader::GetInfo(bool follow)
 
 	assert(current != names.end());
 
-	StorageFileInfo info;
-	info.type = StorageFileInfo::Type::DIRECTORY;
-	info.mtime = 0;
-	info.device = 0;
-	info.inode = 0;
-	return info;
+	return StorageFileInfo(StorageFileInfo::Type::DIRECTORY);
 }
 
 static std::string
@@ -108,13 +96,8 @@ NextSegment(const char *&uri_r)
 	}
 }
 
-CompositeStorage::Directory::~Directory()
-{
-	delete storage;
-}
-
 const CompositeStorage::Directory *
-CompositeStorage::Directory::Find(const char *uri) const
+CompositeStorage::Directory::Find(const char *uri) const noexcept
 {
 	const Directory *directory = this;
 	while (*uri != 0) {
@@ -135,13 +118,8 @@ CompositeStorage::Directory::Make(const char *uri)
 	Directory *directory = this;
 	while (*uri != 0) {
 		const std::string name = NextSegment(uri);
-#if CLANG_OR_GCC_VERSION(4,8)
 		auto i = directory->children.emplace(std::move(name),
 						     Directory());
-#else
-		auto i = directory->children.insert(std::make_pair(std::move(name),
-								   Directory()));
-#endif
 		directory = &i.first->second;
 	}
 
@@ -149,18 +127,17 @@ CompositeStorage::Directory::Make(const char *uri)
 }
 
 bool
-CompositeStorage::Directory::Unmount()
+CompositeStorage::Directory::Unmount() noexcept
 {
 	if (storage == nullptr)
 		return false;
 
-	delete storage;
-	storage = nullptr;
+	storage.reset();
 	return true;
 }
 
 bool
-CompositeStorage::Directory::Unmount(const char *uri)
+CompositeStorage::Directory::Unmount(const char *uri) noexcept
 {
 	if (StringIsEmpty(uri))
 		return Unmount();
@@ -180,7 +157,7 @@ CompositeStorage::Directory::Unmount(const char *uri)
 
 bool
 CompositeStorage::Directory::MapToRelativeUTF8(std::string &buffer,
-					       const char *uri) const
+					       const char *uri) const noexcept
 {
 	if (storage != nullptr) {
 		const char *result = storage->MapToRelativeUTF8(uri);
@@ -202,7 +179,7 @@ CompositeStorage::Directory::MapToRelativeUTF8(std::string &buffer,
 	return false;
 }
 
-CompositeStorage::CompositeStorage()
+CompositeStorage::CompositeStorage() noexcept
 {
 }
 
@@ -211,39 +188,37 @@ CompositeStorage::~CompositeStorage()
 }
 
 Storage *
-CompositeStorage::GetMount(const char *uri)
+CompositeStorage::GetMount(const char *uri) noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto result = FindStorage(uri);
 	if (*result.uri != 0)
 		/* not a mount point */
 		return nullptr;
 
-	return result.directory->storage;
+	return result.directory->storage.get();
 }
 
 void
-CompositeStorage::Mount(const char *uri, Storage *storage)
+CompositeStorage::Mount(const char *uri, std::unique_ptr<Storage> storage)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	Directory &directory = root.Make(uri);
-	if (directory.storage != nullptr)
-		delete directory.storage;
-	directory.storage = storage;
+	directory.storage = std::move(storage);
 }
 
 bool
 CompositeStorage::Unmount(const char *uri)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	return root.Unmount(uri);
 }
 
 CompositeStorage::FindResult
-CompositeStorage::FindStorage(const char *uri) const
+CompositeStorage::FindStorage(const char *uri) const noexcept
 {
 	FindResult result{&root, uri};
 
@@ -266,7 +241,7 @@ CompositeStorage::FindStorage(const char *uri) const
 StorageFileInfo
 CompositeStorage::GetInfo(const char *uri, bool follow)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	std::exception_ptr error;
 
@@ -280,14 +255,8 @@ CompositeStorage::GetInfo(const char *uri, bool follow)
 	}
 
 	const Directory *directory = f.directory->Find(f.uri);
-	if (directory != nullptr) {
-		StorageFileInfo info;
-		info.type = StorageFileInfo::Type::DIRECTORY;
-		info.mtime = 0;
-		info.device = 0;
-		info.inode = 0;
-		return info;
-	}
+	if (directory != nullptr)
+		return StorageFileInfo(StorageFileInfo::Type::DIRECTORY);
 
 	if (error)
 		std::rethrow_exception(error);
@@ -295,10 +264,10 @@ CompositeStorage::GetInfo(const char *uri, bool follow)
 		throw std::runtime_error("No such file or directory");
 }
 
-StorageDirectoryReader *
+std::unique_ptr<StorageDirectoryReader>
 CompositeStorage::OpenDirectory(const char *uri)
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	const Directory *directory = f.directory->Find(f.uri);
@@ -311,20 +280,21 @@ CompositeStorage::OpenDirectory(const char *uri)
 		return f.directory->storage->OpenDirectory(f.uri);
 	}
 
-	StorageDirectoryReader *other = nullptr;
+	std::unique_ptr<StorageDirectoryReader> other;
 
 	try {
 		other = f.directory->storage->OpenDirectory(f.uri);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 	}
 
-	return new CompositeDirectoryReader(other, directory->children);
+	return std::make_unique<CompositeDirectoryReader>(std::move(other),
+							  directory->children);
 }
 
 std::string
-CompositeStorage::MapUTF8(const char *uri) const
+CompositeStorage::MapUTF8(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
@@ -334,21 +304,21 @@ CompositeStorage::MapUTF8(const char *uri) const
 }
 
 AllocatedPath
-CompositeStorage::MapFS(const char *uri) const
+CompositeStorage::MapFS(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	return f.directory->storage->MapFS(f.uri);
 }
 
 const char *
-CompositeStorage::MapToRelativeUTF8(const char *uri) const
+CompositeStorage::MapToRelativeUTF8(const char *uri) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::lock_guard<Mutex> protect(mutex);
 
 	if (root.storage != nullptr) {
 		const char *result = root.storage->MapToRelativeUTF8(uri);

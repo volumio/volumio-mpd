@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,7 @@
 #ifndef MPD_TAG_GENERIC_HXX
 #define MPD_TAG_GENERIC_HXX
 
-#include "check.h"
-
-struct TagHandler;
+class TagHandler;
 class InputStream;
 class Path;
 
@@ -31,12 +29,12 @@ class Path;
  * stream does not need to be rewound.
  */
 bool
-ScanGenericTags(InputStream &is, const TagHandler &handler, void *ctx);
+ScanGenericTags(InputStream &is, TagHandler &handler) noexcept;
 
 /**
  * Attempts to scan APE or ID3 tags from the specified file.
  */
 bool
-ScanGenericTags(Path path, const TagHandler &handler, void *ctx);
+ScanGenericTags(Path path, TagHandler &handler) noexcept;
 
 #endif

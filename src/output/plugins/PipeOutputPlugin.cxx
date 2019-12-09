@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PipeOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "../Wrapper.hxx"
 #include "system/Error.hxx"
 
 #include <string>
@@ -28,40 +26,34 @@
 
 #include <stdio.h>
 
-class PipeOutput {
-	friend struct AudioOutputWrapper<PipeOutput>;
-
-	AudioOutput base;
-
+class PipeOutput final : AudioOutput {
 	const std::string cmd;
 	FILE *fh;
 
 	PipeOutput(const ConfigBlock &block);
 
 public:
-	static PipeOutput *Create(const ConfigBlock &block);
+	static AudioOutput *Create(EventLoop &,
+				   const ConfigBlock &block) {
+		return new PipeOutput(block);
+	}
 
-	void Open(AudioFormat &audio_format);
+private:
+	void Open(AudioFormat &audio_format) override;
 
-	void Close() {
+	void Close() noexcept override {
 		pclose(fh);
 	}
 
-	size_t Play(const void *chunk, size_t size);
+	size_t Play(const void *chunk, size_t size) override;
 };
 
 PipeOutput::PipeOutput(const ConfigBlock &block)
-	:base(pipe_output_plugin, block),
+	:AudioOutput(0),
 	 cmd(block.GetBlockValue("command", ""))
 {
 	if (cmd.empty())
 		throw std::runtime_error("No \"command\" parameter specified");
-}
-
-inline PipeOutput *
-PipeOutput::Create(const ConfigBlock &block)
-{
-	return new PipeOutput(block);
 }
 
 inline void
@@ -82,22 +74,9 @@ PipeOutput::Play(const void *chunk, size_t size)
 	return nbytes;
 }
 
-typedef AudioOutputWrapper<PipeOutput> Wrapper;
-
 const struct AudioOutputPlugin pipe_output_plugin = {
 	"pipe",
 	nullptr,
-	&Wrapper::Init,
-	&Wrapper::Finish,
-	nullptr,
-	nullptr,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	nullptr,
-	nullptr,
-	&Wrapper::Play,
-	nullptr,
-	nullptr,
-	nullptr,
+	&PipeOutput::Create,
 	nullptr,
 };

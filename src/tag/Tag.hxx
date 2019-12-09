@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,13 @@
 #ifndef MPD_TAG_HXX
 #define MPD_TAG_HXX
 
-#include "TagType.h" // IWYU pragma: export
-#include "TagItem.hxx" // IWYU pragma: export
+#include "Type.h" // IWYU pragma: export
+#include "Item.hxx" // IWYU pragma: export
 #include "Chrono.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <algorithm>
+#include <memory>
 
 /**
  * The meta information about a song file.  It is a MPD specific
@@ -36,29 +37,28 @@ struct Tag {
 	 * The duration of the song.  A negative value means that the
 	 * length is unknown.
 	 */
-	SignedSongTime duration;
+	SignedSongTime duration = SignedSongTime::Negative();
 
 	/**
 	 * Does this file have an embedded playlist (e.g. embedded CUE
 	 * sheet)?
 	 */
-	bool has_playlist;
+	bool has_playlist = false;
 
 	/** the total number of tag items in the #items array */
-	unsigned short num_items;
+	unsigned short num_items = 0;
 
 	/** an array of tag items */
-	TagItem **items;
+	TagItem **items = nullptr;
 
 	/**
 	 * Create an empty tag.
 	 */
-	Tag():duration(SignedSongTime::Negative()), has_playlist(false),
-	      num_items(0), items(nullptr) {}
+	Tag() = default;
 
-	Tag(const Tag &other);
+	Tag(const Tag &other) noexcept;
 
-	Tag(Tag &&other)
+	Tag(Tag &&other) noexcept
 		:duration(other.duration), has_playlist(other.has_playlist),
 		 num_items(other.num_items), items(other.items) {
 		other.items = nullptr;
@@ -68,13 +68,13 @@ struct Tag {
 	/**
 	 * Free the tag object and all its items.
 	 */
-	~Tag() {
+	~Tag() noexcept {
 		Clear();
 	}
 
 	Tag &operator=(const Tag &other) = delete;
 
-	Tag &operator=(Tag &&other) {
+	Tag &operator=(Tag &&other) noexcept {
 		duration = other.duration;
 		has_playlist = other.has_playlist;
 		MoveItemsFrom(std::move(other));
@@ -85,7 +85,7 @@ struct Tag {
 	 * Similar to the move operator, but move only the #TagItem
 	 * array.
 	 */
-	void MoveItemsFrom(Tag &&other) {
+	void MoveItemsFrom(Tag &&other) noexcept {
 		std::swap(items, other.items);
 		std::swap(num_items, other.num_items);
 	}
@@ -94,21 +94,21 @@ struct Tag {
 	 * Returns true if the tag contains no items.  This ignores
 	 * the "duration" attribute.
 	 */
-	bool IsEmpty() const {
+	bool IsEmpty() const noexcept {
 		return num_items == 0;
 	}
 
 	/**
 	 * Returns true if the tag contains any information.
 	 */
-	bool IsDefined() const {
+	bool IsDefined() const noexcept {
 		return !IsEmpty() || !duration.IsNegative();
 	}
 
 	/**
 	 * Clear everything, as if this was a new Tag object.
 	 */
-	void Clear();
+	void Clear() noexcept;
 
 	/**
 	 * Merges the data from two tags.  If both tags share data for the
@@ -116,8 +116,8 @@ struct Tag {
 	 *
 	 * @return a newly allocated tag
 	 */
-	gcc_malloc
-	static Tag *Merge(const Tag &base, const Tag &add);
+	static std::unique_ptr<Tag> Merge(const Tag &base,
+					  const Tag &add) noexcept;
 
 	/**
 	 * Merges the data from two tags.  Any of the two may be nullptr.  Both
@@ -125,93 +125,84 @@ struct Tag {
 	 *
 	 * @return a newly allocated tag
 	 */
-	gcc_malloc
-	static Tag *MergeReplace(Tag *base, Tag *add);
+	static std::unique_ptr<Tag> Merge(std::unique_ptr<Tag> base,
+					  std::unique_ptr<Tag> add) noexcept;
 
 	/**
 	 * Returns the first value of the specified tag type, or
 	 * nullptr if none is present in this tag object.
 	 */
 	gcc_pure
-	const char *GetValue(TagType type) const;
+	const char *GetValue(TagType type) const noexcept;
 
 	/**
 	 * Checks whether the tag contains one or more items with
 	 * the specified type.
 	 */
 	gcc_pure
-	bool HasType(TagType type) const;
+	bool HasType(TagType type) const noexcept;
+
+	/**
+	 * Returns a value for sorting on the specified type, with
+	 * automatic fallbacks to the next best tag type
+	 * (e.g. #TAG_ALBUM_ARTIST falls back to #TAG_ARTIST).  If
+	 * there is no such value, returns an empty string.
+	 */
+	gcc_pure gcc_returns_nonnull
+	const char *GetSortValue(TagType type) const noexcept;
 
 	class const_iterator {
 		friend struct Tag;
 		const TagItem *const*cursor;
 
-		constexpr const_iterator(const TagItem *const*_cursor)
+		constexpr const_iterator(const TagItem *const*_cursor) noexcept
 			:cursor(_cursor) {}
 
 	public:
-		constexpr const TagItem &operator*() const {
+		constexpr const TagItem &operator*() const noexcept {
 			return **cursor;
 		}
 
-		constexpr const TagItem *operator->() const {
+		constexpr const TagItem *operator->() const noexcept {
 			return *cursor;
 		}
 
-		const_iterator &operator++() {
+		const_iterator &operator++() noexcept {
 			++cursor;
 			return *this;
 		}
 
-		const_iterator operator++(int) {
+		const_iterator operator++(int) noexcept {
 			auto result = cursor++;
 			return const_iterator{result};
 		}
 
-		const_iterator &operator--() {
+		const_iterator &operator--() noexcept {
 			--cursor;
 			return *this;
 		}
 
-		const_iterator operator--(int) {
+		const_iterator operator--(int) noexcept {
 			auto result = cursor--;
 			return const_iterator{result};
 		}
 
-		constexpr bool operator==(const_iterator other) const {
+		constexpr bool operator==(const_iterator other) const noexcept {
 			return cursor == other.cursor;
 		}
 
-		constexpr bool operator!=(const_iterator other) const {
+		constexpr bool operator!=(const_iterator other) const noexcept {
 			return cursor != other.cursor;
 		}
 	};
 
-	const_iterator begin() const {
+	const_iterator begin() const noexcept {
 		return const_iterator{items};
 	}
 
-	const_iterator end() const {
+	const_iterator end() const noexcept {
 		return const_iterator{items + num_items};
 	}
 };
-
-/**
- * Parse the string, and convert it into a #TagType.  Returns
- * #TAG_NUM_OF_ITEM_TYPES if the string could not be recognized.
- */
-gcc_pure
-TagType
-tag_name_parse(const char *name);
-
-/**
- * Parse the string, and convert it into a #TagType.  Returns
- * #TAG_NUM_OF_ITEM_TYPES if the string could not be recognized.
- *
- * Case does not matter.
- */
-gcc_pure
-TagType
-tag_name_parse_i(const char *name);
 
 #endif

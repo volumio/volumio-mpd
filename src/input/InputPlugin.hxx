@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,26 +20,23 @@
 #ifndef MPD_INPUT_PLUGIN_HXX
 #define MPD_INPUT_PLUGIN_HXX
 
-#include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
-
-#include <stddef.h>
-#include <stdint.h>
-
-#ifdef WIN32
-#include <windows.h>
-/* damn you, windows.h! */
-#ifdef ERROR
-#undef ERROR
-#endif
-#endif
+#include "Ptr.hxx"
+#include "util/Compiler.h"
 
 struct ConfigBlock;
-class InputStream;
-struct Tag;
+class Mutex;
+class EventLoop;
+class RemoteTagScanner;
+class RemoteTagHandler;
 
 struct InputPlugin {
 	const char *name;
+
+	/**
+	 * A nullptr-terminated list of URI prefixes handled by this
+	 * plugin.  This is usually a string in the form "scheme://".
+	 */
+	const char *const*prefixes;
 
 	/**
 	 * Global initialization.  This method is called when MPD starts.
@@ -49,7 +46,7 @@ struct InputPlugin {
 	 *
 	 * Throws std::runtime_error on (fatal) error.
 	 */
-	void (*init)(const ConfigBlock &block);
+	void (*init)(EventLoop &event_loop, const ConfigBlock &block);
 
 	/**
 	 * Global deinitialization.  Called once before MPD shuts
@@ -58,10 +55,27 @@ struct InputPlugin {
 	void (*finish)();
 
 	/**
+	 * Attempt to open the given URI.  Returns nullptr if the
+	 * plugin does not support this URI.
+	 *
 	 * Throws std::runtime_error on error.
 	 */
-	InputStream *(*open)(const char *uri,
-			     Mutex &mutex, Cond &cond);
+	InputStreamPtr (*open)(const char *uri, Mutex &mutex);
+
+	/**
+	 * Prepare a #RemoteTagScanner.  The operation must be started
+	 * using RemoteTagScanner::Start().  Returns nullptr if the
+	 * plugin does not support this URI.
+	 *
+	 * Throws on error.
+	 *
+	 * @return nullptr if the given URI is not supported.
+	 */
+	std::unique_ptr<RemoteTagScanner> (*scan_tags)(const char *uri,
+						       RemoteTagHandler &handler) = nullptr;
+
+	gcc_pure
+	bool SupportsUri(const char *uri) const noexcept;
 };
 
 #endif

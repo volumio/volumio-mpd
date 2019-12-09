@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
+#include "NullMixerListener.hxx"
 #include "mixer/MixerControl.hxx"
 #include "mixer/MixerList.hxx"
 #include "filter/FilterRegistry.hxx"
@@ -25,7 +25,7 @@
 #include "Main.hxx"
 #include "event/Loop.hxx"
 #include "config/Block.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <assert.h>
 #include <string.h>
@@ -33,7 +33,7 @@
 #include <stdlib.h>
 
 const FilterPlugin *
-filter_plugin_by_name(gcc_unused const char *name)
+filter_plugin_by_name(gcc_unused const char *name) noexcept
 {
 	assert(false);
 	return NULL;
@@ -50,9 +50,14 @@ try {
 
 	EventLoop event_loop;
 
+	NullMixerListener mixer_listener;
 	Mixer *mixer = mixer_new(event_loop, alsa_mixer_plugin,
-				 *(AudioOutput *)nullptr,
-				 *(MixerListener *)nullptr,
+				 /* ugly dangerous dummy pointer to
+				    make the compiler happy; this
+				    works with most mixers, because
+				    they don't need the AudioOutput */
+				 *(AudioOutput *)0x1,
+				 mixer_listener,
 				 ConfigBlock());
 
 	mixer_open(mixer);
@@ -70,7 +75,7 @@ try {
 
 	printf("%d\n", volume);
 	return 0;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

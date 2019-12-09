@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "net/Resolver.hxx"
+#include "net/AddressInfo.hxx"
 #include "net/ToString.hxx"
 #include "net/SocketAddress.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
-#include <stdexcept>
-
-#ifdef WIN32
-#include <ws2tcpip.h>
-#include <winsock.h>
-#else
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
+#include <exception>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,17 +35,12 @@ try {
 		return EXIT_FAILURE;
 	}
 
-	struct addrinfo *ai =
-		resolve_host_port(argv[1], 80, AI_PASSIVE, SOCK_STREAM);
-
-	for (const struct addrinfo *i = ai; i != NULL; i = i->ai_next) {
-		const auto s = ToString({i->ai_addr, i->ai_addrlen});
-		printf("%s\n", s.c_str());
+	for (const auto &i : Resolve(argv[1], 80, AI_PASSIVE, SOCK_STREAM)) {
+		printf("%s\n", ToString(i).c_str());
 	}
 
-	freeaddrinfo(ai);
 	return EXIT_SUCCESS;
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

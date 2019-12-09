@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabaseSave.hxx"
 #include "db/DatabaseLock.hxx"
 #include "Directory.hxx"
 #include "DirectorySave.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "fs/io/TextFile.hxx"
-#include "tag/Tag.hxx"
+#include "tag/ParseName.hxx"
 #include "tag/Settings.hxx"
 #include "fs/Charset.hxx"
 #include "util/StringCompare.hxx"

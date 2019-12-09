@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Charset.hxx"
 #include "Domain.hxx"
 #include "Log.hxx"
 #include "lib/icu/Converter.hxx"
 #include "util/AllocatedString.hxx"
+#include "config.h"
 
-#ifdef WIN32
+#ifdef _WIN32
 #include "lib/icu/Win32.hxx"
 #include <windows.h>
 #endif
@@ -57,7 +57,7 @@ SetFSCharset(const char *charset)
 #endif
 
 void
-DeinitFSCharset()
+DeinitFSCharset() noexcept
 {
 #ifdef HAVE_ICU_CONVERTER
 	delete fs_converter;
@@ -66,11 +66,11 @@ DeinitFSCharset()
 }
 
 const char *
-GetFSCharset()
+GetFSCharset() noexcept
 {
 #ifdef HAVE_FS_CHARSET
 	return fs_charset.empty() ? "UTF-8" : fs_charset.c_str();
-#elif defined(WIN32)
+#elif defined(_WIN32)
 	return "ACP";
 #else
 	return "UTF-8";
@@ -100,7 +100,7 @@ PathToUTF8(PathTraitsFS::const_pointer_type path_fs)
 	assert(path_fs != nullptr);
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 	const auto buffer = WideCharToMultiByte(CP_UTF8, path_fs);
 	return FixSeparators(PathTraitsUTF8::string(buffer.c_str()));
 #else
@@ -116,7 +116,7 @@ PathToUTF8(PathTraitsFS::const_pointer_type path_fs)
 #endif
 }
 
-#if defined(HAVE_FS_CHARSET) || defined(WIN32)
+#if defined(HAVE_FS_CHARSET) || defined(_WIN32)
 
 PathTraitsFS::string
 PathFromUTF8(PathTraitsUTF8::const_pointer_type path_utf8)
@@ -126,7 +126,7 @@ PathFromUTF8(PathTraitsUTF8::const_pointer_type path_utf8)
 	assert(path_utf8 != nullptr);
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 	const auto buffer = MultiByteToWideChar(CP_UTF8, path_utf8);
 	return PathTraitsFS::string(buffer.c_str());
 #else

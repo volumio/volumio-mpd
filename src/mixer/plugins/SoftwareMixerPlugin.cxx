@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SoftwareMixerPlugin.hxx"
 #include "mixer/MixerInternal.hxx"
-#include "filter/FilterPlugin.hxx"
-#include "filter/FilterRegistry.hxx"
-#include "filter/FilterInternal.hxx"
 #include "filter/plugins/VolumeFilterPlugin.hxx"
 #include "pcm/Volume.hxx"
-#include "config/Block.hxx"
 
 #include <assert.h>
 #include <math.h>
@@ -44,13 +39,13 @@ public:
 	{
 	}
 
-	void SetFilter(Filter *_filter);
+	void SetFilter(Filter *_filter) noexcept;
 
 	/* virtual methods from class Mixer */
 	void Open() override {
 	}
 
-	virtual void Close() override {
+	void Close() noexcept override {
 	}
 
 	int GetVolume() override {
@@ -71,7 +66,7 @@ software_mixer_init(gcc_unused EventLoop &event_loop,
 
 gcc_const
 static unsigned
-PercentVolumeToSoftwareVolume(unsigned volume)
+PercentVolumeToSoftwareVolume(unsigned volume) noexcept
 {
 	assert(volume <= 100);
 
@@ -101,7 +96,7 @@ const MixerPlugin software_mixer_plugin = {
 };
 
 inline void
-SoftwareMixer::SetFilter(Filter *_filter)
+SoftwareMixer::SetFilter(Filter *_filter) noexcept
 {
 	filter = _filter;
 
@@ -111,7 +106,7 @@ SoftwareMixer::SetFilter(Filter *_filter)
 }
 
 void
-software_mixer_set_filter(Mixer &mixer, Filter *filter)
+software_mixer_set_filter(Mixer &mixer, Filter *filter) noexcept
 {
 	SoftwareMixer &sm = (SoftwareMixer &)mixer;
 	sm.SetFilter(filter);

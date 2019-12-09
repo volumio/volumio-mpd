@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,9 +17,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AdPlugDecoderPlugin.h"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "../DecoderAPI.hxx"
 #include "CheckAudioFormat.hxx"
 #include "fs/Path.hxx"
@@ -42,7 +41,7 @@ adplug_init(const ConfigBlock &block)
 	FormatDebug(adplug_domain, "adplug %s",
 		    CAdPlug::get_version().c_str());
 
-	sample_rate = block.GetBlockValue("sample_rate", 48000u);
+	sample_rate = block.GetPositiveValue("sample_rate", 48000u);
 	CheckSampleRate(sample_rate);
 
 	return true;
@@ -83,16 +82,14 @@ adplug_file_decode(DecoderClient &client, Path path_fs)
 
 static void
 adplug_scan_tag(TagType type, const std::string &value,
-		const TagHandler &handler, void *handler_ctx)
+		TagHandler &handler) noexcept
 {
 	if (!value.empty())
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       type, value.c_str());
+		handler.OnTag(type, value.c_str());
 }
 
 static bool
-adplug_scan_file(Path path_fs,
-		 const TagHandler &handler, void *handler_ctx)
+adplug_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	CEmuopl opl(sample_rate, true, true);
 	opl.init();
@@ -101,16 +98,15 @@ adplug_scan_file(Path path_fs,
 	if (player == nullptr)
 		return false;
 
-	tag_handler_invoke_duration(handler, handler_ctx,
-				    SongTime::FromMS(player->songlength()));
+	handler.OnDuration(SongTime::FromMS(player->songlength()));
 
-	if (handler.tag != nullptr) {
+	if (handler.WantTag()) {
 		adplug_scan_tag(TAG_TITLE, player->gettitle(),
-				handler, handler_ctx);
+				handler);
 		adplug_scan_tag(TAG_ARTIST, player->getauthor(),
-				handler, handler_ctx);
+				handler);
 		adplug_scan_tag(TAG_COMMENT, player->getdesc(),
-				handler, handler_ctx);
+				handler);
 	}
 
 	delete player;

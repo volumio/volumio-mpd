@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "CrossFade.hxx"
 #include "Chrono.hxx"
 #include "MusicChunk.hxx"
@@ -26,15 +25,18 @@
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
+#include <cmath>
+
 #include <assert.h>
 
 static constexpr Domain cross_fade_domain("cross_fade");
 
 gcc_pure
-static float
-mixramp_interpolate(const char *ramp_list, float required_db)
+static FloatDuration
+mixramp_interpolate(const char *ramp_list, float required_db) noexcept
 {
-	float last_db = 0, last_secs = 0;
+	float last_db = 0;
+	FloatDuration last_duration = FloatDuration::zero();
 	bool have_last = false;
 
 	/* ramp_list is a string of pairs of dBs and seconds that describe the
@@ -52,7 +54,7 @@ mixramp_interpolate(const char *ramp_list, float required_db)
 		ramp_list = endptr + 1;
 
 		/* Parse the time. */
-		float secs = ParseFloat(ramp_list, &endptr);
+		FloatDuration duration{ParseFloat(ramp_list, &endptr)};
 		if (endptr == ramp_list || (*endptr != ';' && *endptr != 0))
 			break;
 
@@ -62,27 +64,27 @@ mixramp_interpolate(const char *ramp_list, float required_db)
 
 		/* Check for exact match. */
 		if (db == required_db) {
-			return secs;
+			return duration;
 		}
 
 		/* Save if too quiet. */
 		if (db < required_db) {
 			last_db = db;
-			last_secs = secs;
+			last_duration = duration;
 			have_last = true;
 			continue;
 		}
 
 		/* If required db < any stored value, use the least. */
 		if (!have_last)
-			return secs;
+			return duration;
 
 		/* Finally, interpolate linearly. */
-		secs = last_secs + (required_db - last_db) * (secs - last_secs) / (db - last_db);
-		return secs;
+		duration = last_duration + (required_db - last_db) * (duration - last_duration) / (db - last_db);
+		return duration;
 	}
 
-	return -1;
+	return FloatDuration(-1);
 }
 
 unsigned
@@ -91,42 +93,45 @@ CrossFadeSettings::Calculate(SignedSongTime total_time,
 			     const char *mixramp_start, const char *mixramp_prev_end,
 			     const AudioFormat af,
 			     const AudioFormat old_format,
-			     unsigned max_chunks) const
+			     unsigned max_chunks) const noexcept
 {
 	unsigned int chunks = 0;
-	float chunks_f;
 
 	if (total_time.IsNegative() ||
-	    duration < 0 || duration >= total_time.ToDoubleS() ||
+	    duration <= FloatDuration::zero() ||
+	    duration >= std::chrono::duration_cast<FloatDuration>(total_time) ||
 	    /* we can't crossfade when the audio formats are different */
 	    af != old_format)
 		return 0;
 
-	assert(duration >= 0);
+	assert(duration > FloatDuration::zero());
 	assert(af.IsValid());
 
-	chunks_f = (float)af.GetTimeToSize() / (float)CHUNK_SIZE;
+	const auto chunk_duration =
+		af.SizeToTime<FloatDuration>(sizeof(MusicChunk::data));
 
-	if (mixramp_delay <= 0 || !mixramp_start || !mixramp_prev_end) {
-		chunks = (chunks_f * duration + 0.5);
+	if (mixramp_delay <= FloatDuration::zero() ||
+	    !mixramp_start || !mixramp_prev_end) {
+		chunks = std::lround(duration / chunk_duration);
 	} else {
 		/* Calculate mixramp overlap. */
-		const float mixramp_overlap_current =
+		const auto mixramp_overlap_current =
 			mixramp_interpolate(mixramp_start,
 					    mixramp_db - replay_gain_db);
-		const float mixramp_overlap_prev =
+		const auto mixramp_overlap_prev =
 			mixramp_interpolate(mixramp_prev_end,
 					    mixramp_db - replay_gain_prev_db);
-		const float mixramp_overlap =
+		const auto mixramp_overlap =
 			mixramp_overlap_current + mixramp_overlap_prev;
 
-		if (mixramp_overlap_current >= 0 &&
-		    mixramp_overlap_prev >= 0 &&
+		if (mixramp_overlap_current >= FloatDuration::zero() &&
+		    mixramp_overlap_prev >= FloatDuration::zero() &&
 		    mixramp_delay <= mixramp_overlap) {
-			chunks = (chunks_f * (mixramp_overlap - mixramp_delay));
+			chunks = lround((mixramp_overlap - mixramp_delay)
+					/ chunk_duration);
 			FormatDebug(cross_fade_domain,
 				    "will overlap %d chunks, %fs", chunks,
-				    mixramp_overlap - mixramp_delay);
+				    (mixramp_overlap - mixramp_delay).count());
 		}
 	}
 

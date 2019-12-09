@@ -1,44 +1,55 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
- * http://www.musicpd.org
+ * Copyright 2007-2018 Content Management AG
+ * All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * author: Max Kellermann <mk@cm4all.com>
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * - Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the
+ * distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
+ * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MPD_RESOLVER_HXX
-#define MPD_RESOLVER_HXX
-
-#include "check.h"
-#include "Compiler.h"
+#ifndef NET_RESOLVER_HXX
+#define NET_RESOLVER_HXX
 
 struct addrinfo;
+class AddressInfoList;
 
 /**
- * Resolve a specification in the form "host", "host:port",
- * "[host]:port".  This is a convenience wrapper for getaddrinfo().
+ * Resolve the given host name (which may include a port), and fall
+ * back to the given default port.
  *
- * Throws #std::runtime_error on error.
+ * This is a wrapper for getaddrinfo() and it does not support local
+ * sockets.
  *
- * @param default_port a default port number that will be used if none
- * is given in the string (if applicable); pass 0 to go without a
- * default
- * @return an #addrinfo linked list that must be freed with
- * freeaddrinfo()
+ * Throws on error.
  */
-addrinfo *
-resolve_host_port(const char *host_port, unsigned default_port,
-		  int flags, int socktype);
+AddressInfoList
+Resolve(const char *host_and_port, int default_port,
+	const struct addrinfo *hints);
+
+AddressInfoList
+Resolve(const char *host_port, unsigned default_port, int flags, int socktype);
 
 #endif

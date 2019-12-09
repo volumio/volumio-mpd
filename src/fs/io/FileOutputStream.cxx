@@ -1,28 +1,63 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
- * http://www.musicpd.org
+ * Copyright (C) 2014-2018 Max Kellermann <max.kellermann@gmail.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * - Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * - Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the
+ * distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
+ * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "FileOutputStream.hxx"
 #include "system/Error.hxx"
+#include "util/StringFormat.hxx"
+
+#ifdef __linux__
+#include <fcntl.h>
+#endif
+
+#ifdef __linux__
+FileOutputStream::FileOutputStream(FileDescriptor _directory_fd,
+				   Path _path, Mode _mode)
+	:path(_path),
+	 directory_fd(_directory_fd),
+	 mode(_mode)
+{
+	Open();
+}
+#endif
 
 FileOutputStream::FileOutputStream(Path _path, Mode _mode)
-	:path(_path), mode(_mode)
+	:path(_path),
+#ifdef __linux__
+	 directory_fd(AT_FDCWD),
+#endif
+	 mode(_mode)
+{
+	Open();
+}
+
+inline void
+FileOutputStream::Open()
 {
 	switch (mode) {
 	case Mode::CREATE:
@@ -43,7 +78,7 @@ FileOutputStream::FileOutputStream(Path _path, Mode _mode)
 	}
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 
 inline void
 FileOutputStream::OpenCreate(gcc_unused bool visible)
@@ -78,7 +113,7 @@ FileOutputStream::OpenAppend(bool create)
 }
 
 uint64_t
-FileOutputStream::Tell() const
+FileOutputStream::Tell() const noexcept
 {
 	LONG high = 0;
 	DWORD low = SetFilePointer(handle, 0, &high, FILE_CURRENT);
@@ -112,7 +147,7 @@ FileOutputStream::Commit()
 }
 
 void
-FileOutputStream::Cancel()
+FileOutputStream::Cancel() noexcept
 {
 	assert(IsDefined());
 
@@ -127,7 +162,7 @@ FileOutputStream::Cancel()
 #include <unistd.h>
 #include <errno.h>
 
-#ifdef HAVE_LINKAT
+#ifdef HAVE_O_TMPFILE
 #ifndef O_TMPFILE
 /* supported since Linux 3.11 */
 #define __O_TMPFILE 020000000
@@ -139,8 +174,12 @@ FileOutputStream::Cancel()
  * Open a file using Linux's O_TMPFILE for writing the given file.
  */
 static bool
-OpenTempFile(FileDescriptor &fd, Path path)
+OpenTempFile(FileDescriptor directory_fd,
+	     FileDescriptor &fd, Path path)
 {
+	if (directory_fd != FileDescriptor(AT_FDCWD))
+		return fd.Open(directory_fd, ".", O_TMPFILE|O_WRONLY, 0666);
+
 	const auto directory = path.GetDirectoryName();
 	if (directory.IsNull())
 		return false;
@@ -148,23 +187,27 @@ OpenTempFile(FileDescriptor &fd, Path path)
 	return fd.Open(directory.c_str(), O_TMPFILE|O_WRONLY, 0666);
 }
 
-#endif /* HAVE_LINKAT */
+#endif /* HAVE_O_TMPFILE */
 
 inline void
 FileOutputStream::OpenCreate(bool visible)
 {
-#ifdef HAVE_LINKAT
+#ifdef HAVE_O_TMPFILE
 	/* try Linux's O_TMPFILE first */
-	is_tmpfile = !visible && OpenTempFile(fd, GetPath());
+	is_tmpfile = !visible && OpenTempFile(directory_fd, fd, GetPath());
 	if (!is_tmpfile) {
 #endif
 		/* fall back to plain POSIX */
-		if (!fd.Open(GetPath().c_str(),
+		if (!fd.Open(
+#ifdef __linux__
+			     directory_fd,
+#endif
+			     GetPath().c_str(),
 			     O_WRONLY|O_CREAT|O_TRUNC,
 			     0666))
 			throw FormatErrno("Failed to create %s",
 					  GetPath().c_str());
-#ifdef HAVE_LINKAT
+#ifdef HAVE_O_TMPFILE
 	}
 #else
 	(void)visible;
@@ -178,13 +221,17 @@ FileOutputStream::OpenAppend(bool create)
 	if (create)
 		flags |= O_CREAT;
 
-	if (!fd.Open(path.c_str(), flags))
+	if (!fd.Open(
+#ifdef __linux__
+		     directory_fd,
+#endif
+		     path.c_str(), flags))
 		throw FormatErrno("Failed to append to %s",
 				  path.c_str());
 }
 
 uint64_t
-FileOutputStream::Tell() const
+FileOutputStream::Tell() const noexcept
 {
 	return fd.Tell();
 }
@@ -207,15 +254,14 @@ FileOutputStream::Commit()
 {
 	assert(IsDefined());
 
-#ifdef HAVE_LINKAT
+#ifdef HAVE_O_TMPFILE
 	if (is_tmpfile) {
-		unlink(GetPath().c_str());
+		unlinkat(directory_fd.Get(), GetPath().c_str(), 0);
 
 		/* hard-link the temporary file to the final path */
-		char fd_path[64];
-		snprintf(fd_path, sizeof(fd_path), "/proc/self/fd/%d",
-			 fd.Get());
-		if (linkat(AT_FDCWD, fd_path, AT_FDCWD, path.c_str(),
+		if (linkat(AT_FDCWD,
+			   StringFormat<64>("/proc/self/fd/%d", fd.Get()),
+			   directory_fd.Get(), path.c_str(),
 			   AT_SYMLINK_FOLLOW) < 0)
 			throw FormatErrno("Failed to commit %s",
 					  path.c_str());
@@ -223,7 +269,7 @@ FileOutputStream::Commit()
 #endif
 
 	if (!Close()) {
-#ifdef WIN32
+#ifdef _WIN32
 		throw FormatLastError("Failed to commit %s",
 				      path.ToUTF8().c_str());
 #else
@@ -233,7 +279,7 @@ FileOutputStream::Commit()
 }
 
 void
-FileOutputStream::Cancel()
+FileOutputStream::Cancel() noexcept
 {
 	assert(IsDefined());
 
@@ -241,10 +287,14 @@ FileOutputStream::Cancel()
 
 	switch (mode) {
 	case Mode::CREATE:
-#ifdef HAVE_LINKAT
+#ifdef HAVE_O_TMPFILE
 		if (!is_tmpfile)
 #endif
-			unlink(GetPath().c_str());
+#ifdef __linux__
+			unlinkat(directory_fd.Get(), GetPath().c_str(), 0);
+#else
+		unlink(GetPath().c_str());
+#endif
 		break;
 
 	case Mode::CREATE_VISIBLE:

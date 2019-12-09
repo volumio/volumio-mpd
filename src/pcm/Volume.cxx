@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Volume.hxx"
 #include "Silence.hxx"
 #include "Traits.hxx"
@@ -27,6 +26,7 @@
 
 #include "PcmDither.cxx" // including the .cxx file to get inlined templates
 
+#include <assert.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -34,7 +34,7 @@ template<SampleFormat F, class Traits=SampleTraits<F>>
 static inline typename Traits::value_type
 pcm_volume_sample(PcmDither &dither,
 		  typename Traits::value_type _sample,
-		  int volume)
+		  int volume) noexcept
 {
 	typename Traits::long_type sample(_sample);
 
@@ -49,7 +49,7 @@ pcm_volume_change(PcmDither &dither,
 		  typename Traits::pointer_type dest,
 		  typename Traits::const_pointer_type src,
 		  size_t n,
-		  int volume)
+		  int volume) noexcept
 {
 	for (size_t i = 0; i != n; ++i)
 		dest[i] = pcm_volume_sample<F, Traits>(dither, src[i], volume);
@@ -58,7 +58,7 @@ pcm_volume_change(PcmDither &dither,
 static void
 pcm_volume_change_8(PcmDither &dither,
 		    int8_t *dest, const int8_t *src, size_t n,
-		    int volume)
+		    int volume) noexcept
 {
 	pcm_volume_change<SampleFormat::S8>(dither, dest, src, n, volume);
 }
@@ -66,7 +66,7 @@ pcm_volume_change_8(PcmDither &dither,
 static void
 pcm_volume_change_16(PcmDither &dither,
 		     int16_t *dest, const int16_t *src, size_t n,
-		     int volume)
+		     int volume) noexcept
 {
 	pcm_volume_change<SampleFormat::S16>(dither, dest, src, n, volume);
 }
@@ -74,7 +74,7 @@ pcm_volume_change_16(PcmDither &dither,
 static void
 pcm_volume_change_24(PcmDither &dither,
 		     int32_t *dest, const int32_t *src, size_t n,
-		     int volume)
+		     int volume) noexcept
 {
 	pcm_volume_change<SampleFormat::S24_P32>(dither, dest, src, n,
 						 volume);
@@ -83,14 +83,14 @@ pcm_volume_change_24(PcmDither &dither,
 static void
 pcm_volume_change_32(PcmDither &dither,
 		     int32_t *dest, const int32_t *src, size_t n,
-		     int volume)
+		     int volume) noexcept
 {
 	pcm_volume_change<SampleFormat::S32>(dither, dest, src, n, volume);
 }
 
 static void
 pcm_volume_change_float(float *dest, const float *src, size_t n,
-			float volume)
+			float volume) noexcept
 {
 	for (size_t i = 0; i != n; ++i)
 		dest[i] = src[i] * volume;
@@ -122,7 +122,7 @@ PcmVolume::Open(SampleFormat _format)
 }
 
 ConstBuffer<void>
-PcmVolume::Apply(ConstBuffer<void> src)
+PcmVolume::Apply(ConstBuffer<void> src) noexcept
 {
 	if (volume == PCM_VOLUME_1)
 		return src;

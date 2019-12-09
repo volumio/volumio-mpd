@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,14 @@
 #ifndef MPD_CONVERT_FILTER_PLUGIN_HXX
 #define MPD_CONVERT_FILTER_PLUGIN_HXX
 
+#include <memory>
+
+class PreparedFilter;
 class Filter;
 struct AudioFormat;
+
+std::unique_ptr<PreparedFilter>
+convert_filter_prepare() noexcept;
 
 Filter *
 convert_filter_new(AudioFormat in_audio_format,

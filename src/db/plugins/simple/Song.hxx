@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,11 @@
 #ifndef MPD_SONG_HXX
 #define MPD_SONG_HXX
 
-#include "check.h"
 #include "Chrono.hxx"
 #include "tag/Tag.hxx"
-#include "Compiler.h"
+#include "AudioFormat.hxx"
+#include "util/Compiler.h"
+#include "config.h"
 
 #include <boost/intrusive/list.hpp>
 
@@ -66,22 +67,33 @@ struct Song {
 
 	/**
 	 * The #Directory that contains this song.  Must be
-	 * non-nullptr.  directory this way.
+	 * non-nullptr.
 	 */
 	Directory *const parent;
 
-	time_t mtime;
+	/**
+	 * The time stamp of the last file modification.  A negative
+	 * value means that this is unknown/unavailable.
+	 */
+	std::chrono::system_clock::time_point mtime =
+		std::chrono::system_clock::time_point::min();
 
 	/**
 	 * Start of this sub-song within the file.
 	 */
-	SongTime start_time;
+	SongTime start_time = SongTime::zero();
 
 	/**
 	 * End of this sub-song within the file.
 	 * Unused if zero.
 	 */
-	SongTime end_time;
+	SongTime end_time = SongTime::zero();
+
+	/**
+	 * The audio format of the song, if given by the decoder
+	 * plugin.  May be undefined if unknown.
+	 */
+	AudioFormat audio_format = AudioFormat::Undefined();
 
 	/**
 	 * The file name.
@@ -91,11 +103,11 @@ struct Song {
 	Song(const char *_uri, size_t uri_length, Directory &parent);
 	~Song();
 
-	gcc_malloc
+	gcc_malloc gcc_returns_nonnull
 	static Song *NewFrom(DetachedSong &&other, Directory &parent);
 
 	/** allocate a new song with a local file name */
-	gcc_malloc
+	gcc_malloc gcc_returns_nonnull
 	static Song *NewFile(const char *path_utf8, Directory &parent);
 
 	/**
@@ -105,17 +117,17 @@ struct Song {
 	 */
 	gcc_malloc
 	static Song *LoadFile(Storage &storage, const char *name_utf8,
-			      Directory &parent);
+			      Directory &parent) noexcept;
 
 	void Free();
 
-	bool UpdateFile(Storage &storage);
+	bool UpdateFile(Storage &storage) noexcept;
 
 #ifdef ENABLE_ARCHIVE
 	static Song *LoadFromArchive(ArchiveFile &archive,
 				     const char *name_utf8,
-				     Directory &parent);
-	bool UpdateFileInArchive(ArchiveFile &archive);
+				     Directory &parent) noexcept;
+	bool UpdateFileInArchive(ArchiveFile &archive) noexcept;
 #endif
 
 	/**
@@ -123,10 +135,10 @@ struct Song {
 	 * location within the music directory.
 	 */
 	gcc_pure
-	std::string GetURI() const;
+	std::string GetURI() const noexcept;
 
 	gcc_pure
-	LightSong Export() const;
+	LightSong Export() const noexcept;
 };
 
 typedef boost::intrusive::list<Song,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,12 +28,18 @@
 #include "player/Control.hxx"
 #include "player/Listener.hxx"
 #include "ReplayGainMode.hxx"
+#include "SingleMode.hxx"
 #include "Chrono.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
+#include "config.h"
+
+#include <string>
+#include <memory>
 
 struct Instance;
 class MultipleOutputs;
 class SongLoader;
+class ClientListener;
 
 /**
  * A partition of the Music Player Daemon.  It is a separate unit with
@@ -42,8 +48,13 @@ class SongLoader;
 struct Partition final : QueueListener, PlayerListener, MixerListener {
 	static constexpr unsigned TAG_MODIFIED = 0x1;
 	static constexpr unsigned SYNC_WITH_PLAYER = 0x2;
+	static constexpr unsigned BORDER_PAUSE = 0x4;
 
 	Instance &instance;
+
+	const std::string name;
+
+	std::unique_ptr<ClientListener> listener;
 
 	MaskMonitor global_events;
 
@@ -56,11 +67,13 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	ReplayGainMode replay_gain_mode = ReplayGainMode::OFF;
 
 	Partition(Instance &_instance,
+		  const char *_name,
 		  unsigned max_length,
 		  unsigned buffer_chunks,
-		  unsigned buffered_before_play,
 		  AudioFormat configured_audio_format,
 		  const ReplayGainConfig &replay_gain_config);
+
+	~Partition() noexcept;
 
 	void EmitGlobalEvent(unsigned mask) {
 		global_events.OrMask(mask);
@@ -173,7 +186,7 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 		playlist.SetRandom(pc, new_value);
 	}
 
-	void SetSingle(bool new_value) {
+	void SetSingle(SingleMode new_value) {
 		playlist.SetSingle(pc, new_value);
 	}
 
@@ -200,7 +213,6 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	 */
 	const Database *GetDatabase() const;
 
-	gcc_pure
 	const Database &GetDatabaseOrThrow() const;
 
 	/**
@@ -217,9 +229,21 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	void TagModified();
 
 	/**
+	 * The tag of the given song has been modified.  Propagate the
+	 * change to all instances of this song in the queue.
+	 */
+	void TagModified(const char *uri, const Tag &tag) noexcept;
+
+	/**
 	 * Synchronize the player with the play queue.
 	 */
 	void SyncWithPlayer();
+
+	/**
+	 * Border pause has just been enabled. Change single mode to off
+	 * if it was one-shot.
+	 */
+	void BorderPause();
 
 private:
 	/* virtual methods from class QueueListener */
@@ -228,8 +252,9 @@ private:
 	void OnQueueSongStarted() override;
 
 	/* virtual methods from class PlayerListener */
-	void OnPlayerSync() override;
-	void OnPlayerTagModified() override;
+	void OnPlayerSync() noexcept override;
+	void OnPlayerTagModified() noexcept override;
+	void OnBorderPause() noexcept override;
 
 	/* virtual methods from class MixerListener */
 	void OnMixerVolumeChanged(Mixer &mixer, int volume) override;

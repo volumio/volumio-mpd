@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_NFS_BASE_HXX
 #define MPD_NFS_BASE_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 /**
  * Set the "base" NFS server and export name.  This will be the
@@ -31,7 +30,7 @@
  * This is a kludge that is not truly thread-safe.
  */
 void
-nfs_set_base(const char *server, const char *export_name);
+nfs_set_base(const char *server, const char *export_name) noexcept;
 
 /**
  * Check if the given server and path are inside the "base"
@@ -41,6 +40,6 @@ nfs_set_base(const char *server, const char *export_name);
  */
 gcc_pure
 const char *
-nfs_check_base(const char *server, const char *path);
+nfs_check_base(const char *server, const char *path) noexcept;
 
 #endif

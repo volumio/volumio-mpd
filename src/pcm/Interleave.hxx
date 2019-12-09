@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_PCM_INTERLEAVE_HXX
 #define MPD_PCM_INTERLEAVE_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 #include "util/ConstBuffer.hxx"
 
 #include <stdint.h>
@@ -31,7 +30,7 @@
  */
 void
 PcmInterleave(void *gcc_restrict dest, ConstBuffer<const void *> src,
-	      size_t n_frames, size_t sample_size);
+	      size_t n_frames, size_t sample_size) noexcept;
 
 /**
  * A variant of PcmInterleave() that assumes 32 bit samples (4 bytes
@@ -39,11 +38,11 @@ PcmInterleave(void *gcc_restrict dest, ConstBuffer<const void *> src,
  */
 void
 PcmInterleave32(int32_t *gcc_restrict dest, ConstBuffer<const int32_t *> src,
-		size_t n_frames);
+		size_t n_frames) noexcept;
 
 static inline void
 PcmInterleaveFloat(float *gcc_restrict dest, ConstBuffer<const float *> src,
-		   size_t n_frames)
+		   size_t n_frames) noexcept
 {
 	PcmInterleave32((int32_t *)dest,
 			ConstBuffer<const int32_t *>((const int32_t *const*)src.data,

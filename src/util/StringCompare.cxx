@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,21 +30,32 @@
 #include "StringCompare.hxx"
 
 bool
-StringEndsWith(const char *haystack, const char *needle)
+StringEndsWith(const char *haystack, const char *needle) noexcept
 {
-	const size_t haystack_length = strlen(haystack);
-	const size_t needle_length = strlen(needle);
+	const size_t haystack_length = StringLength(haystack);
+	const size_t needle_length = StringLength(needle);
 
 	return haystack_length >= needle_length &&
 		memcmp(haystack + haystack_length - needle_length,
 		       needle, needle_length) == 0;
 }
 
-const char *
-FindStringSuffix(const char *p, const char *suffix)
+bool
+StringEndsWithIgnoreCase(const char *haystack, const char *needle) noexcept
 {
-	const size_t p_length = strlen(p);
-	const size_t suffix_length = strlen(suffix);
+	const size_t haystack_length = StringLength(haystack);
+	const size_t needle_length = StringLength(needle);
+
+	return haystack_length >= needle_length &&
+		StringIsEqualIgnoreCase(haystack + haystack_length - needle_length,
+					needle);
+}
+
+const char *
+FindStringSuffix(const char *p, const char *suffix) noexcept
+{
+	const size_t p_length = StringLength(p);
+	const size_t suffix_length = StringLength(suffix);
 
 	if (p_length < suffix_length)
 		return nullptr;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,19 +57,19 @@ public:
 	BoundMethod() = default;
 
 	constexpr
-	BoundMethod(void *_instance, function_pointer _function)
+	BoundMethod(void *_instance, function_pointer _function) noexcept
 		:instance_(_instance), function(_function) {}
 
 	/**
 	 * Construct an "undefined" object.  It must not be called,
 	 * and its "bool" operator returns false.
 	 */
-	BoundMethod(std::nullptr_t):function(nullptr) {}
+	BoundMethod(std::nullptr_t) noexcept:function(nullptr) {}
 
 	/**
 	 * Was this object initialized with a valid function pointer?
 	 */
-	operator bool() const {
+	operator bool() const noexcept {
 		return function != nullptr;
 	}
 
@@ -167,9 +167,73 @@ struct BindMethodWrapperGenerator<T, M, method, R(Args...)>
 template<typename T, typename S,
 	 typename MethodWithSignature<T, S>::method_pointer method>
 typename MethodWrapperWithSignature<S>::function_pointer
-MakeBindMethodWrapper()
+MakeBindMethodWrapper() noexcept
 {
 	return BindMethodWrapperGenerator<T, typename MethodWithSignature<T, S>::method_pointer, method, S>::Invoke;
+}
+
+/**
+ * Helper class which introspects a function pointer type.
+ *
+ * @param S the function type
+ */
+template<typename S>
+struct FunctionTraits;
+
+template<typename R, typename... Args>
+struct FunctionTraits<R(Args...)> {
+	/**
+	 * A function type which describes the "plain" function
+	 * signature.
+	 */
+	typedef R function_type(Args...);
+
+	/**
+	 * A function pointer type which describes the "plain"
+	 * function signature.
+	 */
+	typedef R (*pointer_type)(Args...);
+};
+
+/**
+ * Generate a wrapper function for a plain function which ignores the
+ * instance pointer.  Helper class for
+ * #BindFunctionWrapperGenerator.
+ *
+ * @param F the function pointer type
+ * @param function the function pointer
+ * @param R the return type
+ * @param Args the function arguments
+ */
+template<typename F, F function, typename R, typename... Args>
+struct BindFunctionWrapperGenerator2 {
+	static R Invoke(void *, Args... args) {
+		return function(std::forward<Args>(args)...);
+	}
+};
+
+/**
+ * Generate a wrapper function.
+ *
+ * @param S the plain function signature type
+ * @param P the plain function pointer type
+ * @param function the function pointer
+ */
+template<typename S, typename P, P function>
+struct BindFunctionWrapperGenerator;
+
+template<typename P, P function, typename R, typename... Args>
+struct BindFunctionWrapperGenerator<R(Args...), P, function>
+	: BindFunctionWrapperGenerator2<P, function, R, Args...> {
+};
+
+template<typename T, typename T::pointer_type function>
+typename MethodWrapperWithSignature<typename T::function_type>::function_pointer
+MakeBindFunctionWrapper() noexcept
+{
+	return BindFunctionWrapperGenerator<typename T::function_type,
+					    typename T::pointer_type,
+					    function>::Invoke;
 }
 
 } /* namespace BindMethodDetail */
@@ -185,7 +249,7 @@ MakeBindMethodWrapper()
 template<typename T, typename S,
 	 typename BindMethodDetail::MethodWithSignature<T, S>::method_pointer method>
 constexpr BoundMethod<S>
-BindMethod(T &_instance)
+BindMethod(T &_instance) noexcept
 {
 	return BoundMethod<S>(&_instance,
 			      BindMethodDetail::MakeBindMethodWrapper<T, S, method>());
@@ -205,5 +269,26 @@ BindMethod(T &_instance)
  * instance to be bound.
  */
 #define BIND_THIS_METHOD(method) BIND_METHOD(*this, &std::remove_reference<decltype(*this)>::type::method)
+
+/**
+ * Construct a #BoundMethod instance for a plain function.
+ *
+ * @param T the #FunctionTraits class
+ * @param function the function pointer
+ */
+template<typename T, typename T::pointer_type function>
+constexpr BoundMethod<typename T::function_type>
+BindFunction() noexcept
+{
+	return BoundMethod<typename T::function_type>(nullptr,
+						      BindMethodDetail::MakeBindFunctionWrapper<T, function>());
+}
+
+/**
+ * Shortcut macro which takes a function pointer and constructs a
+ * #BoundMethod instance.
+ */
+#define BIND_FUNCTION(function) \
+	BindFunction<typename BindMethodDetail::FunctionTraits<decltype(function)>, &function>()
 
 #endif
