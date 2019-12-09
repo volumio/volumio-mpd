@@ -84,13 +84,13 @@ ENABLE_METADATA=-Did3tag=enabled \
 # Playback support
 # Note: ALSA is in WITH_SYSTEMD
 ENABLE_PLAYBACKS=-Dfifo=true \
-		-Dsndio=enabled \
+		-Dsndio=disabled \
 		-Drecorder=true \
 		-Dhttpd=true \
-		-Djack=enabled \
+		-Djack=disabled \
 		-Dao=enabled \
-		-Doss=enabled \
-		-Dopenal=enabled \
+		-Doss=disabled \
+		-Dopenal=disabled \
 		-Dpipe=true \
 		-Dpulse=enabled \
 		-Dshout=enabled
@@ -105,12 +105,12 @@ ENABLE_ENCODERS=-Dlame=enabled \
 ENABLE_STREAMING=-Dcdio_paranoia=enabled \
 		-Dcurl=enabled \
 		-Dsoundcloud=enabled \
-		-Dqobuz=enabled \
-		-Dtidal=enabled \
+		-Dqobuz=disabled \
+		-Dtidal=disabled \
 		-Dmms=enabled
 
 # Sphinx documentation
-ENABLE_DOCUMENTATION=-Ddocumentation=true
+ENABLE_DOCUMENTATION=-Ddocumentation=false
 
 ###############################################################
 
