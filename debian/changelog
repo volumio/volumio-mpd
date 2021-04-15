@@ -1,4 +1,4 @@
-mpd (0.21.5-3) unstable; urgency=medium
+mpd (0.21.18) unstable; urgency=medium
 
   * armel: tremor requires disabling both vorbis and vorbisenc
 
