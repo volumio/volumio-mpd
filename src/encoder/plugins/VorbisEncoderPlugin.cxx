@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "VorbisEncoderPlugin.hxx"
 #include "OggEncoder.hxx"
 #include "lib/xiph/VorbisComment.hxx"
 #include "AudioFormat.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Domain.hxx"
 #include "util/StringUtil.hxx"
 #include "util/NumberParser.hxx"
 #include "util/RuntimeError.hxx"
@@ -62,7 +61,7 @@ private:
 };
 
 class PreparedVorbisEncoder final : public PreparedEncoder {
-	float quality;
+	float quality = 3;
 	int bitrate;
 
 public:
@@ -97,7 +96,7 @@ PreparedVorbisEncoder::PreparedVorbisEncoder(const ConfigBlock &block)
 
 		value = block.GetBlockValue("bitrate");
 		if (value == nullptr)
-			throw std::runtime_error("neither bitrate nor quality defined");
+			return;
 
 		quality = -2.0;
 

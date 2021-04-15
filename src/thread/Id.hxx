@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #ifndef MPD_THREAD_ID_HXX
 #define MPD_THREAD_ID_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <pthread.h>
@@ -34,7 +34,7 @@
  * debugging code.
  */
 class ThreadId {
-#ifdef WIN32
+#ifdef _WIN32
 	DWORD id;
 #else
 	pthread_t id;
@@ -44,26 +44,24 @@ public:
 	/**
 	 * No initialisation.
 	 */
-	ThreadId() = default;
+	ThreadId() noexcept = default;
 
-#ifdef WIN32
-	constexpr ThreadId(DWORD _id):id(_id) {}
+#ifdef _WIN32
+	constexpr ThreadId(DWORD _id) noexcept:id(_id) {}
 #else
-	constexpr ThreadId(pthread_t _id):id(_id) {}
+	constexpr ThreadId(pthread_t _id) noexcept:id(_id) {}
 #endif
 
-	gcc_const
-	static ThreadId Null() {
-#ifdef WIN32
+	static constexpr ThreadId Null() noexcept {
+#ifdef _WIN32
 		return 0;
 #else
-		static ThreadId null;
-		return null;
+		return pthread_t();
 #endif
 	}
 
 	gcc_pure
-	bool IsNull() const {
+	bool IsNull() const noexcept {
 		return *this == Null();
 	}
 
@@ -71,8 +69,8 @@ public:
 	 * Return the current thread's id .
 	 */
 	gcc_pure
-	static const ThreadId GetCurrent() {
-#ifdef WIN32
+	static const ThreadId GetCurrent() noexcept {
+#ifdef _WIN32
 		return ::GetCurrentThreadId();
 #else
 		return pthread_self();
@@ -80,18 +78,20 @@ public:
 	}
 
 	gcc_pure
-	bool operator==(const ThreadId &other) const {
-#ifdef WIN32
+	bool operator==(const ThreadId &other) const noexcept {
+		/* note: not using pthread_equal() because that
+		   function "is undefined if either thread ID is not
+		   valid so we can't safely use it on
+		   default-constructed values" (comment from
+		   libstdc++) - and if both libstdc++ and libc++ get
+		   away with this, we can do it as well */
 		return id == other.id;
-#else
-		return pthread_equal(id, other.id);
-#endif
 	}
 
 	/**
 	 * Check if this thread is the current thread.
 	 */
-	bool IsInside() const {
+	bool IsInside() const noexcept {
 		return *this == GetCurrent();
 	}
 };

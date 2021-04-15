@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "StickerCommands.hxx"
 #include "Request.hxx"
 #include "SongPrint.hxx"
@@ -31,11 +30,12 @@
 #include "util/StringAPI.hxx"
 #include "util/ScopeExit.hxx"
 
+namespace {
 struct sticker_song_find_data {
 	Response &r;
-	Partition &partition;
 	const char *name;
 };
+}
 
 static void
 sticker_song_find_print_cb(const LightSong &song, const char *value,
@@ -44,7 +44,7 @@ sticker_song_find_print_cb(const LightSong &song, const char *value,
 	struct sticker_song_find_data *data =
 		(struct sticker_song_find_data *)user_data;
 
-	song_print_uri(data->r, data->partition, song);
+	song_print_uri(data->r, song);
 	sticker_print_value(data->r, data->name, value);
 }
 
@@ -102,7 +102,7 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 			? sticker_song_delete(*song)
 			: sticker_song_delete_value(*song, args[3]);
 		if (!ret) {
-			r.Error(ACK_ERROR_SYSTEM, "no such sticker");
+			r.Error(ACK_ERROR_NO_EXIST, "no such sticker");
 			return CommandResult::ERROR;
 		}
 
@@ -137,7 +137,6 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 
 		struct sticker_song_find_data data = {
 			r,
-			partition,
 			args[3],
 		};
 
@@ -163,7 +162,7 @@ handle_sticker(Client &client, Request args, Response &r)
 	}
 
 	if (StringIsEqual(args[1], "song"))
-		return handle_sticker_song(r, client.partition, args);
+		return handle_sticker_song(r, client.GetPartition(), args);
 	else {
 		r.Error(ACK_ERROR_ARG, "unknown sticker domain");
 		return CommandResult::ERROR;

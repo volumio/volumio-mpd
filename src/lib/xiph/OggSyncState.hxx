@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,8 +19,6 @@
 
 #ifndef MPD_OGG_SYNC_STATE_HXX
 #define MPD_OGG_SYNC_STATE_HXX
-
-#include "check.h"
 
 #include <ogg/ogg.h>
 
@@ -49,7 +47,7 @@ public:
 	OggSyncState(const OggSyncState &) = delete;
 	OggSyncState &operator=(const OggSyncState &) = delete;
 
-	void Reset() {
+	void Reset() noexcept {
 		ogg_sync_reset(&oy);
 	}
 

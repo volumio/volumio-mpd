@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,18 +29,27 @@
  * "scheme://".
  */
 gcc_pure
-bool uri_has_scheme(const char *uri);
+bool
+uri_has_scheme(const char *uri) noexcept;
 
 /**
  * Returns the scheme name of the specified URI, or an empty string.
  */
 gcc_pure
 std::string
-uri_get_scheme(const char *uri);
+uri_get_scheme(const char *uri) noexcept;
+
+/**
+ * Returns the URI path (including the query string) or nullptr if the
+ * given URI has no path.
+ */
+gcc_pure gcc_nonnull_all
+const char *
+uri_get_path(const char *uri) noexcept;
 
 gcc_pure
 const char *
-uri_get_suffix(const char *uri);
+uri_get_suffix(const char *uri) noexcept;
 
 struct UriSuffixBuffer {
 	char data[8];
@@ -51,7 +60,7 @@ struct UriSuffixBuffer {
  */
 gcc_pure
 const char *
-uri_get_suffix(const char *uri, UriSuffixBuffer &buffer);
+uri_get_suffix(const char *uri, UriSuffixBuffer &buffer) noexcept;
 
 /**
  * Returns true if this is a safe "local" URI:
@@ -63,7 +72,7 @@ uri_get_suffix(const char *uri, UriSuffixBuffer &buffer);
  */
 gcc_pure
 bool
-uri_safe_local(const char *uri);
+uri_safe_local(const char *uri) noexcept;
 
 /**
  * Removes HTTP username and password from the URI.  This may be
@@ -73,7 +82,7 @@ uri_safe_local(const char *uri);
  */
 gcc_pure
 std::string
-uri_remove_auth(const char *uri);
+uri_remove_auth(const char *uri) noexcept;
 
 /**
  * Check whether #child specifies a resource "inside" the directory
@@ -82,11 +91,11 @@ uri_remove_auth(const char *uri);
  */
 gcc_pure gcc_nonnull_all
 bool
-uri_is_child(const char *parent, const char *child);
+uri_is_child(const char *parent, const char *child) noexcept;
 
 gcc_pure gcc_nonnull_all
 bool
-uri_is_child_or_same(const char *parent, const char *child);
+uri_is_child_or_same(const char *parent, const char *child) noexcept;
 
 /**
  * Translate the given URI in the context of #base.  For example,
@@ -94,6 +103,6 @@ uri_is_child_or_same(const char *parent, const char *child);
  */
 gcc_pure
 std::string
-uri_apply_base(const std::string &uri, const std::string &base);
+uri_apply_base(const std::string &uri, const std::string &base) noexcept;
 
 #endif

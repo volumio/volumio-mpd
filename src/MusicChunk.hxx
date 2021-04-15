@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #ifndef MPD_MUSIC_CHUNK_HXX
 #define MPD_MUSIC_CHUNK_HXX
 
+#include "MusicChunkPtr.hxx"
 #include "Chrono.hxx"
 #include "ReplayGainInfo.hxx"
 #include "util/WritableBuffer.hxx"
@@ -28,6 +29,8 @@
 #include "AudioFormat.hxx"
 #endif
 
+#include <memory>
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -35,20 +38,34 @@ static constexpr size_t CHUNK_SIZE = 4096;
 
 struct AudioFormat;
 struct Tag;
+struct MusicChunk;
 
 /**
- * A chunk of music data.  Its format is defined by the
- * MusicPipe::Push() caller.
+ * Meta information for #MusicChunk.
  */
-struct MusicChunk {
+struct alignas(8) MusicChunkInfo {
+	/* align to multiple of 8 bytes, which adds padding at the
+	   end, so the size of MusicChunk::data is also a multiple of
+	   8 bytes; this is a workaround for a bug in the DSD_U32 and
+	   DoP converters which require processing 8 bytes at a time,
+	   discarding the remainder */
+	/* TODO: once all converters have been fixed, we should remove
+	   this workaround */
+
 	/** the next chunk in a linked list */
-	MusicChunk *next;
+	MusicChunkPtr next;
 
 	/**
 	 * An optional chunk which should be mixed into this chunk.
 	 * This is used for cross-fading.
 	 */
-	MusicChunk *other = nullptr;
+	MusicChunkPtr other;
+
+	/**
+	 * An optional tag associated with this chunk (and the
+	 * following chunks); appears at song boundaries.
+	 */
+	std::unique_ptr<Tag> tag;
 
 	/**
 	 * The current mix ratio for cross-fading: 1.0 means play 100%
@@ -66,14 +83,6 @@ struct MusicChunk {
 	SignedSongTime time;
 
 	/**
-	 * An optional tag associated with this chunk (and the
-	 * following chunks); appears at song boundaries.  The tag
-	 * object is owned by this chunk, and must be freed when this
-	 * chunk is deinitialized.
-	 */
-	Tag *tag = nullptr;
-
-	/**
 	 * Replay gain information associated with this chunk.
 	 * Only valid if the serial is not 0.
 	 */
@@ -84,22 +93,17 @@ struct MusicChunk {
 	 * changed since the last chunk.  The magic value 0 indicates
 	 * that there is no replay gain info available.
 	 */
-	unsigned replay_gain_serial = 0;
-
-	/** the data (probably PCM) */
-	uint8_t data[CHUNK_SIZE];
+	unsigned replay_gain_serial;
 
 #ifndef NDEBUG
 	AudioFormat audio_format;
 #endif
 
-	MusicChunk() = default;
+	MusicChunkInfo() noexcept;
+	~MusicChunkInfo() noexcept;
 
-	MusicChunk(const MusicChunk &) = delete;
-
-	~MusicChunk();
-
-	MusicChunk &operator=(const MusicChunk &) = delete;
+	MusicChunkInfo(const MusicChunkInfo &) = delete;
+	MusicChunkInfo &operator=(const MusicChunkInfo &) = delete;
 
 	bool IsEmpty() const {
 		return length == 0 && tag == nullptr;
@@ -111,8 +115,21 @@ struct MusicChunk {
 	 * specified audio_format.
 	 */
 	gcc_pure
-	bool CheckFormat(AudioFormat audio_format) const;
+	bool CheckFormat(AudioFormat audio_format) const noexcept;
 #endif
+};
+
+/**
+ * A chunk of music data.  Its format is defined by the
+ * MusicPipe::Push() caller.
+ */
+struct MusicChunk : MusicChunkInfo {
+	/** the data (probably PCM) */
+	uint8_t data[CHUNK_SIZE - sizeof(MusicChunkInfo)];
+
+	/* TODO: remove this check once all converters have been fixed
+	   (see comment in struct MusicChunkInfo for details) */
+	static_assert(sizeof(data) % 8 == 0, "Wrong alignment");
 
 	/**
 	 * Prepares appending to the music chunk.  Returns a buffer
@@ -127,7 +144,7 @@ struct MusicChunk {
 	 */
 	WritableBuffer<void> Write(AudioFormat af,
 				   SongTime data_time,
-				   uint16_t bit_rate);
+				   uint16_t bit_rate) noexcept;
 
 	/**
 	 * Increases the length of the chunk after the caller has written to
@@ -138,7 +155,9 @@ struct MusicChunk {
 	 * @param length the number of bytes which were appended
 	 * @return true if the chunk is full
 	 */
-	bool Expand(AudioFormat af, size_t length);
+	bool Expand(AudioFormat af, size_t length) noexcept;
 };
+
+static_assert(sizeof(MusicChunk) == CHUNK_SIZE, "Wrong size");
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #ifndef MPD_STORAGE_INTERFACE_HXX
 #define MPD_STORAGE_INTERFACE_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
+#include <memory>
 #include <string>
 
 struct StorageFileInfo;
@@ -32,14 +32,13 @@ class StorageDirectoryReader {
 public:
 	StorageDirectoryReader() = default;
 	StorageDirectoryReader(const StorageDirectoryReader &) = delete;
-	virtual ~StorageDirectoryReader() {}
+	virtual ~StorageDirectoryReader() noexcept {}
 
-	virtual const char *Read() = 0;
+	virtual const char *Read() noexcept = 0;
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
-	gcc_pure
 	virtual StorageFileInfo GetInfo(bool follow) = 0;
 };
 
@@ -47,36 +46,35 @@ class Storage {
 public:
 	Storage() = default;
 	Storage(const Storage &) = delete;
-	virtual ~Storage() {}
+	virtual ~Storage() noexcept {}
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
-	gcc_pure
 	virtual StorageFileInfo GetInfo(const char *uri_utf8, bool follow) = 0;
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
-	virtual StorageDirectoryReader *OpenDirectory(const char *uri_utf8) = 0;
+	virtual std::unique_ptr<StorageDirectoryReader> OpenDirectory(const char *uri_utf8) = 0;
 
 	/**
 	 * Map the given relative URI to an absolute URI.
 	 */
 	gcc_pure
-	virtual std::string MapUTF8(const char *uri_utf8) const = 0;
+	virtual std::string MapUTF8(const char *uri_utf8) const noexcept = 0;
 
 	/**
 	 * Map the given relative URI to a local file path.  Returns
-	 * AllocatedPath::Null() on error or if this storage does not
+	 * nullptr on error or if this storage does not
 	 * support local files.
 	 */
 	gcc_pure
-	virtual AllocatedPath MapFS(const char *uri_utf8) const;
+	virtual AllocatedPath MapFS(const char *uri_utf8) const noexcept;
 
 	gcc_pure
 	AllocatedPath MapChildFS(const char *uri_utf8,
-				 const char *child_utf8) const;
+				 const char *child_utf8) const noexcept;
 
 	/**
 	 * Check if the given URI points inside this storage.  If yes,
@@ -84,7 +82,7 @@ public:
 	 * string); if not, returns nullptr.
 	 */
 	gcc_pure
-	virtual const char *MapToRelativeUTF8(const char *uri_utf8) const = 0;
+	virtual const char *MapToRelativeUTF8(const char *uri_utf8) const noexcept = 0;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
 
-#include "config.h"
 #include "FfmpegInputPlugin.hxx"
 #include "lib/ffmpeg/Init.hxx"
 #include "lib/ffmpeg/Domain.hxx"
@@ -28,7 +27,7 @@
 #include "../InputStream.hxx"
 #include "../InputPlugin.hxx"
 #include "PluginUnavailable.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
 extern "C" {
 #include <libavformat/avio.h>
@@ -39,9 +38,9 @@ struct FfmpegInputStream final : public InputStream {
 
 	bool eof;
 
-	FfmpegInputStream(const char *_uri, Mutex &_mutex, Cond &_cond,
+	FfmpegInputStream(const char *_uri, Mutex &_mutex,
 			  AVIOContext *_h)
-		:InputStream(_uri, _mutex, _cond),
+		:InputStream(_uri, _mutex),
 		 h(_h), eof(false) {
 		seekable = (h->seekable & AVIO_SEEKABLE_NORMAL) != 0;
 		size = avio_size(h);
@@ -59,7 +58,7 @@ struct FfmpegInputStream final : public InputStream {
 	}
 
 	/* virtual methods from InputStream */
-	bool IsEOF() override;
+	bool IsEOF() noexcept override;
 	size_t Read(void *ptr, size_t size) override;
 	void Seek(offset_type offset) override;
 };
@@ -72,7 +71,7 @@ input_ffmpeg_supported(void)
 }
 
 static void
-input_ffmpeg_init(gcc_unused const ConfigBlock &block)
+input_ffmpeg_init(EventLoop &, const ConfigBlock &)
 {
 	FfmpegInit();
 
@@ -81,30 +80,28 @@ input_ffmpeg_init(gcc_unused const ConfigBlock &block)
 		throw PluginUnavailable("No protocol");
 }
 
-static InputStream *
+static InputStreamPtr
 input_ffmpeg_open(const char *uri,
-		  Mutex &mutex, Cond &cond)
+		  Mutex &mutex)
 {
-	if (!StringStartsWith(uri, "gopher://") &&
-	    !StringStartsWith(uri, "rtp://") &&
-	    !StringStartsWith(uri, "rtsp://") &&
-	    !StringStartsWith(uri, "rtmp://") &&
-	    !StringStartsWith(uri, "rtmpt://") &&
-	    !StringStartsWith(uri, "rtmps://"))
-		return nullptr;
-
 	AVIOContext *h;
 	auto result = avio_open(&h, uri, AVIO_FLAG_READ);
 	if (result != 0)
 		throw MakeFfmpegError(result);
 
-	return new FfmpegInputStream(uri, mutex, cond, h);
+	return std::make_unique<FfmpegInputStream>(uri, mutex, h);
 }
 
 size_t
 FfmpegInputStream::Read(void *ptr, size_t read_size)
 {
-	auto result = avio_read(h, (unsigned char *)ptr, read_size);
+	int result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		result = avio_read(h, (unsigned char *)ptr, read_size);
+	}
+
 	if (result <= 0) {
 		if (result < 0)
 			throw MakeFfmpegError(result, "avio_read() failed");
@@ -118,7 +115,7 @@ FfmpegInputStream::Read(void *ptr, size_t read_size)
 }
 
 bool
-FfmpegInputStream::IsEOF()
+FfmpegInputStream::IsEOF() noexcept
 {
 	return eof;
 }
@@ -126,7 +123,12 @@ FfmpegInputStream::IsEOF()
 void
 FfmpegInputStream::Seek(offset_type new_offset)
 {
-	auto result = avio_seek(h, new_offset, SEEK_SET);
+	int64_t result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		result = avio_seek(h, new_offset, SEEK_SET);
+	}
 
 	if (result < 0)
 		throw MakeFfmpegError(result, "avio_seek() failed");
@@ -135,8 +137,19 @@ FfmpegInputStream::Seek(offset_type new_offset)
 	eof = false;
 }
 
+static constexpr const char *ffmpeg_prefixes[] = {
+	"gopher://",
+	"rtp://",
+	"rtsp://",
+	"rtmp://",
+	"rtmpt://",
+	"rtmps://",
+	nullptr
+};
+
 const InputPlugin input_plugin_ffmpeg = {
 	"ffmpeg",
+	ffmpeg_prefixes,
 	input_ffmpeg_init,
 	nullptr,
 	input_ffmpeg_open,

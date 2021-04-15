@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "BufferedReader.hxx"
 #include "Reader.hxx"
 #include "util/TextFile.hxx"
@@ -34,13 +33,13 @@ BufferedReader::Fill(bool need_more)
 		return !need_more;
 
 	auto w = buffer.Write();
-	if (w.IsEmpty()) {
+	if (w.empty()) {
 		if (buffer.GetCapacity() >= MAX_SIZE)
 			return !need_more;
 
 		buffer.Grow(buffer.GetCapacity() * 2);
 		w = buffer.Write();
-		assert(!w.IsEmpty());
+		assert(!w.empty());
 	}
 
 	size_t nbytes = reader.Read(w.data, w.size);
@@ -67,7 +66,7 @@ BufferedReader::ReadFull(size_t size)
 }
 
 size_t
-BufferedReader::ReadFromBuffer(WritableBuffer<void> dest)
+BufferedReader::ReadFromBuffer(WritableBuffer<void> dest) noexcept
 {
 	auto src = Read();
 	size_t nbytes = std::min(src.size, dest.size);
@@ -104,14 +103,14 @@ BufferedReader::ReadLine()
 		}
 	} while (Fill(true));
 
-	if (!eof || buffer.IsEmpty())
+	if (!eof || buffer.empty())
 		return nullptr;
 
 	auto w = buffer.Write();
-	if (w.IsEmpty()) {
+	if (w.empty()) {
 		buffer.Grow(buffer.GetCapacity() + 1);
 		w = buffer.Write();
-		assert(!w.IsEmpty());
+		assert(!w.empty());
 	}
 
 	/* terminate the last line */

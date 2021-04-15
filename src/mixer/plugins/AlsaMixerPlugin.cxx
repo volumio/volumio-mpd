@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,46 +17,56 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
+#include "lib/alsa/NonBlock.hxx"
 #include "mixer/MixerInternal.hxx"
 #include "mixer/Listener.hxx"
 #include "output/OutputAPI.hxx"
 #include "event/MultiSocketMonitor.hxx"
-#include "event/DeferredMonitor.hxx"
+#include "event/DeferEvent.hxx"
+#include "event/Call.hxx"
 #include "util/ASCII.hxx"
-#include "util/ReusableArray.hxx"
-#include "util/Clamp.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
-#include <algorithm>
+extern "C" {
+#include "volume_mapping.h"
+}
 
 #include <alsa/asoundlib.h>
+
+#include <math.h>
 
 #define VOLUME_MIXER_ALSA_DEFAULT		"default"
 #define VOLUME_MIXER_ALSA_CONTROL_DEFAULT	"PCM"
 static constexpr unsigned VOLUME_MIXER_ALSA_INDEX_DEFAULT = 0;
 
-class AlsaMixerMonitor final : MultiSocketMonitor, DeferredMonitor {
+class AlsaMixerMonitor final : MultiSocketMonitor {
+	DeferEvent defer_invalidate_sockets;
+
 	snd_mixer_t *mixer;
 
-	ReusableArray<pollfd> pfd_buffer;
+	AlsaNonBlockMixer non_block;
 
 public:
 	AlsaMixerMonitor(EventLoop &_loop, snd_mixer_t *_mixer)
-		:MultiSocketMonitor(_loop), DeferredMonitor(_loop),
+		:MultiSocketMonitor(_loop),
+		 defer_invalidate_sockets(_loop,
+					  BIND_THIS_METHOD(InvalidateSockets)),
 		 mixer(_mixer) {
-		DeferredMonitor::Schedule();
+		defer_invalidate_sockets.Schedule();
+	}
+
+	~AlsaMixerMonitor() {
+		BlockingCall(MultiSocketMonitor::GetEventLoop(), [this](){
+				MultiSocketMonitor::Reset();
+				defer_invalidate_sockets.Cancel();
+			});
 	}
 
 private:
-	virtual void RunDeferred() override {
-		InvalidateSockets();
-	}
-
-	virtual int PrepareSockets() override;
-	virtual void DispatchSockets() override;
+	std::chrono::steady_clock::duration PrepareSockets() noexcept override;
+	void DispatchSockets() noexcept override;
 };
 
 class AlsaMixer final : public Mixer {
@@ -68,9 +78,6 @@ class AlsaMixer final : public Mixer {
 
 	snd_mixer_t *handle;
 	snd_mixer_elem_t *elem;
-	long volume_min;
-	long volume_max;
-	int volume_set;
 
 	AlsaMixerMonitor *monitor;
 
@@ -86,39 +93,30 @@ public:
 
 	/* virtual methods from class Mixer */
 	void Open() override;
-	void Close() override;
+	void Close() noexcept override;
 	int GetVolume() override;
 	void SetVolume(unsigned volume) override;
 };
 
 static constexpr Domain alsa_mixer_domain("alsa_mixer");
 
-int
-AlsaMixerMonitor::PrepareSockets()
+std::chrono::steady_clock::duration
+AlsaMixerMonitor::PrepareSockets() noexcept
 {
 	if (mixer == nullptr) {
 		ClearSocketList();
-		return -1;
+		return std::chrono::steady_clock::duration(-1);
 	}
 
-	int count = snd_mixer_poll_descriptors_count(mixer);
-	if (count < 0)
-		count = 0;
-
-	struct pollfd *pfds = pfd_buffer.Get(count);
-
-	count = snd_mixer_poll_descriptors(mixer, pfds, count);
-	if (count < 0)
-		count = 0;
-
-	ReplaceSocketList(pfds, count);
-	return -1;
+	return non_block.PrepareSockets(*this, mixer);
 }
 
 void
-AlsaMixerMonitor::DispatchSockets()
+AlsaMixerMonitor::DispatchSockets() noexcept
 {
 	assert(mixer != nullptr);
+
+	non_block.DispatchSockets(*this, mixer);
 
 	int err = snd_mixer_handle_events(mixer);
 	if (err < 0) {
@@ -151,7 +149,7 @@ alsa_mixer_elem_callback(snd_mixer_elem_t *elem, unsigned mask)
 		try {
 			int volume = mixer.GetVolume();
 			mixer.listener.OnMixerVolumeChanged(mixer, volume);
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 		}
 	}
 
@@ -193,7 +191,8 @@ AlsaMixer::~AlsaMixer()
 
 gcc_pure
 static snd_mixer_elem_t *
-alsa_mixer_lookup_elem(snd_mixer_t *handle, const char *name, unsigned idx)
+alsa_mixer_lookup_elem(snd_mixer_t *handle,
+		       const char *name, unsigned idx) noexcept
 {
 	for (snd_mixer_elem_t *elem = snd_mixer_first_elem(handle);
 	     elem != nullptr; elem = snd_mixer_elem_next(elem)) {
@@ -228,9 +227,6 @@ AlsaMixer::Setup()
 	if (elem == nullptr)
 		throw FormatRuntimeError("no such mixer control: %s", control);
 
-	snd_mixer_selem_get_playback_volume_range(elem, &volume_min,
-						  &volume_max);
-
 	snd_mixer_elem_set_callback_private(elem, this);
 	snd_mixer_elem_set_callback(elem, alsa_mixer_elem_callback);
 
@@ -241,8 +237,6 @@ void
 AlsaMixer::Open()
 {
 	int err;
-
-	volume_set = -1;
 
 	err = snd_mixer_open(&handle, 0);
 	if (err < 0)
@@ -258,7 +252,7 @@ AlsaMixer::Open()
 }
 
 void
-AlsaMixer::Close()
+AlsaMixer::Close() noexcept
 {
 	assert(handle != nullptr);
 
@@ -272,8 +266,6 @@ int
 AlsaMixer::GetVolume()
 {
 	int err;
-	int ret;
-	long level;
 
 	assert(handle != nullptr);
 
@@ -282,43 +274,17 @@ AlsaMixer::GetVolume()
 		throw FormatRuntimeError("snd_mixer_handle_events() failed: %s",
 					 snd_strerror(err));
 
-	err = snd_mixer_selem_get_playback_volume(elem,
-						  SND_MIXER_SCHN_FRONT_LEFT,
-						  &level);
-	if (err < 0)
-		throw FormatRuntimeError("failed to read ALSA volume: %s",
-					 snd_strerror(err));
-
-	ret = ((volume_set / 100.0) * (volume_max - volume_min)
-	       + volume_min) + 0.5;
-	if (volume_set > 0 && ret == level) {
-		ret = volume_set;
-	} else {
-		ret = (int)(100 * (((float)(level - volume_min)) /
-				   (volume_max - volume_min)) + 0.5);
-	}
-
-	return ret;
+	return lrint(100 * get_normalized_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT));
 }
 
 void
 AlsaMixer::SetVolume(unsigned volume)
 {
-	float vol;
-	long level;
-	int err;
-
 	assert(handle != nullptr);
 
-	vol = volume;
-
-	volume_set = vol + 0.5;
-
-	level = (long)(((vol / 100.0) * (volume_max - volume_min) +
-			volume_min) + 0.5);
-	level = Clamp(level, volume_min, volume_max);
-
-	err = snd_mixer_selem_set_playback_volume_all(elem, level);
+	double cur = get_normalized_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT);
+	int delta = volume - lrint(100.*cur);
+	int err = set_normalized_playback_volume(elem, cur + 0.01*delta, delta);
 	if (err < 0)
 		throw FormatRuntimeError("failed to set ALSA volume: %s",
 					 snd_strerror(err));

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2013 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2013 Max Kellermann <max.kellermann@gmail.com>
  * http://www.musicpd.org
  *
  * Redistribution and use in source and binary forms, with or without
@@ -78,7 +78,12 @@ ParseDouble(const char *p, char **endptr=nullptr)
 static inline float
 ParseFloat(const char *p, char **endptr=nullptr)
 {
+#if defined(__BIONIC__) && __ANDROID_API__ < 21
+	/* strtof() requires API level 21 */
 	return (float)ParseDouble(p, endptr);
+#else
+	return strtof(p, endptr);
+#endif
 }
 
 #endif

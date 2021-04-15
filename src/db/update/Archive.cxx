@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Walk.hxx"
 #include "UpdateDomain.hxx"
 #include "db/DatabaseLock.hxx"
@@ -34,26 +33,26 @@
 #include "Log.hxx"
 
 #include <string>
-#include <stdexcept>
+#include <exception>
 
 #include <string.h>
 
 static Directory *
-LockFindChild(Directory &directory, const char *name)
+LockFindChild(Directory &directory, const char *name) noexcept
 {
 	const ScopeDatabaseLock protect;
 	return directory.FindChild(name);
 }
 
 static Directory *
-LockMakeChild(Directory &directory, const char *name)
+LockMakeChild(Directory &directory, const char *name) noexcept
 {
 	const ScopeDatabaseLock protect;
 	return directory.MakeChild(name);
 }
 
 static Song *
-LockFindSong(Directory &directory, const char *name)
+LockFindSong(Directory &directory, const char *name) noexcept
 {
 	const ScopeDatabaseLock protect;
 	return directory.FindSong(name);
@@ -61,7 +60,7 @@ LockFindSong(Directory &directory, const char *name)
 
 void
 UpdateWalk::UpdateArchiveTree(ArchiveFile &archive, Directory &directory,
-			      const char *name)
+			      const char *name) noexcept
 {
 	const char *tmp = strchr(name, '/');
 	if (tmp) {
@@ -112,7 +111,7 @@ class UpdateArchiveVisitor final : public ArchiveVisitor {
 
  public:
 	UpdateArchiveVisitor(UpdateWalk &_walk, ArchiveFile &_archive,
-			     Directory *_directory)
+			     Directory *_directory) noexcept
 		:walk(_walk), archive(_archive), directory(_directory) {}
 
 	virtual void VisitArchiveEntry(const char *path_utf8) override {
@@ -133,7 +132,7 @@ class UpdateArchiveVisitor final : public ArchiveVisitor {
 void
 UpdateWalk::UpdateArchiveFile(Directory &parent, const char *name,
 			      const StorageFileInfo &info,
-			      const ArchivePlugin &plugin)
+			      const ArchivePlugin &plugin) noexcept
 {
 	Directory *directory = LockFindChild(parent, name);
 
@@ -150,11 +149,11 @@ UpdateWalk::UpdateArchiveFile(Directory &parent, const char *name,
 		return;
 
 	/* open archive */
-	ArchiveFile *file;
+	std::unique_ptr<ArchiveFile> file;
 	try {
 		file = archive_file_open(&plugin, path_fs);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		if (directory != nullptr)
 			editor.LockDeleteDirectory(directory);
 		return;
@@ -177,13 +176,12 @@ UpdateWalk::UpdateArchiveFile(Directory &parent, const char *name,
 
 	UpdateArchiveVisitor visitor(*this, *file, directory);
 	file->Visit(visitor);
-	file->Close();
 }
 
 bool
 UpdateWalk::UpdateArchiveFile(Directory &directory,
 			      const char *name, const char *suffix,
-			      const StorageFileInfo &info)
+			      const StorageFileInfo &info) noexcept
 {
 	const ArchivePlugin *plugin = archive_plugin_from_suffix(suffix);
 	if (plugin == nullptr)

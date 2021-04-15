@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,9 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ReplayGainFilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
 #include "AudioFormat.hxx"
 #include "ReplayGainInfo.hxx"
 #include "ReplayGainConfig.hxx"
@@ -29,7 +29,7 @@
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 #include <assert.h>
 
@@ -138,7 +138,7 @@ public:
 	}
 
 	/* virtual methods from class Filter */
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
 void
@@ -163,23 +163,24 @@ ReplayGainFilter::Update()
 
 		try {
 			mixer_set_volume(mixer, _volume);
-		} catch (const std::runtime_error &e) {
-			LogError(e, "Failed to update hardware mixer");
+		} catch (...) {
+			LogError(std::current_exception(),
+				 "Failed to update hardware mixer");
 		}
 	} else
 		pv.SetVolume(volume);
 }
 
-PreparedFilter *
-NewReplayGainFilter(const ReplayGainConfig &config)
+std::unique_ptr<PreparedFilter>
+NewReplayGainFilter(const ReplayGainConfig &config) noexcept
 {
-	return new PreparedReplayGainFilter(config);
+	return std::make_unique<PreparedReplayGainFilter>(config);
 }
 
-Filter *
+std::unique_ptr<Filter>
 PreparedReplayGainFilter::Open(AudioFormat &af)
 {
-	return new ReplayGainFilter(config, af, mixer, base);
+	return std::make_unique<ReplayGainFilter>(config, af, mixer, base);
 }
 
 ConstBuffer<void>

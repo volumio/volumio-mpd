@@ -1,0 +1,3 @@
+version=3
+opts="pgpsigurlmangle=s/$/.sig/" \
+https://www.musicpd.org/download/mpd/0.21/mpd-([0-9.]*).tar.xz

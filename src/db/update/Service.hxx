@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,11 @@
 #ifndef MPD_UPDATE_SERVICE_HXX
 #define MPD_UPDATE_SERVICE_HXX
 
-#include "check.h"
+#include "Config.hxx"
 #include "Queue.hxx"
-#include "event/DeferredMonitor.hxx"
+#include "event/DeferEvent.hxx"
 #include "thread/Thread.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 class SimpleDatabase;
 class DatabaseListener;
@@ -34,7 +34,11 @@ class CompositeStorage;
 /**
  * This class manages the update queue and runs the update thread.
  */
-class UpdateService final : DeferredMonitor {
+class UpdateService final {
+	const UpdateConfig config;
+
+	DeferEvent defer;
+
 	SimpleDatabase &db;
 	CompositeStorage &storage;
 
@@ -46,20 +50,25 @@ class UpdateService final : DeferredMonitor {
 
 	static constexpr unsigned update_task_id_max = 1 << 15;
 
-	unsigned update_task_id;
+	unsigned update_task_id = 0;
 
 	UpdateQueue queue;
 
 	UpdateQueueItem next;
 
-	UpdateWalk *walk;
+	UpdateWalk *walk = nullptr;
 
 public:
-	UpdateService(EventLoop &_loop, SimpleDatabase &_db,
+	UpdateService(const ConfigData &_config,
+		      EventLoop &_loop, SimpleDatabase &_db,
 		      CompositeStorage &_storage,
 		      DatabaseListener &_listener);
 
 	~UpdateService();
+
+	EventLoop &GetEventLoop() noexcept {
+		return defer.GetEventLoop();
+	}
 
 	/**
 	 * Returns a non-zero job id when we are currently updating
@@ -72,9 +81,11 @@ public:
 	/**
 	 * Add this path to the database update queue.
 	 *
+	 * Throws on error
+	 *
 	 * @param path a path to update; if an empty string,
 	 * the whole music directory is updated
-	 * @return the job id, or 0 on error
+	 * @return the job id
 	 */
 	gcc_nonnull_all
 	unsigned Enqueue(const char *path, bool discard);
@@ -93,12 +104,11 @@ public:
 	void CancelMount(const char *uri);
 
 private:
-	/* virtual methods from class DeferredMonitor */
-	virtual void RunDeferred() override;
+	/* DeferEvent callback */
+	void RunDeferred() noexcept;
 
 	/* the update thread */
 	void Task();
-	static void Task(void *ctx);
 
 	void StartThread(UpdateQueueItem &&i);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_EXPAT_HXX
 #define MPD_EXPAT_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <expat.h>
 
@@ -31,19 +30,28 @@ class InputStream;
 
 class ExpatError final : public std::runtime_error {
 public:
-	ExpatError(XML_Error code)
+	explicit ExpatError(XML_Error code)
 		:std::runtime_error(XML_ErrorString(code)) {}
 
-	ExpatError(XML_Parser parser)
+	explicit ExpatError(XML_Parser parser)
 		:ExpatError(XML_GetErrorCode(parser)) {}
+};
+
+struct ExpatNamespaceSeparator {
+	char separator;
 };
 
 class ExpatParser final {
 	const XML_Parser parser;
 
 public:
-	ExpatParser(void *userData)
+	explicit ExpatParser(void *userData)
 		:parser(XML_ParserCreate(nullptr)) {
+		XML_SetUserData(parser, userData);
+	}
+
+	ExpatParser(ExpatNamespaceSeparator ns, void *userData)
+		:parser(XML_ParserCreateNS(nullptr, ns.separator)) {
 		XML_SetUserData(parser, userData);
 	}
 
@@ -55,25 +63,29 @@ public:
 	ExpatParser &operator=(const ExpatParser &) = delete;
 
 	void SetElementHandler(XML_StartElementHandler start,
-			       XML_EndElementHandler end) {
+			       XML_EndElementHandler end) noexcept {
 		XML_SetElementHandler(parser, start, end);
 	}
 
-	void SetCharacterDataHandler(XML_CharacterDataHandler charhndl) {
+	void SetCharacterDataHandler(XML_CharacterDataHandler charhndl) noexcept {
 		XML_SetCharacterDataHandler(parser, charhndl);
 	}
 
-	void Parse(const char *data, size_t length, bool is_final);
+	void Parse(const char *data, size_t length, bool is_final=false);
+
+	void CompleteParse() {
+		Parse("", 0, true);
+	}
 
 	void Parse(InputStream &is);
 
 	gcc_pure
 	static const char *GetAttribute(const XML_Char **atts,
-					const char *name);
+					const char *name) noexcept;
 
 	gcc_pure
 	static const char *GetAttributeCase(const XML_Char **atts,
-					    const char *name);
+					    const char *name) noexcept;
 };
 
 /**
@@ -89,23 +101,30 @@ public:
 		parser.SetCharacterDataHandler(CharacterData);
 	}
 
-	void Parse(const char *data, size_t length, bool is_final) {
-		parser.Parse(data, length, is_final);
+	explicit CommonExpatParser(ExpatNamespaceSeparator ns)
+		:parser(ns, this) {
+		parser.SetElementHandler(StartElement, EndElement);
+		parser.SetCharacterDataHandler(CharacterData);
 	}
 
-	void Parse(InputStream &is) {
-		parser.Parse(is);
+	template<typename... Args>
+	void Parse(Args&&... args) {
+		parser.Parse(std::forward<Args>(args)...);
+	}
+
+	void CompleteParse() {
+		parser.CompleteParse();
 	}
 
 	gcc_pure
 	static const char *GetAttribute(const XML_Char **atts,
-					const char *name) {
+					const char *name) noexcept {
 		return ExpatParser::GetAttribute(atts, name);
 	}
 
 	gcc_pure
 	static const char *GetAttributeCase(const XML_Char **atts,
-					    const char *name) {
+					    const char *name) noexcept {
 		return ExpatParser::GetAttributeCase(atts, name);
 	}
 

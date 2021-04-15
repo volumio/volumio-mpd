@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "VolumeFilterPlugin.hxx"
-#include "filter/FilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
-#include "filter/FilterRegistry.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
 #include "pcm/Volume.hxx"
 #include "AudioFormat.hxx"
 #include "util/ConstBuffer.hxx"
@@ -37,11 +35,11 @@ public:
 		pv.Open(out_audio_format.format);
 	}
 
-	unsigned GetVolume() const {
+	unsigned GetVolume() const noexcept {
 		return pv.GetVolume();
 	}
 
-	void SetVolume(unsigned _volume) {
+	void SetVolume(unsigned _volume) noexcept {
 		pv.SetVolume(_volume);
 	}
 
@@ -50,23 +48,15 @@ public:
 };
 
 class PreparedVolumeFilter final : public PreparedFilter {
-	PcmVolume pv;
-
 public:
 	/* virtual methods from class Filter */
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
-static PreparedFilter *
-volume_filter_init(gcc_unused const ConfigBlock &block)
-{
-	return new PreparedVolumeFilter();
-}
-
-Filter *
+std::unique_ptr<Filter>
 PreparedVolumeFilter::Open(AudioFormat &audio_format)
 {
-	return new VolumeFilter(audio_format);
+	return std::make_unique<VolumeFilter>(audio_format);
 }
 
 ConstBuffer<void>
@@ -75,13 +65,14 @@ VolumeFilter::FilterPCM(ConstBuffer<void> src)
 	return pv.Apply(src);
 }
 
-const FilterPlugin volume_filter_plugin = {
-	"volume",
-	volume_filter_init,
-};
+std::unique_ptr<PreparedFilter>
+volume_filter_prepare() noexcept
+{
+	return std::make_unique<PreparedVolumeFilter>();
+}
 
 unsigned
-volume_filter_get(const Filter *_filter)
+volume_filter_get(const Filter *_filter) noexcept
 {
 	const VolumeFilter *filter =
 		(const VolumeFilter *)_filter;
@@ -90,7 +81,7 @@ volume_filter_get(const Filter *_filter)
 }
 
 void
-volume_filter_set(Filter *_filter, unsigned volume)
+volume_filter_set(Filter *_filter, unsigned volume) noexcept
 {
 	VolumeFilter *filter = (VolumeFilter *)_filter;
 

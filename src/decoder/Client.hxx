@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,10 @@
 #ifndef MPD_DECODER_CLIENT_HXX
 #define MPD_DECODER_CLIENT_HXX
 
-#include "check.h"
-#include "DecoderCommand.hxx"
+#include "Command.hxx"
 #include "Chrono.hxx"
 #include "input/Ptr.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <stdint.h>
 
@@ -58,7 +57,7 @@ public:
 	 * command pending
 	 */
 	gcc_pure
-	virtual DecoderCommand GetCommand() = 0;
+	virtual DecoderCommand GetCommand() noexcept = 0;
 
 	/**
 	 * Called by the decoder when it has performed the requested command
@@ -70,10 +69,10 @@ public:
 	/**
 	 * Call this when you have received the DecoderCommand::SEEK command.
 	 *
-	 * @return the destination position for the seek in milliseconds
+	 * @return the destination position for the seek
 	 */
 	gcc_pure
-	virtual SongTime GetSeekTime() = 0;
+	virtual SongTime GetSeekTime() noexcept = 0;
 
 	/**
 	 * Call this when you have received the DecoderCommand::SEEK command.
@@ -81,7 +80,7 @@ public:
 	 * @return the destination position for the seek in frames
 	 */
 	gcc_pure
-	virtual uint64_t GetSeekFrame() = 0;
+	virtual uint64_t GetSeekFrame() noexcept = 0;
 
 	/**
 	 * Call this instead of CommandFinished() when seeking has
@@ -115,7 +114,7 @@ public:
 	 * use this function if it thinks that adding to the time stamp based
 	 * on the buffer size won't work.
 	 */
-	virtual void SubmitTimestamp(double t) = 0;
+	virtual void SubmitTimestamp(FloatDuration t) = 0;
 
 	/**
 	 * This function is called by the decoder plugin when it has

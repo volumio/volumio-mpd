@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2019 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,14 @@
 #ifndef MPD_DB_PRINT_H
 #define MPD_DB_PRINT_H
 
-#include "tag/Mask.hxx"
+#include <stdint.h>
 
+template<typename T> struct ConstBuffer;
+enum TagType : uint8_t;
+class TagMask;
 class SongFilter;
 struct DatabaseSelection;
+struct RangeArg;
 struct Partition;
 class Response;
 
@@ -37,14 +41,12 @@ db_selection_print(Response &r, Partition &partition,
 		   bool full, bool base);
 
 void
-db_selection_print(Response &r, Partition &partition,
-		   const DatabaseSelection &selection,
-		   bool full, bool base,
-		   unsigned window_start, unsigned window_end);
+PrintSongUris(Response &r, Partition &partition,
+	      const SongFilter *filter);
 
 void
 PrintUniqueTags(Response &r, Partition &partition,
-		unsigned type, tag_mask_t group_mask,
+		ConstBuffer<TagType> tag_types,
 		const SongFilter *filter);
 
 #endif

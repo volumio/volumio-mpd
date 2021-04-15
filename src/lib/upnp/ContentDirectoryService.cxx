@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ContentDirectoryService.hxx"
 #include "UniqueIxml.hxx"
 #include "Device.hxx"
 #include "ixmlwrap.hxx"
-#include "Util.hxx"
 #include "Action.hxx"
 #include "util/UriUtil.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SplitString.hxx"
 
 ContentDirectoryService::ContentDirectoryService(const UPnPDevice &device,
-						 const UPnPService &service)
+						 const UPnPService &service) noexcept
 	:m_actionURL(uri_apply_base(service.controlURL, device.URLBase)),
 	 m_serviceType(service.serviceType),
 	 m_deviceId(device.UDN),
@@ -44,12 +43,12 @@ ContentDirectoryService::ContentDirectoryService(const UPnPDevice &device,
 	}
 }
 
-ContentDirectoryService::~ContentDirectoryService()
+ContentDirectoryService::~ContentDirectoryService() noexcept
 {
 	/* this destructor exists here just so it won't get inlined */
 }
 
-std::list<std::string>
+std::forward_list<std::string>
 ContentDirectoryService::getSearchCapabilities(UpnpClient_Handle hdl) const
 {
 	UniqueIxmlDocument request(UpnpMakeAction("GetSearchCapabilities", m_serviceType.c_str(),
@@ -68,15 +67,12 @@ ContentDirectoryService::getSearchCapabilities(UpnpClient_Handle hdl) const
 
 	UniqueIxmlDocument response(_response);
 
-	std::list<std::string> result;
-
 	const char *s = ixmlwrap::getFirstElementValue(response.get(),
 						       "SearchCaps");
 	if (s == nullptr || *s == 0)
-		return result;
+		/* we could just "return {}" here, but GCC 5 doesn't
+		   understand that */
+		return std::forward_list<std::string>();
 
-	if (!csvToStrings(s, result))
-		throw std::runtime_error("Bad response");
-
-	return result;
+	return SplitString(s, ',', false);
 }

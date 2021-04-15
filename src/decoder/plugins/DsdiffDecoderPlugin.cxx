@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,7 +33,7 @@
 #include "CheckAudioFormat.hxx"
 #include "util/bit_reverse.h"
 #include "system/ByteOrder.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "DsdLib.hxx"
 #include "Log.hxx"
 
@@ -186,8 +186,8 @@ dsdiff_read_prop(DecoderClient *client, InputStream &is,
 
 static void
 dsdiff_handle_native_tag(InputStream &is,
-			 const TagHandler &handler,
-			 void *handler_ctx, offset_type tagoffset,
+			 TagHandler &handler,
+			 offset_type tagoffset,
 			 TagType type)
 {
 	if (!dsdlib_skip_to(nullptr, is, tagoffset))
@@ -212,7 +212,7 @@ dsdiff_handle_native_tag(InputStream &is,
 		return;
 
 	string[length] = '\0';
-	tag_handler_invoke_tag(handler, handler_ctx, type, label);
+	handler.OnTag(type, label);
 	return;
 }
 
@@ -228,8 +228,7 @@ static bool
 dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 			   DsdiffMetaData *metadata,
 			   DsdiffChunkHeader *chunk_header,
-			   const TagHandler &handler,
-			   void *handler_ctx)
+			   TagHandler &handler)
 {
 
 	/* skip from DSD data to next chunk header */
@@ -286,17 +285,17 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 	if (id3_offset != 0) {
 		/* a ID3 tag has preference over the other tags, do not process
 		   other tags if we have one */
-		dsdlib_tag_id3(is, handler, handler_ctx, id3_offset);
+		dsdlib_tag_id3(is, handler, id3_offset);
 		return true;
 	}
 #endif
 
 	if (artist_offset != 0)
-		dsdiff_handle_native_tag(is, handler, handler_ctx,
+		dsdiff_handle_native_tag(is, handler,
 					 artist_offset, TAG_ARTIST);
 
 	if (title_offset != 0)
-		dsdiff_handle_native_tag(is, handler, handler_ctx,
+		dsdiff_handle_native_tag(is, handler,
 					 title_offset, TAG_TITLE);
 	return true;
 }
@@ -363,6 +362,7 @@ dsdiff_decode_chunk(DecoderClient &client, InputStream &is,
 		    unsigned channels, unsigned sample_rate,
 		    const offset_type total_bytes)
 {
+	const unsigned kbit_rate = channels * sample_rate / 1000;
 	const offset_type start_offset = is.GetOffset();
 
 	uint8_t buffer[8192];
@@ -409,7 +409,7 @@ dsdiff_decode_chunk(DecoderClient &client, InputStream &is,
 			bit_reverse_buffer(buffer, buffer + nbytes);
 
 		cmd = client.SubmitData(is, buffer, nbytes,
-					sample_rate / 1000);
+					kbit_rate);
 	}
 
 	return true;
@@ -449,9 +449,7 @@ dsdiff_stream_decode(DecoderClient &client, InputStream &is)
 }
 
 static bool
-dsdiff_scan_stream(InputStream &is,
-		   gcc_unused const TagHandler &handler,
-		   gcc_unused void *handler_ctx)
+dsdiff_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	DsdiffMetaData metadata;
 	DsdiffChunkHeader chunk_header;
@@ -460,19 +458,20 @@ dsdiff_scan_stream(InputStream &is,
 	if (!dsdiff_read_metadata(nullptr, is, &metadata, &chunk_header))
 		return false;
 
-	auto audio_format = CheckAudioFormat(metadata.sample_rate / 8,
-					     SampleFormat::DSD,
-					     metadata.channels);
+	const auto sample_rate = metadata.sample_rate / 8;
+	if (!audio_valid_sample_rate(sample_rate) ||
+	    !audio_valid_channel_count(metadata.channels))
+		return false;
 
 	/* calculate song time and add as tag */
-	uint64_t n_frames = metadata.chunk_size / audio_format.channels;
+	uint64_t n_frames = metadata.chunk_size / metadata.channels;
 	auto songtime = SongTime::FromScale<uint64_t>(n_frames,
-						      audio_format.sample_rate);
-	tag_handler_invoke_duration(handler, handler_ctx, songtime);
+						      sample_rate);
+	handler.OnDuration(songtime);
 
 	/* Read additional metadata and created tags if available */
 	dsdiff_read_metadata_extra(nullptr, is, &metadata, &chunk_header,
-				   handler, handler_ctx);
+				   handler);
 
 	return true;
 }
@@ -484,6 +483,8 @@ static const char *const dsdiff_suffixes[] = {
 
 static const char *const dsdiff_mime_types[] = {
 	"application/x-dff",
+	"audio/x-dff",
+	"audio/x-dsd",
 	nullptr
 };
 

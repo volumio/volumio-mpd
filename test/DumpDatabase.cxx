@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2019 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,16 +24,14 @@
 #include "db/Selection.hxx"
 #include "db/DatabaseListener.hxx"
 #include "db/LightDirectory.hxx"
-#include "db/LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "db/PlaylistVector.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/Param.hxx"
-#include "config/Block.hxx"
-#include "tag/TagConfig.hxx"
+#include "ConfigGlue.hxx"
+#include "tag/Config.hxx"
 #include "fs/Path.hxx"
-#include "event/Loop.hxx"
-#include "Log.hxx"
+#include "event/Thread.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdexcept>
 #include <iostream>
@@ -42,6 +40,22 @@ using std::cerr;
 using std::endl;
 
 #include <stdlib.h>
+
+class GlobalInit {
+	EventThread io_thread;
+
+public:
+	GlobalInit() {
+		io_thread.Start();
+	}
+
+	~GlobalInit() {
+	}
+
+	EventLoop &GetEventLoop() {
+		return io_thread.GetEventLoop();
+	}
+};
 
 #ifdef ENABLE_UPNP
 #include "input/InputStream.hxx"
@@ -104,37 +118,35 @@ try {
 
 	/* initialize MPD */
 
-	config_global_init();
-	AtScopeExit() { config_global_finish(); };
+	GlobalInit init;
 
-	ReadConfigFile(config_path);
+	const auto config = AutoLoadConfigFile(config_path);
 
-	TagLoadConfig();
+	TagLoadConfig(config);
 
-	EventLoop event_loop;
 	MyDatabaseListener database_listener;
 
 	/* do it */
 
-	const auto *path = config_get_param(ConfigOption::DB_FILE);
+	const auto *path = config.GetParam(ConfigOption::DB_FILE);
 	ConfigBlock block(path != nullptr ? path->line : -1);
 	if (path != nullptr)
-		block.AddBlockParam("path", path->value.c_str(), path->line);
+		block.AddBlockParam("path", path->value, path->line);
 
-	Database *db = plugin->create(event_loop, database_listener, block);
-
-	AtScopeExit(db) { delete db; };
+	auto db = plugin->create(init.GetEventLoop(),
+				 init.GetEventLoop(),
+				 database_listener, block);
 
 	db->Open();
 
-	AtScopeExit(db) { db->Close(); };
+	AtScopeExit(&db) { db->Close(); };
 
 	const DatabaseSelection selection("", true);
 
 	db->Visit(selection, DumpDirectory, DumpSong, DumpPlaylist);
 
 	return EXIT_SUCCESS;
- } catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
- }
+}

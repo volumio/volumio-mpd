@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,13 @@
 #ifndef MPD_PLAYLIST_HXX
 #define MPD_PLAYLIST_HXX
 
+#include "SingleMode.hxx"
 #include "queue/Queue.hxx"
+#include "config.h"
 
 enum TagType : uint8_t;
-struct PlayerControl;
+struct Tag;
+class PlayerControl;
 class DetachedSong;
 class Database;
 class SongLoader;
@@ -113,17 +116,17 @@ struct playlist {
 	}
 
 	gcc_pure
-	int GetCurrentPosition() const;
+	int GetCurrentPosition() const noexcept;
 
 	gcc_pure
-	int GetNextPosition() const;
+	int GetNextPosition() const noexcept;
 
 	/**
 	 * Returns the song object which is currently queued.  Returns
 	 * none if there is none (yet?) or if MPD isn't playing.
 	 */
 	gcc_pure
-	const DetachedSong *GetQueuedSong() const;
+	const DetachedSong *GetQueuedSong() const noexcept;
 
 	/**
 	 * This is the "PLAYLIST" event handler.  It is invoked by the
@@ -131,6 +134,12 @@ struct playlist {
 	 * when it exits.
 	 */
 	void SyncWithPlayer(PlayerControl &pc);
+
+	/**
+	 * This is the "BORDER_PAUSE" event handler.  It is invoked by
+	 * the player thread whenever playback goes into border pause.
+	 */
+	void BorderPause(PlayerControl &pc);
 
 protected:
 	/**
@@ -192,6 +201,7 @@ public:
 	 * the song matches.
 	 */
 	void TagModified(DetachedSong &&song);
+	void TagModified(const char *uri, const Tag &tag) noexcept;
 
 #ifdef ENABLE_DATABASE
 	/**
@@ -276,46 +286,46 @@ public:
 	void Stop(PlayerControl &pc);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void PlayPosition(PlayerControl &pc, int position);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void PlayOrder(PlayerControl &pc, unsigned order);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void PlayId(PlayerControl &pc, int id);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void PlayNext(PlayerControl &pc);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void PlayPrevious(PlayerControl &pc);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void SeekSongOrder(PlayerControl &pc,
 			   unsigned song_order,
 			   SongTime seek_time);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void SeekSongPosition(PlayerControl &pc,
 			      unsigned sonag_position,
 			      SongTime seek_time);
 
 	/**
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 */
 	void SeekSongId(PlayerControl &pc,
 			unsigned song_id, SongTime seek_time);
@@ -324,7 +334,7 @@ public:
 	 * Seek within the current song.  Fails if MPD is not currently
 	 * playing.
 	 *
-	 * Throws std::runtime_error or #Error on error.
+	 * Throws on error.
 	 *
 	 * @param seek_time the time
 	 * @param relative if true, then the specified time is relative to the
@@ -345,17 +355,29 @@ public:
 
 	void SetRandom(PlayerControl &pc, bool new_value);
 
-	bool GetSingle() const {
+	SingleMode GetSingle() const {
 		return queue.single;
 	}
 
-	void SetSingle(PlayerControl &pc, bool new_value);
+	void SetSingle(PlayerControl &pc, SingleMode new_value);
 
 	bool GetConsume() const {
 		return queue.consume;
 	}
 
 	void SetConsume(bool new_value);
+
+private:
+	/**
+	 * Prepare a manual song change: move the given song to the
+	 * current playback order.  This is done to avoid skipping
+	 * upcoming songs in the order list.  The newly selected song
+	 * shall be inserted in the order list, and the rest shall be
+	 * played after that as previously planned.
+	 *
+	 * @return the new order number of the given song
+	 */
+	unsigned MoveOrderToCurrent(unsigned old_order);
 };
 
 #endif

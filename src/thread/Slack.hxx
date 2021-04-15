@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,8 @@
 #ifndef MPD_THREAD_SLACK_HXX
 #define MPD_THREAD_SLACK_HXX
 
+#include "config.h"
+
 #ifdef HAVE_PRCTL
 #include <sys/prctl.h>
 #endif
@@ -30,7 +32,7 @@
  * merge multiple wakeups, which is a trick to save energy.
  */
 static inline void
-SetThreadTimerSlackNS(unsigned long slack_ns)
+SetThreadTimerSlackNS(unsigned long slack_ns) noexcept
 {
 #if defined(HAVE_PRCTL) && defined(PR_SET_TIMERSLACK)
 	prctl(PR_SET_TIMERSLACK, slack_ns, 0, 0, 0);
@@ -40,13 +42,13 @@ SetThreadTimerSlackNS(unsigned long slack_ns)
 }
 
 static inline void
-SetThreadTimerSlackUS(unsigned long slack_us)
+SetThreadTimerSlackUS(unsigned long slack_us) noexcept
 {
 	SetThreadTimerSlackNS(slack_us * 1000ul);
 }
 
 static inline void
-SetThreadTimerSlackMS(unsigned long slack_ms)
+SetThreadTimerSlackMS(unsigned long slack_ms) noexcept
 {
 	SetThreadTimerSlackNS(slack_ms * 1000000ul);
 }

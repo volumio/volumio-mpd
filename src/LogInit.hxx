@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,8 @@
 #ifndef MPD_LOG_INIT_HXX
 #define MPD_LOG_INIT_HXX
 
+struct ConfigData;
+
 /**
  * Configure a logging destination for daemon startup, before the
  * configuration file is read.  This allows the daemon to use the
@@ -29,21 +31,21 @@
  * @param verbose true when the program is started with --verbose
  */
 void
-log_early_init(bool verbose);
+log_early_init(bool verbose) noexcept;
 
 /**
  * Throws #std::runtime_error on error.
  */
 void
-log_init(bool verbose, bool use_stdout);
+log_init(const ConfigData &config, bool verbose, bool use_stdout);
 
 void
-log_deinit();
+log_deinit() noexcept;
 
 void
 setup_log_output();
 
 int
-cycle_log_files();
+cycle_log_files() noexcept;
 
 #endif /* LOG_H */

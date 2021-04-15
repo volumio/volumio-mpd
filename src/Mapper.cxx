@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@
  * The absolute path of the playlist directory encoded in the
  * filesystem character set.
  */
-static AllocatedPath playlist_dir_fs = AllocatedPath::Null();
+static AllocatedPath playlist_dir_fs = nullptr;
 
 static void
 mapper_set_playlist_dir(AllocatedPath &&path)
@@ -58,35 +58,30 @@ mapper_init(AllocatedPath &&_playlist_dir)
 		mapper_set_playlist_dir(std::move(_playlist_dir));
 }
 
-void
-mapper_finish()
-{
-}
-
 #ifdef ENABLE_DATABASE
 
 AllocatedPath
-map_uri_fs(const char *uri)
+map_uri_fs(const char *uri) noexcept
 {
 	assert(uri != nullptr);
 	assert(*uri != '/');
 
 	if (instance->storage == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	const auto music_dir_fs = instance->storage->MapFS("");
 	if (music_dir_fs.IsNull())
-		return AllocatedPath::Null();
+		return nullptr;
 
 	const auto uri_fs = AllocatedPath::FromUTF8(uri);
 	if (uri_fs.IsNull())
-		return AllocatedPath::Null();
+		return nullptr;
 
-	return AllocatedPath::Build(music_dir_fs, uri_fs);
+	return music_dir_fs / uri_fs;
 }
 
 std::string
-map_fs_to_utf8(Path path_fs)
+map_fs_to_utf8(Path path_fs) noexcept
 {
 	if (path_fs.IsAbsolute()) {
 		if (instance->storage == nullptr)
@@ -109,16 +104,16 @@ map_fs_to_utf8(Path path_fs)
 #endif
 
 const AllocatedPath &
-map_spl_path()
+map_spl_path() noexcept
 {
 	return playlist_dir_fs;
 }
 
 AllocatedPath
-map_spl_utf8_to_fs(const char *name)
+map_spl_utf8_to_fs(const char *name) noexcept
 {
 	if (playlist_dir_fs.IsNull())
-		return AllocatedPath::Null();
+		return nullptr;
 
 	std::string filename_utf8 = name;
 	filename_utf8.append(PLAYLIST_FILE_SUFFIX);
@@ -126,7 +121,7 @@ map_spl_utf8_to_fs(const char *name)
 	const auto filename_fs =
 		AllocatedPath::FromUTF8(filename_utf8.c_str());
 	if (filename_fs.IsNull())
-		return AllocatedPath::Null();
+		return nullptr;
 
-	return AllocatedPath::Build(playlist_dir_fs, filename_fs);
+	return playlist_dir_fs / filename_fs;
 }

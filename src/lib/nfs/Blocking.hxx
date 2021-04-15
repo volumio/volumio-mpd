@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_BLOCKING_NFS_CALLBACK_HXX
 #define MPD_BLOCKING_NFS_CALLBACK_HXX
 
-#include "check.h"
 #include "Callback.hxx"
 #include "Lease.hxx"
 #include "thread/Mutex.hxx"
@@ -36,7 +35,8 @@ class NfsConnection;
  * thread, and method Run() waits for completion.
  */
 class BlockingNfsOperation : protected NfsCallback, NfsLease {
-	static constexpr unsigned timeout_ms = 60000;
+	static constexpr std::chrono::steady_clock::duration timeout =
+		std::chrono::minutes(1);
 
 	Mutex mutex;
 	Cond cond;
@@ -49,7 +49,7 @@ protected:
 	NfsConnection &connection;
 
 public:
-	BlockingNfsOperation(NfsConnection &_connection)
+	BlockingNfsOperation(NfsConnection &_connection) noexcept
 		:finished(false), connection(_connection) {}
 
 	/**
@@ -58,10 +58,10 @@ public:
 	void Run();
 
 private:
-	bool LockWaitFinished() {
-		const ScopeLock protect(mutex);
+	bool LockWaitFinished() noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		while (!finished)
-			if (!cond.timed_wait(mutex, timeout_ms))
+			if (!cond.timed_wait(mutex, timeout))
 				return false;
 
 		return true;
@@ -71,24 +71,24 @@ private:
 	 * Mark the operation as "finished" and wake up the waiting
 	 * thread.
 	 */
-	void LockSetFinished() {
-		const ScopeLock protect(mutex);
+	void LockSetFinished() noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
 		finished = true;
 		cond.signal();
 	}
 
 	/* virtual methods from NfsLease */
-	void OnNfsConnectionReady() final;
-	void OnNfsConnectionFailed(std::exception_ptr e) final;
-	void OnNfsConnectionDisconnected(std::exception_ptr e) final;
+	void OnNfsConnectionReady() noexcept final;
+	void OnNfsConnectionFailed(std::exception_ptr e) noexcept final;
+	void OnNfsConnectionDisconnected(std::exception_ptr e) noexcept final;
 
 	/* virtual methods from NfsCallback */
-	void OnNfsCallback(unsigned status, void *data) final;
-	void OnNfsError(std::exception_ptr &&e) final;
+	void OnNfsCallback(unsigned status, void *data) noexcept final;
+	void OnNfsError(std::exception_ptr &&e) noexcept final;
 
 protected:
 	virtual void Start() = 0;
-	virtual void HandleResult(unsigned status, void *data) = 0;
+	virtual void HandleResult(unsigned status, void *data) noexcept = 0;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,82 +22,57 @@
 #include "ClientList.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
-#include "system/fd_util.h"
+#include "net/UniqueSocketDescriptor.hxx"
 #include "net/SocketAddress.hxx"
 #include "net/ToString.hxx"
 #include "Permission.hxx"
 #include "Log.hxx"
 
 #include <assert.h>
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
 #endif
 
-#ifdef HAVE_LIBWRAP
-#include <tcpd.h>
-#endif
-
-static const char GREETING[] = "OK MPD " PROTOCOL_VERSION "\n";
+static constexpr char GREETING[] = "OK MPD " PROTOCOL_VERSION "\n";
 
 Client::Client(EventLoop &_loop, Partition &_partition,
-	       int _fd, int _uid, int _num)
-	:FullyBufferedSocket(_fd, _loop, 16384, client_max_output_buffer_size),
-	 TimeoutMonitor(_loop),
-	 partition(_partition),
-	 playlist(partition.playlist), player_control(partition.pc),
-	 permission(getDefaultPermissions()),
+	       UniqueSocketDescriptor _fd,
+	       int _uid, unsigned _permission,
+	       int _num) noexcept
+	:FullyBufferedSocket(_fd.Release(), _loop,
+			     16384, client_max_output_buffer_size),
+	 timeout_event(_loop, BIND_THIS_METHOD(OnTimeout)),
+	 partition(&_partition),
+	 permission(_permission),
 	 uid(_uid),
-	 num(_num),
-	 idle_waiting(false), idle_flags(0),
-	 num_subscriptions(0)
+	 num(_num)
 {
-	TimeoutMonitor::ScheduleSeconds(client_timeout);
+	timeout_event.Schedule(client_timeout);
 }
 
 void
 client_new(EventLoop &loop, Partition &partition,
-	   int fd, SocketAddress address, int uid)
+	   UniqueSocketDescriptor fd, SocketAddress address, int uid,
+	   unsigned permission) noexcept
 {
 	static unsigned int next_client_num;
 	const auto remote = ToString(address);
 
-	assert(fd >= 0);
-
-#ifdef HAVE_LIBWRAP
-	if (address.GetFamily() != AF_UNIX) {
-		// TODO: shall we obtain the program name from argv[0]?
-		const char *progname = "mpd";
-
-		struct request_info req;
-		request_init(&req, RQ_FILE, fd, RQ_DAEMON, progname, 0);
-
-		fromhost(&req);
-
-		if (!hosts_access(&req)) {
-			/* tcp wrappers says no */
-			FormatWarning(client_domain,
-				      "libwrap refused connection (libwrap=%s) from %s",
-				      progname, remote.c_str());
-
-			close_socket(fd);
-			return;
-		}
-	}
-#endif	/* HAVE_WRAP */
+	assert(fd.IsDefined());
 
 	ClientList &client_list = *partition.instance.client_list;
 	if (client_list.IsFull()) {
 		LogWarning(client_domain, "Max connections reached");
-		close_socket(fd);
 		return;
 	}
 
-	Client *client = new Client(loop, partition, fd, uid,
-				    next_client_num++);
+	(void)fd.Write(GREETING, sizeof(GREETING) - 1);
 
-	(void)send(fd, GREETING, sizeof(GREETING) - 1, 0);
+	Client *client = new Client(loop, partition, std::move(fd), uid,
+				    permission,
+				    next_client_num++);
 
 	client_list.Add(*client);
 
@@ -106,9 +81,9 @@ client_new(EventLoop &loop, Partition &partition,
 }
 
 void
-Client::Close()
+Client::Close() noexcept
 {
-	partition.instance.client_list->Remove(*this);
+	partition->instance.client_list->Remove(*this);
 
 	SetExpired();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,20 +20,19 @@
 #ifndef MPD_VORBIS_COMMENTS_HXX
 #define MPD_VORBIS_COMMENTS_HXX
 
-#include "check.h"
+#include <memory>
 
 struct ReplayGainInfo;
-struct TagHandler;
+class TagHandler;
 struct Tag;
 
 bool
-vorbis_comments_to_replay_gain(ReplayGainInfo &rgi, char **comments);
+vorbis_comments_to_replay_gain(ReplayGainInfo &rgi, char **comments) noexcept;
 
 void
-vorbis_comments_scan(char **comments,
-		     const TagHandler &handler, void *handler_ctx);
+vorbis_comments_scan(char **comments, TagHandler &handler) noexcept;
 
-Tag *
-vorbis_comments_to_tag(char **comments);
+std::unique_ptr<Tag>
+vorbis_comments_to_tag(char **comments) noexcept;
 
 #endif

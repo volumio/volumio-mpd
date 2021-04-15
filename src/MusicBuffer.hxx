@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,17 +20,16 @@
 #ifndef MPD_MUSIC_BUFFER_HXX
 #define MPD_MUSIC_BUFFER_HXX
 
+#include "MusicChunkPtr.hxx"
 #include "util/SliceBuffer.hxx"
 #include "thread/Mutex.hxx"
-
-struct MusicChunk;
 
 /**
  * An allocator for #MusicChunk objects.
  */
 class MusicBuffer {
 	/** a mutex which protects #buffer */
-	Mutex mutex;
+	mutable Mutex mutex;
 
 	SliceBuffer<MusicChunk> buffer;
 
@@ -41,7 +40,7 @@ public:
 	 * @param num_chunks the number of #MusicChunk reserved in
 	 * this buffer
 	 */
-	MusicBuffer(unsigned num_chunks);
+	explicit MusicBuffer(unsigned num_chunks);
 
 #ifndef NDEBUG
 	/**
@@ -50,9 +49,14 @@ public:
 	 * object is inaccessible to other threads.
 	 */
 	bool IsEmptyUnsafe() const {
-		return buffer.IsEmpty();
+		return buffer.empty();
 	}
 #endif
+
+	bool IsFull() const noexcept {
+		const std::lock_guard<Mutex> protect(mutex);
+		return buffer.IsFull();
+	}
 
 	/**
 	 * Returns the total number of reserved chunks in this buffer.  This
@@ -60,7 +64,7 @@ public:
 	 * music_buffer_new().
 	 */
 	gcc_pure
-	unsigned GetSize() const {
+	unsigned GetSize() const noexcept {
 		return buffer.GetCapacity();
 	}
 
@@ -71,13 +75,13 @@ public:
 	 * @return an empty chunk or nullptr if there are no chunks
 	 * available
 	 */
-	MusicChunk *Allocate();
+	MusicChunkPtr Allocate() noexcept;
 
 	/**
 	 * Returns a chunk to the buffer.  It can be reused by
 	 * Allocate() then.
 	 */
-	void Return(MusicChunk *chunk);
+	void Return(MusicChunk *chunk) noexcept;
 };
 
 #endif

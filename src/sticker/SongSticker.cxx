@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SongSticker.hxx"
 #include "StickerDatabase.hxx"
-#include "db/LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "db/Interface.hxx"
 #include "util/Alloc.hxx"
 #include "util/ScopeExit.hxx"
-
-#include <stdexcept>
 
 #include <string.h>
 #include <stdlib.h>
@@ -71,6 +68,7 @@ sticker_song_get(const LightSong &song)
 	return sticker_load("song", uri.c_str());
 }
 
+namespace {
 struct sticker_song_find_data {
 	const Database *db;
 	const char *base_uri;
@@ -80,6 +78,7 @@ struct sticker_song_find_data {
 		     void *user_data);
 	void *user_data;
 };
+}
 
 static void
 sticker_song_find_cb(const char *uri, const char *value, void *user_data)
@@ -96,7 +95,7 @@ sticker_song_find_cb(const char *uri, const char *value, void *user_data)
 		const LightSong *song = db->GetSong(uri);
 		data->func(*song, value, data->user_data);
 		db->ReturnSong(song);
-	} catch (const std::runtime_error &e) {
+	} catch (...) {
 	}
 }
 

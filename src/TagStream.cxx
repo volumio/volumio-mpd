@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagStream.hxx"
 #include "tag/Generic.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "util/MimeType.hxx"
 #include "util/UriUtil.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
 #include "input/InputStream.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 #include <assert.h>
 
@@ -40,14 +38,14 @@
 gcc_pure
 static bool
 CheckDecoderPlugin(const DecoderPlugin &plugin,
-		   const char *suffix, const char *mime)
+		   const char *suffix, const char *mime) noexcept
 {
 	return (mime != nullptr && plugin.SupportsMimeType(mime)) ||
 		(suffix != nullptr && plugin.SupportsSuffix(suffix));
 }
 
 bool
-tag_stream_scan(InputStream &is, const TagHandler &handler, void *ctx)
+tag_stream_scan(InputStream &is, TagHandler &handler) noexcept
 {
 	assert(is.IsReady());
 
@@ -63,51 +61,53 @@ tag_stream_scan(InputStream &is, const TagHandler &handler, void *ctx)
 		mime = (mime_base = GetMimeTypeBase(mime)).c_str();
 
 	return decoder_plugins_try([suffix, mime, &is,
-				    &handler, ctx](const DecoderPlugin &plugin){
+				    &handler](const DecoderPlugin &plugin){
 			try {
 				is.LockRewind();
-			} catch (const std::runtime_error &) {
+			} catch (...) {
 			}
 
 			return CheckDecoderPlugin(plugin, suffix, mime) &&
-				plugin.ScanStream(is, handler, ctx);
+				plugin.ScanStream(is, handler);
 		});
 }
 
 bool
-tag_stream_scan(const char *uri, const TagHandler &handler, void *ctx)
+tag_stream_scan(const char *uri, TagHandler &handler) noexcept
 try {
 	Mutex mutex;
-	Cond cond;
 
-	auto is = InputStream::OpenReady(uri, mutex, cond);
-	return tag_stream_scan(*is, handler, ctx);
+	auto is = InputStream::OpenReady(uri, mutex);
+	return tag_stream_scan(*is, handler);
 } catch (const std::exception &e) {
 	return false;
 }
 
 bool
-tag_stream_scan(InputStream &is, TagBuilder &builder)
+tag_stream_scan(InputStream &is, TagBuilder &builder,
+		AudioFormat *audio_format) noexcept
 {
 	assert(is.IsReady());
 
-	if (!tag_stream_scan(is, full_tag_handler, &builder))
+	FullTagHandler h(builder, audio_format);
+
+	if (!tag_stream_scan(is, h))
 		return false;
 
-	if (builder.IsEmpty())
-		ScanGenericTags(is, full_tag_handler, &builder);
+	if (builder.empty())
+		ScanGenericTags(is, h);
 
 	return true;
 }
 
 bool
-tag_stream_scan(const char *uri, TagBuilder &builder)
+tag_stream_scan(const char *uri, TagBuilder &builder,
+		AudioFormat *audio_format) noexcept
 try {
 	Mutex mutex;
-	Cond cond;
 
-	auto is = InputStream::OpenReady(uri, mutex, cond);
-	return tag_stream_scan(*is, builder);
+	auto is = InputStream::OpenReady(uri, mutex);
+	return tag_stream_scan(*is, builder, audio_format);
 } catch (const std::exception &e) {
 	return false;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmConvert.hxx"
 #include "ConfiguredResampler.hxx"
-#include "AudioFormat.hxx"
 #include "util/ConstBuffer.hxx"
+
+#include <stdexcept>
 
 #include <assert.h>
 
 void
-pcm_convert_global_init()
+pcm_convert_global_init(const ConfigData &config)
 {
-	pcm_resampler_global_init();
+	pcm_resampler_global_init(config);
 }
 
-PcmConvert::PcmConvert()
+PcmConvert::PcmConvert() noexcept
 {
 #ifndef NDEBUG
 	src_format.Clear();
@@ -39,7 +39,7 @@ PcmConvert::PcmConvert()
 #endif
 }
 
-PcmConvert::~PcmConvert()
+PcmConvert::~PcmConvert() noexcept
 {
 	assert(!src_format.IsValid());
 	assert(!dest_format.IsValid());
@@ -98,7 +98,7 @@ PcmConvert::Open(const AudioFormat _src_format, const AudioFormat _dest_format)
 }
 
 void
-PcmConvert::Close()
+PcmConvert::Close() noexcept
 {
 	if (enable_channels)
 		channels_converter.Close();
@@ -114,6 +114,17 @@ PcmConvert::Close()
 #ifndef NDEBUG
 	src_format.Clear();
 	dest_format.Clear();
+#endif
+}
+
+void
+PcmConvert::Reset() noexcept
+{
+	if (enable_resampler)
+		resampler.Reset();
+
+#ifdef ENABLE_DSD
+	dsd.Reset();
 #endif
 }
 
@@ -141,4 +152,23 @@ PcmConvert::Convert(ConstBuffer<void> buffer)
 		buffer = channels_converter.Convert(buffer);
 
 	return buffer;
+}
+
+ConstBuffer<void>
+PcmConvert::Flush()
+{
+	if (enable_resampler) {
+		auto buffer = resampler.Flush();
+		if (!buffer.IsNull()) {
+			if (enable_format)
+				buffer = format_converter.Convert(buffer);
+
+			if (enable_channels)
+				buffer = channels_converter.Convert(buffer);
+
+			return buffer;
+		}
+	}
+
+	return nullptr;
 }

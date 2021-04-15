@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ReplayGainGlobal.hxx"
 #include "ReplayGainConfig.hxx"
 #include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "config/Data.hxx"
 #include "util/RuntimeError.hxx"
 
 #include <assert.h>
@@ -56,20 +55,20 @@ ParsePreamp(const ConfigParam &p)
 }
 
 ReplayGainConfig
-LoadReplayGainConfig()
+LoadReplayGainConfig(const ConfigData &config)
 {
 	ReplayGainConfig replay_gain_config;
 
-	const auto *param = config_get_param(ConfigOption::REPLAYGAIN_PREAMP);
+	const auto *param = config.GetParam(ConfigOption::REPLAYGAIN_PREAMP);
 	if (param)
 		replay_gain_config.preamp = ParsePreamp(*param);
 
-	param = config_get_param(ConfigOption::REPLAYGAIN_MISSING_PREAMP);
+	param = config.GetParam(ConfigOption::REPLAYGAIN_MISSING_PREAMP);
 	if (param)
 		replay_gain_config.missing_preamp = ParsePreamp(*param);
 
-	replay_gain_config.limit = config_get_bool(ConfigOption::REPLAYGAIN_LIMIT,
-						   ReplayGainConfig::DEFAULT_LIMIT);
+	replay_gain_config.limit = config.GetBool(ConfigOption::REPLAYGAIN_LIMIT,
+						  ReplayGainConfig::DEFAULT_LIMIT);
 
 	return replay_gain_config;
 }

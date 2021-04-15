@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define MPD_NEIGHBOR_COMMANDS_HXX
 
 #include "CommandResult.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 struct Instance;
 class Client;
@@ -30,7 +30,7 @@ class Response;
 
 gcc_pure
 bool
-neighbor_commands_available(const Instance &instance);
+neighbor_commands_available(const Instance &instance) noexcept;
 
 CommandResult
 handle_listneighbors(Client &client, Request request, Response &response);

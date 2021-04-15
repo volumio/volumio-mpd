@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_OGG_VISITOR_HXX
 #define MPD_OGG_VISITOR_HXX
 
-#include "check.h"
 #include "OggSyncState.hxx"
 #include "OggStreamState.hxx"
 
@@ -39,6 +38,14 @@ class OggVisitor {
 	OggStreamState stream;
 
 	bool has_stream = false;
+
+	/**
+	 * This is true after seeking; its one-time effect is to
+	 * ignore the BOS packet, just in case we have been seeking to
+	 * the beginning of the file, because that would disrupt
+	 * playback.
+	 */
+	bool post_seek = false;
 
 public:
 	explicit OggVisitor(Reader &reader)
@@ -62,8 +69,21 @@ private:
 	void HandlePackets();
 
 protected:
+	/**
+	 * Called when the "beginning of stream" packet has been seen.
+	 *
+	 * @param packet the "beginning of stream" packet
+	 */
 	virtual void OnOggBeginning(const ogg_packet &packet) = 0;
+
+	/**
+	 * Called for each follow-up packet.
+	 */
 	virtual void OnOggPacket(const ogg_packet &packet) = 0;
+
+	/**
+	 * Called after the "end of stream" packet has been processed.
+	 */
 	virtual void OnOggEnd() = 0;
 };
 

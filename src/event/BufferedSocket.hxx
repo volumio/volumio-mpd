@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_BUFFERED_SOCKET_HXX
 #define MPD_BUFFERED_SOCKET_HXX
 
-#include "check.h"
 #include "SocketMonitor.hxx"
 #include "util/StaticFifoBuffer.hxx"
 
@@ -38,30 +37,34 @@ class BufferedSocket : protected SocketMonitor {
 	StaticFifoBuffer<uint8_t, 8192> input;
 
 public:
-	BufferedSocket(int _fd, EventLoop &_loop)
+	BufferedSocket(SocketDescriptor _fd, EventLoop &_loop) noexcept
 		:SocketMonitor(_fd, _loop) {
 		ScheduleRead();
 	}
 
 	using SocketMonitor::IsDefined;
 	using SocketMonitor::Close;
-	using SocketMonitor::Write;
 
 private:
-	ssize_t DirectRead(void *data, size_t length);
+	/**
+	 * @return the number of bytes read from the socket, 0 if the
+	 * socket isn't ready for reading, -1 on error (the socket has
+	 * been closed and probably destructed)
+	 */
+	ssize_t DirectRead(void *data, size_t length) noexcept;
 
 	/**
 	 * Receive data from the socket to the input buffer.
 	 *
 	 * @return false if the socket has been closed
 	 */
-	bool ReadToBuffer();
+	bool ReadToBuffer() noexcept;
 
 protected:
 	/**
 	 * @return false if the socket has been closed
 	 */
-	bool ResumeInput();
+	bool ResumeInput() noexcept;
 
 	/**
 	 * Mark a portion of the input buffer "consumed".  Only
@@ -69,7 +72,7 @@ protected:
 	 * does not invalidate the pointer passed to OnSocketInput()
 	 * yet.
 	 */
-	void ConsumeInput(size_t nbytes) {
+	void ConsumeInput(size_t nbytes) noexcept {
 		assert(IsDefined());
 
 		input.Consume(nbytes);
@@ -108,12 +111,13 @@ protected:
 	 * buffer may be modified by the method while it processes the
 	 * data
 	 */
-	virtual InputResult OnSocketInput(void *data, size_t length) = 0;
+	virtual InputResult OnSocketInput(void *data, size_t length) noexcept = 0;
 
-	virtual void OnSocketError(std::exception_ptr ep) = 0;
-	virtual void OnSocketClosed() = 0;
+	virtual void OnSocketError(std::exception_ptr ep) noexcept = 0;
+	virtual void OnSocketClosed() noexcept = 0;
 
-	virtual bool OnSocketReady(unsigned flags) override;
+	/* virtual methods from class SocketMonitor */
+	bool OnSocketReady(unsigned flags) noexcept override;
 };
 
 #endif

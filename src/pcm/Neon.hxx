@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -66,7 +66,8 @@ struct NeonFloatTo16 {
 
 	static constexpr size_t BLOCK_SIZE = 16;
 
-	void Convert(int16_t *dst, const float *src, const size_t n) const {
+	void Convert(int16_t *dst, const float *src,
+		     const size_t n) const noexcept {
 		for (unsigned i = 0; i < n / BLOCK_SIZE;
 		     ++i, src += BLOCK_SIZE, dst += BLOCK_SIZE) {
 			/* load 16 float samples into 4 quad

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,6 +44,6 @@
  * (and not a list with an empty string).
  */
 std::forward_list<std::string>
-SplitString(const char *s, char separator, bool strip=true);
+SplitString(const char *s, char separator, bool strip=true) noexcept;
 
 #endif

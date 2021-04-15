@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Song.hxx"
 #include "Directory.hxx"
 #include "tag/Tag.hxx"
 #include "util/VarSize.hxx"
-#include "DetachedSong.hxx"
-#include "db/LightSong.hxx"
+#include "song/DetachedSong.hxx"
+#include "song/LightSong.hxx"
 
 #include <assert.h>
 #include <string.h>
 
 inline Song::Song(const char *_uri, size_t uri_length, Directory &_parent)
-	:parent(&_parent), mtime(0),
-	 start_time(SongTime::zero()), end_time(SongTime::zero())
+	:parent(&_parent)
 {
 	memcpy(uri, _uri, uri_length + 1);
 }
@@ -77,7 +75,7 @@ Song::Free()
 }
 
 std::string
-Song::GetURI() const
+Song::GetURI() const noexcept
 {
 	assert(*uri);
 
@@ -96,16 +94,15 @@ Song::GetURI() const
 }
 
 LightSong
-Song::Export() const
+Song::Export() const noexcept
 {
-	LightSong dest;
+	LightSong dest(uri, tag);
 	dest.directory = parent->IsRoot()
 		? nullptr : parent->GetPath();
-	dest.uri = uri;
 	dest.real_uri = nullptr;
-	dest.tag = &tag;
 	dest.mtime = mtime;
 	dest.start_time = start_time;
 	dest.end_time = end_time;
+	dest.audio_format = audio_format;
 	return dest;
 }

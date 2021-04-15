@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmMix.hxx"
 #include "Volume.hxx"
-#include "PcmUtils.hxx"
-#include "AudioFormat.hxx"
+#include "Clamp.hxx"
 #include "Traits.hxx"
 #include "util/Clamp.hxx"
 
 #include "PcmDither.cxx" // including the .cxx file to get inlined templates
 
+#include <cmath>
+
 #include <assert.h>
-#include <math.h>
 
 template<SampleFormat F, class Traits=SampleTraits<F>>
 static typename Traits::value_type
 PcmAddVolume(PcmDither &dither,
 	     typename Traits::value_type _a, typename Traits::value_type _b,
-	     int volume1, int volume2)
+	     int volume1, int volume2) noexcept
 {
 	typename Traits::long_type a(_a), b(_b);
 	typename Traits::long_type c(a * volume1 + b * volume2);
@@ -49,7 +48,7 @@ static void
 PcmAddVolume(PcmDither &dither,
 	     typename Traits::pointer_type a,
 	     typename Traits::const_pointer_type b,
-	     size_t n, int volume1, int volume2)
+	     size_t n, int volume1, int volume2) noexcept
 {
 	for (size_t i = 0; i != n; ++i)
 		a[i] = PcmAddVolume<F, Traits>(dither, a[i], b[i],
@@ -59,7 +58,8 @@ PcmAddVolume(PcmDither &dither,
 template<SampleFormat F, class Traits=SampleTraits<F>>
 static void
 PcmAddVolumeVoid(PcmDither &dither,
-		 void *a, const void *b, size_t size, int volume1, int volume2)
+		 void *a, const void *b, size_t size,
+		 int volume1, int volume2) noexcept
 {
 	constexpr size_t sample_size = Traits::SAMPLE_SIZE;
 	assert(size % sample_size == 0);
@@ -73,7 +73,7 @@ PcmAddVolumeVoid(PcmDither &dither,
 
 static void
 pcm_add_vol_float(float *buffer1, const float *buffer2,
-		  unsigned num_samples, float volume1, float volume2)
+		  unsigned num_samples, float volume1, float volume2) noexcept
 {
 	while (num_samples > 0) {
 		float sample1 = *buffer1;
@@ -88,7 +88,7 @@ pcm_add_vol_float(float *buffer1, const float *buffer2,
 static bool
 pcm_add_vol(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
 	    int vol1, int vol2,
-	    SampleFormat format)
+	    SampleFormat format) noexcept
 {
 	switch (format) {
 	case SampleFormat::UNDEFINED:
@@ -133,8 +133,8 @@ pcm_add_vol(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
 }
 
 template<SampleFormat F, class Traits=SampleTraits<F>>
-static typename Traits::value_type
-PcmAdd(typename Traits::value_type _a, typename Traits::value_type _b)
+static constexpr typename Traits::value_type
+PcmAdd(typename Traits::value_type _a, typename Traits::value_type _b) noexcept
 {
 	typename Traits::sum_type a(_a), b(_b);
 
@@ -145,7 +145,7 @@ template<SampleFormat F, class Traits=SampleTraits<F>>
 static void
 PcmAdd(typename Traits::pointer_type a,
        typename Traits::const_pointer_type b,
-       size_t n)
+       size_t n) noexcept
 {
 	for (size_t i = 0; i != n; ++i)
 		a[i] = PcmAdd<F, Traits>(a[i], b[i]);
@@ -153,7 +153,7 @@ PcmAdd(typename Traits::pointer_type a,
 
 template<SampleFormat F, class Traits=SampleTraits<F>>
 static void
-PcmAddVoid(void *a, const void *b, size_t size)
+PcmAddVoid(void *a, const void *b, size_t size) noexcept
 {
 	constexpr size_t sample_size = Traits::SAMPLE_SIZE;
 	assert(size % sample_size == 0);
@@ -164,7 +164,8 @@ PcmAddVoid(void *a, const void *b, size_t size)
 }
 
 static void
-pcm_add_float(float *buffer1, const float *buffer2, unsigned num_samples)
+pcm_add_float(float *buffer1, const float *buffer2,
+	      unsigned num_samples) noexcept
 {
 	while (num_samples > 0) {
 		float sample1 = *buffer1;
@@ -176,7 +177,7 @@ pcm_add_float(float *buffer1, const float *buffer2, unsigned num_samples)
 
 static bool
 pcm_add(void *buffer1, const void *buffer2, size_t size,
-	SampleFormat format)
+	SampleFormat format) noexcept
 {
 	switch (format) {
 	case SampleFormat::UNDEFINED:
@@ -212,7 +213,7 @@ pcm_add(void *buffer1, const void *buffer2, size_t size,
 
 bool
 pcm_mix(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
-	SampleFormat format, float portion1)
+	SampleFormat format, float portion1) noexcept
 {
 	float s;
 
@@ -224,7 +225,7 @@ pcm_mix(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
 	s = sin(M_PI_2 * portion1);
 	s *= s;
 
-	int vol1 = s * PCM_VOLUME_1S + 0.5;
+	int vol1 = std::lround(s * PCM_VOLUME_1S);
 	vol1 = Clamp<int>(vol1, 0, PCM_VOLUME_1S);
 
 	return pcm_add_vol(dither, buffer1, buffer2, size,

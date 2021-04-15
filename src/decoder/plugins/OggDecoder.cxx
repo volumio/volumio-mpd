@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "OggDecoder.hxx"
 #include "lib/xiph/OggFind.hxx"
 #include "input/InputStream.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 /**
  * Load the end-of-stream packet and restore the previous file
@@ -55,7 +54,7 @@ OggDecoder::LoadEndPacket(ogg_packet &packet) const
 	/* restore the previous file position */
 	try {
 		input_stream.LockSeek(old_offset);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 	}
 
 	return result;

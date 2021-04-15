@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,20 +26,20 @@
 #include "db/Uri.hxx"
 #include "storage/StorageInterface.hxx"
 #include "LocateUri.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongPrint.hxx"
 #include "TagPrint.hxx"
 #include "TagStream.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "TimePrint.hxx"
 #include "decoder/DecoderPrint.hxx"
 #include "ls.hxx"
 #include "mixer/Volume.hxx"
+#include "time/ChronoUtil.hxx"
 #include "util/UriUtil.hxx"
 #include "util/StringAPI.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "Stats.hxx"
-#include "Permission.hxx"
 #include "PlaylistFile.hxx"
 #include "db/PlaylistVector.hxx"
 #include "client/Client.hxx"
@@ -64,7 +64,7 @@ print_spl_list(Response &r, const PlaylistVector &list)
 	for (const auto &i : list) {
 		r.Format("playlist: %s\n", i.name.c_str());
 
-		if (i.mtime > 0)
+		if (!IsNegative(i.mtime))
 			time_print(r, "Last-Modified", i.mtime);
 	}
 }
@@ -87,33 +87,10 @@ handle_decoders(gcc_unused Client &client, gcc_unused Request args,
 }
 
 CommandResult
-handle_tagtypes(gcc_unused Client &client, gcc_unused Request request,
-		Response &r)
-{
-	tag_print_types(r);
-	return CommandResult::OK;
-}
-
-CommandResult
 handle_kill(gcc_unused Client &client, gcc_unused Request request,
 	    gcc_unused Response &r)
 {
 	return CommandResult::KILL;
-}
-
-CommandResult
-handle_close(gcc_unused Client &client, gcc_unused Request args,
-	     gcc_unused Response &r)
-{
-	return CommandResult::FINISH;
-}
-
-static void
-print_tag(TagType type, const char *value, void *ctx)
-{
-	auto &r = *(Response *)ctx;
-
-	tag_print(r, type, value);
 }
 
 CommandResult
@@ -122,7 +99,7 @@ handle_listfiles(Client &client, Request args, Response &r)
 	/* default is root directory */
 	const auto uri = args.GetOptional(0, "");
 
-	const auto located_uri = LocateUri(uri, &client
+	const auto located_uri = LocateUri(UriPluginKind::STORAGE, uri, &client
 #ifdef ENABLE_DATABASE
 					   , nullptr
 #endif
@@ -132,7 +109,8 @@ handle_listfiles(Client &client, Request args, Response &r)
 	case LocatedUri::Type::ABSOLUTE:
 #ifdef ENABLE_DATABASE
 		/* use storage plugin to list remote directory */
-		return handle_listfiles_storage(r, located_uri.canonical_uri);
+		return handle_listfiles_storage(client, r,
+						located_uri.canonical_uri);
 #else
 		r.Error(ACK_ERROR_NO_EXIST, "No database");
 		return CommandResult::ERROR;
@@ -140,11 +118,11 @@ handle_listfiles(Client &client, Request args, Response &r)
 
 	case LocatedUri::Type::RELATIVE:
 #ifdef ENABLE_DATABASE
-		if (client.partition.instance.storage != nullptr)
+		if (client.GetInstance().storage != nullptr)
 			/* if we have a storage instance, obtain a list of
 			   files from it */
 			return handle_listfiles_storage(r,
-							*client.partition.instance.storage,
+							*client.GetInstance().storage,
 							uri);
 
 		/* fall back to entries from database if we have no storage */
@@ -162,16 +140,24 @@ handle_listfiles(Client &client, Request args, Response &r)
 	gcc_unreachable();
 }
 
-static constexpr TagHandler print_tag_handler = {
-	nullptr,
-	print_tag,
-	nullptr,
+class PrintTagHandler final : public NullTagHandler {
+	Response &response;
+
+public:
+	explicit PrintTagHandler(Response &_response) noexcept
+		:NullTagHandler(WANT_TAG), response(_response) {}
+
+	void OnTag(TagType type, const char *value) noexcept override {
+		if (response.GetClient().tag_mask.Test(type))
+			tag_print(response, type, value);
+	}
 };
 
 static CommandResult
 handle_lsinfo_absolute(Response &r, const char *uri)
 {
-	if (!tag_stream_scan(uri, print_tag_handler, &r)) {
+	PrintTagHandler h(r);
+	if (!tag_stream_scan(uri, h)) {
 		r.Error(ACK_ERROR_NO_EXIST, "No such file");
 		return CommandResult::ERROR;
 	}
@@ -193,8 +179,8 @@ handle_lsinfo_relative(Client &client, Response &r, const char *uri)
 	if (isRootDirectory(uri)) {
 		try {
 			print_spl_list(r, ListPlaylistFiles());
-		} catch (const std::exception &e) {
-			LogError(e);
+		} catch (...) {
+			LogError(std::current_exception());
 		}
 	} else {
 #ifndef ENABLE_DATABASE
@@ -207,7 +193,7 @@ handle_lsinfo_relative(Client &client, Response &r, const char *uri)
 }
 
 static CommandResult
-handle_lsinfo_path(Client &client, Response &r,
+handle_lsinfo_path(Client &, Response &r,
 		   const char *path_utf8, Path path_fs)
 {
 	DetachedSong song(path_utf8);
@@ -216,7 +202,7 @@ handle_lsinfo_path(Client &client, Response &r,
 		return CommandResult::ERROR;
 	}
 
-	song_print_info(r, client.partition, song);
+	song_print_info(r, song);
 	return CommandResult::OK;
 }
 
@@ -233,7 +219,7 @@ handle_lsinfo(Client &client, Request args, Response &r)
 		   compatibility, work around this here */
 		uri = "";
 
-	const auto located_uri = LocateUri(uri, &client
+	const auto located_uri = LocateUri(UriPluginKind::INPUT, uri, &client
 #ifdef ENABLE_DATABASE
 					   , nullptr
 #endif
@@ -263,13 +249,8 @@ handle_update(Response &r, UpdateService &update,
 	      const char *uri_utf8, bool discard)
 {
 	unsigned ret = update.Enqueue(uri_utf8, discard);
-	if (ret > 0) {
-		r.Format("updating_db: %i\n", ret);
-		return CommandResult::OK;
-	} else {
-		r.Error(ACK_ERROR_UPDATE_ALREADY, "already updating");
-		return CommandResult::ERROR;
-	}
+	r.Format("updating_db: %i\n", ret);
+	return CommandResult::OK;
 }
 
 static CommandResult
@@ -297,7 +278,7 @@ handle_update(Client &client, Request args, Response &r, bool discard)
 	const char *path = "";
 
 	assert(args.size <= 1);
-	if (!args.IsEmpty()) {
+	if (!args.empty()) {
 		path = args.front();
 
 		if (*path == 0 || StringIsEqual(path, "/"))
@@ -309,11 +290,11 @@ handle_update(Client &client, Request args, Response &r, bool discard)
 		}
 	}
 
-	UpdateService *update = client.partition.instance.update;
+	UpdateService *update = client.GetInstance().update;
 	if (update != nullptr)
 		return handle_update(r, *update, path, discard);
 
-	Database *db = client.partition.instance.database;
+	Database *db = client.GetInstance().GetDatabase();
 	if (db != nullptr)
 		return handle_update(r, *db, path, discard);
 #else
@@ -343,7 +324,7 @@ handle_setvol(Client &client, Request args, Response &r)
 {
 	unsigned level = args.ParseUnsigned(0, 100);
 
-	if (!volume_level_change(client.partition.outputs, level)) {
+	if (!volume_level_change(client.GetPartition().outputs, level)) {
 		r.Error(ACK_ERROR_SYSTEM, "problems setting volume");
 		return CommandResult::ERROR;
 	}
@@ -356,7 +337,9 @@ handle_volume(Client &client, Request args, Response &r)
 {
 	int relative = args.ParseInt(0, -100, 100);
 
-	const int old_volume = volume_level_get(client.partition.outputs);
+	auto &outputs = client.GetPartition().outputs;
+
+	const int old_volume = volume_level_get(outputs);
 	if (old_volume < 0) {
 		r.Error(ACK_ERROR_SYSTEM, "No mixer");
 		return CommandResult::ERROR;
@@ -369,7 +352,7 @@ handle_volume(Client &client, Request args, Response &r)
 		new_volume = 100;
 
 	if (new_volume != old_volume &&
-	    !volume_level_change(client.partition.outputs, new_volume)) {
+	    !volume_level_change(outputs, new_volume)) {
 		r.Error(ACK_ERROR_SYSTEM, "problems setting volume");
 		return CommandResult::ERROR;
 	}
@@ -380,28 +363,7 @@ handle_volume(Client &client, Request args, Response &r)
 CommandResult
 handle_stats(Client &client, gcc_unused Request args, Response &r)
 {
-	stats_print(r, client.partition);
-	return CommandResult::OK;
-}
-
-CommandResult
-handle_ping(gcc_unused Client &client, gcc_unused Request args,
-	    gcc_unused Response &r)
-{
-	return CommandResult::OK;
-}
-
-CommandResult
-handle_password(Client &client, Request args, Response &r)
-{
-	unsigned permission = 0;
-	if (getPermissionFromPassword(args.front(), &permission) < 0) {
-		r.Error(ACK_ERROR_PASSWORD, "incorrect password");
-		return CommandResult::ERROR;
-	}
-
-	client.SetPermission(permission);
-
+	stats_print(r, client.GetPartition());
 	return CommandResult::OK;
 }
 

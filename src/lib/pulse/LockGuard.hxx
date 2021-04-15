@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,12 +28,12 @@ class LockGuard {
 	struct pa_threaded_mainloop *const mainloop;
 
 public:
-	explicit LockGuard(struct pa_threaded_mainloop *_mainloop)
+	explicit LockGuard(struct pa_threaded_mainloop *_mainloop) noexcept
 		:mainloop(_mainloop) {
 		pa_threaded_mainloop_lock(mainloop);
 	}
 
-	~LockGuard() {
+	~LockGuard() noexcept {
 		pa_threaded_mainloop_unlock(mainloop);
 	}
 

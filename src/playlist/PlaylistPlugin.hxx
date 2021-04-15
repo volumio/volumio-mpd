@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,6 @@
 struct ConfigBlock;
 struct Tag;
 class Mutex;
-class Cond;
 class SongEnumerator;
 
 struct playlist_plugin {
@@ -51,8 +50,8 @@ struct playlist_plugin {
 	 * Opens the playlist on the specified URI.  This URI has
 	 * either matched one of the schemes or one of the suffixes.
 	 */
-	SongEnumerator *(*open_uri)(const char *uri,
-				    Mutex &mutex, Cond &cond);
+	std::unique_ptr<SongEnumerator> (*open_uri)(const char *uri,
+						    Mutex &mutex);
 
 	/**
 	 * Opens the playlist in the specified input stream.  It has
@@ -62,7 +61,7 @@ struct playlist_plugin {
 	 * @parm is the input stream; the pointer will not be
 	 * invalidated when the function returns nullptr
 	 */
-	SongEnumerator *(*open_stream)(InputStreamPtr &&is);
+	std::unique_ptr<SongEnumerator> (*open_stream)(InputStreamPtr &&is);
 
 	const char *const*schemes;
 	const char *const*suffixes;
@@ -90,24 +89,10 @@ playlist_plugin_init(const struct playlist_plugin *plugin,
  * Deinitialize a plugin which was initialized successfully.
  */
 static inline void
-playlist_plugin_finish(const struct playlist_plugin *plugin)
+playlist_plugin_finish(const struct playlist_plugin *plugin) noexcept
 {
 	if (plugin->finish != nullptr)
 		plugin->finish();
-}
-
-static inline SongEnumerator *
-playlist_plugin_open_uri(const struct playlist_plugin *plugin, const char *uri,
-			 Mutex &mutex, Cond &cond)
-{
-	return plugin->open_uri(uri, mutex, cond);
-}
-
-static inline SongEnumerator *
-playlist_plugin_open_stream(const struct playlist_plugin *plugin,
-			    InputStreamPtr &&is)
-{
-	return plugin->open_stream(std::move(is));
 }
 
 #endif

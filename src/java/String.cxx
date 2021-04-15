@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,17 +28,17 @@
  */
 
 #include "String.hxx"
-#include "util/StringUtil.hxx"
+#include "util/TruncateString.hxx"
 
 char *
 Java::String::CopyTo(JNIEnv *env, jstring value,
-		     char *buffer, size_t max_size)
+		     char *buffer, size_t max_size) noexcept
 {
 	const char *p = env->GetStringUTFChars(value, nullptr);
 	if (p == nullptr)
 		return nullptr;
 
-	char *result = CopyString(buffer, p, max_size);
+	char *result = CopyTruncateString(buffer, p, max_size);
 	env->ReleaseStringUTFChars(value, p);
 	return result;
 }

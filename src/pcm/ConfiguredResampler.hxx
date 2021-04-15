@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,11 @@
 #ifndef MPD_CONFIGURED_RESAMPLER_HXX
 #define MPD_CONFIGURED_RESAMPLER_HXX
 
-#include "check.h"
-
+struct ConfigData;
 class PcmResampler;
 
 void
-pcm_resampler_global_init();
+pcm_resampler_global_init(const ConfigData &config);
 
 /**
  * Create a #PcmResampler instance from the implementation class

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define MPD_UPNP_DIRECTORY_HXX
 
 #include "Object.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 #include <vector>
@@ -40,7 +40,7 @@ public:
 	~UPnPDirContent();
 
 	gcc_pure
-	UPnPDirObject *FindObject(const char *name) {
+	UPnPDirObject *FindObject(const char *name) noexcept {
 		for (auto &o : objects)
 			if (o.name == name)
 				return &o;

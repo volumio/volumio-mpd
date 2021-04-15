@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,40 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SongPrint.hxx"
-#include "db/LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
 #include "storage/StorageInterface.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "TimePrint.hxx"
 #include "TagPrint.hxx"
 #include "client/Response.hxx"
 #include "fs/Traits.hxx"
+#include "time/ChronoUtil.hxx"
 #include "util/UriUtil.hxx"
 
 #define SONG_FILE "file: "
 
 static void
-song_print_uri(Response &r, Partition &partition, const char *uri, bool base)
+song_print_uri(Response &r, const char *uri, bool base) noexcept
 {
 	std::string allocated;
 
 	if (base) {
 		uri = PathTraitsUTF8::GetBase(uri);
 	} else {
-#ifdef ENABLE_DATABASE
-		const Storage *storage = partition.instance.storage;
-		if (storage != nullptr) {
-			const char *suffix = storage->MapToRelativeUTF8(uri);
-			if (suffix != nullptr)
-				uri = suffix;
-		}
-#else
-		(void)partition;
-#endif
-
 		allocated = uri_remove_auth(uri);
 		if (!allocated.empty())
 			uri = allocated.c_str();
@@ -60,30 +49,25 @@ song_print_uri(Response &r, Partition &partition, const char *uri, bool base)
 }
 
 void
-song_print_uri(Response &r, Partition &partition,
-	       const LightSong &song, bool base)
+song_print_uri(Response &r, const LightSong &song, bool base) noexcept
 {
 	if (!base && song.directory != nullptr)
 		r.Format(SONG_FILE "%s/%s\n", song.directory, song.uri);
 	else
-		song_print_uri(r, partition, song.uri, base);
+		song_print_uri(r, song.uri, base);
 }
 
 void
-song_print_uri(Response &r, Partition &partition,
-	       const DetachedSong &song, bool base)
+song_print_uri(Response &r, const DetachedSong &song, bool base) noexcept
 {
-	song_print_uri(r, partition, song.GetURI(), base);
+	song_print_uri(r, song.GetURI(), base);
 }
 
-void
-song_print_info(Response &r, Partition &partition,
-		const LightSong &song, bool base)
+static void
+PrintRange(Response &r, SongTime start_time, SongTime end_time) noexcept
 {
-	song_print_uri(r, partition, song, base);
-
-	const unsigned start_ms = song.start_time.ToMS();
-	const unsigned end_ms = song.end_time.ToMS();
+	const unsigned start_ms = start_time.ToMS();
+	const unsigned end_ms = end_time.ToMS();
 
 	if (end_ms > 0)
 		r.Format("Range: %u.%03u-%u.%03u\n",
@@ -95,34 +79,32 @@ song_print_info(Response &r, Partition &partition,
 		r.Format("Range: %u.%03u-\n",
 			 start_ms / 1000,
 			 start_ms % 1000);
+}
 
-	if (song.mtime > 0)
+void
+song_print_info(Response &r, const LightSong &song, bool base) noexcept
+{
+	song_print_uri(r, song, base);
+
+	PrintRange(r, song.start_time, song.end_time);
+
+	if (!IsNegative(song.mtime))
 		time_print(r, "Last-Modified", song.mtime);
 
-	tag_print(r, *song.tag);
+	if (song.audio_format.IsDefined())
+		r.Format("Format: %s\n", ToString(song.audio_format).c_str());
+
+	tag_print(r, song.tag);
 }
 
 void
-song_print_info(Response &r, Partition &partition,
-		const DetachedSong &song, bool base)
+song_print_info(Response &r, const DetachedSong &song, bool base) noexcept
 {
-	song_print_uri(r, partition, song, base);
+	song_print_uri(r, song, base);
 
-	const unsigned start_ms = song.GetStartTime().ToMS();
-	const unsigned end_ms = song.GetEndTime().ToMS();
+	PrintRange(r, song.GetStartTime(), song.GetEndTime());
 
-	if (end_ms > 0)
-		r.Format("Range: %u.%03u-%u.%03u\n",
-			 start_ms / 1000,
-			 start_ms % 1000,
-			 end_ms / 1000,
-			 end_ms % 1000);
-	else if (start_ms > 0)
-		r.Format("Range: %u.%03u-\n",
-			 start_ms / 1000,
-			 start_ms % 1000);
-
-	if (song.GetLastModified() > 0)
+	if (!IsNegative(song.GetLastModified()))
 		time_print(r, "Last-Modified", song.GetLastModified());
 
 	tag_print_values(r, song.GetTag());

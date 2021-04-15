@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,11 +23,12 @@
 #include "db/Visitor.hxx"
 
 class Database;
-class SongFilter;
+struct DatabaseSelection;
 
 void
 WalkMount(const char *base, const Database &db,
-	  bool recursive, const SongFilter *filter,
+	  const char *uri,
+	  const DatabaseSelection &old_selection,
 	  const VisitDirectory &visit_directory, const VisitSong &visit_song,
 	  const VisitPlaylist &visit_playlist);
 

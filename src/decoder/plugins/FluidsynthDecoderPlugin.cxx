@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FluidsynthDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "CheckAudioFormat.hxx"
@@ -64,7 +63,12 @@ fluidsynth_level_to_mpd(enum fluid_log_level level)
  * logging library.
  */
 static void
-fluidsynth_mpd_log_function(int level, char *message, gcc_unused void *data)
+fluidsynth_mpd_log_function(int level,
+#if FLUIDSYNTH_VERSION_MAJOR >= 2
+			    const
+#endif
+			    char *message,
+			    void *)
 {
 	Log(fluidsynth_domain,
 	    fluidsynth_level_to_mpd(fluid_log_level(level)),
@@ -74,7 +78,7 @@ fluidsynth_mpd_log_function(int level, char *message, gcc_unused void *data)
 static bool
 fluidsynth_init(const ConfigBlock &block)
 {
-	sample_rate = block.GetBlockValue("sample_rate", 48000u);
+	sample_rate = block.GetPositiveValue("sample_rate", 48000u);
 	CheckSampleRate(sample_rate);
 
 	soundfont_path = block.GetBlockValue("soundfont",
@@ -193,8 +197,7 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 
 static bool
 fluidsynth_scan_file(Path path_fs,
-		     gcc_unused const TagHandler &handler,
-		     gcc_unused void *handler_ctx)
+		     gcc_unused TagHandler &handler) noexcept
 {
 	return fluid_is_midifile(path_fs.c_str());
 }

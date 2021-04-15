@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "GunzipReader.hxx"
+#include "lib/zlib/Error.hxx"
 
-GunzipReader::GunzipReader(Reader &_next) throw(ZlibError)
-	:next(_next), eof(false)
+GunzipReader::GunzipReader(Reader &_next)
+	:next(_next)
 {
 	z.next_in = nullptr;
 	z.avail_in = 0;
@@ -38,7 +38,7 @@ inline bool
 GunzipReader::FillBuffer()
 {
 	auto w = buffer.Write();
-	assert(!w.IsEmpty());
+	assert(!w.empty());
 
 	size_t nbytes = next.Read(w.data, w.size);
 	if (nbytes == 0)
@@ -61,7 +61,7 @@ GunzipReader::Read(void *data, size_t size)
 		int flush = Z_NO_FLUSH;
 
 		auto r = buffer.Read();
-		if (r.IsEmpty()) {
+		if (r.empty()) {
 			if (FillBuffer())
 				r = buffer.Read();
 			else

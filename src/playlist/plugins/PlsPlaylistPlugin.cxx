@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlsPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../MemorySongEnumerator.hxx"
 #include "input/TextInputStream.hxx"
 #include "input/InputStream.hxx"
-#include "DetachedSong.hxx"
-#include "tag/TagBuilder.hxx"
+#include "song/DetachedSong.hxx"
+#include "tag/Builder.hxx"
 #include "util/ASCII.hxx"
-#include "util/StringUtil.hxx"
+#include "util/StringStrip.hxx"
 #include "util/DivideString.hxx"
 
 #include <string>
@@ -153,14 +152,14 @@ ParsePls(InputStreamPtr &&is, std::forward_list<DetachedSong> &songs)
 	return true;
 }
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 pls_open_stream(InputStreamPtr &&is)
 {
 	std::forward_list<DetachedSong> songs;
 	if (!ParsePls(std::move(is), songs))
 		return nullptr;
 
-	return new MemorySongEnumerator(std::move(songs));
+	return std::make_unique<MemorySongEnumerator>(std::move(songs));
 }
 
 static const char *const pls_suffixes[] = {

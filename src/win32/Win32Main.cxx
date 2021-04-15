@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Main.hxx"
 
-#ifdef WIN32
+#ifdef _WIN32
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 #include "Instance.hxx"
 #include "system/FatalError.hxx"
 
@@ -71,7 +70,7 @@ service_dispatcher(gcc_unused DWORD control, gcc_unused DWORD event_type,
 	switch (control) {
 	case SERVICE_CONTROL_SHUTDOWN:
 	case SERVICE_CONTROL_STOP:
-		instance->Shutdown();
+		instance->Break();
 		return NO_ERROR;
 	default:
 		return NO_ERROR;
@@ -107,7 +106,7 @@ console_handler(DWORD event)
 			// regardless our thread is still active.
 			// If this did not happen within 3 seconds
 			// let's shutdown anyway.
-			instance->Shutdown();
+			instance->Break();
 			// Under debugger it's better to wait indefinitely
 			// to allow debugging of shutdown code.
 			Sleep(IsDebuggerPresent() ? INFINITE : 3000);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "QueueSave.hxx"
 #include "Queue.hxx"
 #include "PlaylistError.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongSave.hxx"
 #include "playlist/PlaylistSong.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
 #include "util/StringCompare.hxx"
 #include "Log.hxx"
+
+#include <exception>
 
 #include <stdlib.h>
 
@@ -89,15 +90,15 @@ queue_load_song(TextFile &file, const SongLoader &loader,
 			return;
 	}
 
-	DetachedSong *song;
+	std::unique_ptr<DetachedSong> song;
 
 	if ((p = StringAfterPrefix(line, SONG_BEGIN))) {
 		const char *uri = p;
 
 		try {
 			song = song_load(file, uri);
-		} catch (const std::runtime_error &e) {
-			LogError(e);
+		} catch (...) {
+			LogError(std::current_exception());
 			return;
 		}
 	} else {
@@ -111,14 +112,11 @@ queue_load_song(TextFile &file, const SongLoader &loader,
 
 		const char *uri = endptr + 1;
 
-		song = new DetachedSong(uri);
+		song = std::make_unique<DetachedSong>(uri);
 	}
 
-	if (!playlist_check_translate_song(*song, nullptr, loader)) {
-		delete song;
+	if (!playlist_check_translate_song(*song, nullptr, loader))
 		return;
-	}
 
 	queue.Append(std::move(*song), priority);
-	delete song;
 }

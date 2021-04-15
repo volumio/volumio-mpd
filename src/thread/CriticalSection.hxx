@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2013 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2013 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,26 +41,26 @@ class CriticalSection {
 	CRITICAL_SECTION critical_section;
 
 public:
-	CriticalSection() {
+	CriticalSection() noexcept {
 		::InitializeCriticalSection(&critical_section);
 	}
 
-	~CriticalSection() {
+	~CriticalSection() noexcept {
 		::DeleteCriticalSection(&critical_section);
 	}
 
 	CriticalSection(const CriticalSection &other) = delete;
 	CriticalSection &operator=(const CriticalSection &other) = delete;
 
-	void lock() {
+	void lock() noexcept {
 		::EnterCriticalSection(&critical_section);
 	};
 
-	bool try_lock() {
+	bool try_lock() noexcept {
 		return ::TryEnterCriticalSection(&critical_section) != 0;
 	};
 
-	void unlock() {
+	void unlock() noexcept {
 		::LeaveCriticalSection(&critical_section);
 	}
 };

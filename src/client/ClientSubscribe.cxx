@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ClientInternal.hxx"
 #include "Partition.hxx"
 #include "Idle.hxx"
@@ -25,7 +24,7 @@
 #include <assert.h>
 
 Client::SubscribeResult
-Client::Subscribe(const char *channel)
+Client::Subscribe(const char *channel) noexcept
 {
 	assert(channel != nullptr);
 
@@ -41,13 +40,13 @@ Client::Subscribe(const char *channel)
 
 	++num_subscriptions;
 
-	partition.EmitIdle(IDLE_SUBSCRIPTION);
+	partition->EmitIdle(IDLE_SUBSCRIPTION);
 
 	return Client::SubscribeResult::OK;
 }
 
 bool
-Client::Unsubscribe(const char *channel)
+Client::Unsubscribe(const char *channel) noexcept
 {
 	const auto i = subscriptions.find(channel);
 	if (i == subscriptions.end())
@@ -58,7 +57,7 @@ Client::Unsubscribe(const char *channel)
 	subscriptions.erase(i);
 	--num_subscriptions;
 
-	partition.EmitIdle(IDLE_SUBSCRIPTION);
+	partition->EmitIdle(IDLE_SUBSCRIPTION);
 
 	assert((num_subscriptions == 0) ==
 	       subscriptions.empty());
@@ -67,14 +66,14 @@ Client::Unsubscribe(const char *channel)
 }
 
 void
-Client::UnsubscribeAll()
+Client::UnsubscribeAll() noexcept
 {
 	subscriptions.clear();
 	num_subscriptions = 0;
 }
 
 bool
-Client::PushMessage(const ClientMessage &msg)
+Client::PushMessage(const ClientMessage &msg) noexcept
 {
 	if (messages.size() >= CLIENT_MAX_MESSAGES ||
 	    !IsSubscribed(msg.GetChannel()))

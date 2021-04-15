@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,80 +17,115 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ProxyInputStream.hxx"
+#include "tag/Tag.hxx"
 
-ProxyInputStream::ProxyInputStream(InputStream *_input)
-	:InputStream(_input->GetURI(), _input->mutex, _input->cond),
-	 input(*_input) {}
+#include <stdexcept>
 
-ProxyInputStream::~ProxyInputStream()
+ProxyInputStream::ProxyInputStream(InputStreamPtr _input) noexcept
+	:InputStream(_input->GetURI(), _input->mutex),
+	 input(std::move(_input))
 {
-	delete &input;
+	assert(input);
+
+	input->SetHandler(this);
+}
+
+ProxyInputStream::~ProxyInputStream() noexcept = default;
+
+void
+ProxyInputStream::SetInput(InputStreamPtr _input) noexcept
+{
+	assert(!input);
+	assert(_input);
+
+	input = std::move(_input);
+	input->SetHandler(this);
+
+	/* this call wakes up client threads if the new input is
+	   ready */
+	CopyAttributes();
+
+	set_input_cond.signal();
 }
 
 void
 ProxyInputStream::CopyAttributes()
 {
-	if (input.IsReady()) {
-		if (!IsReady()) {
-			if (input.HasMimeType())
-				SetMimeType(input.GetMimeType());
+	assert(input);
 
-			size = input.KnownSize()
-				? input.GetSize()
+	if (input->IsReady()) {
+		if (!IsReady()) {
+			if (input->HasMimeType())
+				SetMimeType(input->GetMimeType());
+
+			size = input->KnownSize()
+				? input->GetSize()
 				: UNKNOWN_SIZE;
 
-			seekable = input.IsSeekable();
+			seekable = input->IsSeekable();
 			SetReady();
 		}
 
-		offset = input.GetOffset();
+		offset = input->GetOffset();
 	}
 }
 
 void
 ProxyInputStream::Check()
 {
-	input.Check();
+	if (input)
+		input->Check();
 }
 
 void
-ProxyInputStream::Update()
+ProxyInputStream::Update() noexcept
 {
-	input.Update();
+	if (!input)
+		return;
+
+	input->Update();
 	CopyAttributes();
 }
 
 void
 ProxyInputStream::Seek(offset_type new_offset)
 {
-	input.Seek(new_offset);
+	while (!input)
+		set_input_cond.wait(mutex);
+
+	input->Seek(new_offset);
 	CopyAttributes();
 }
 
 bool
-ProxyInputStream::IsEOF()
+ProxyInputStream::IsEOF() noexcept
 {
-	return input.IsEOF();
+	return input && input->IsEOF();
 }
 
-Tag *
+std::unique_ptr<Tag>
 ProxyInputStream::ReadTag()
 {
-	return input.ReadTag();
+	if (!input)
+		return nullptr;
+
+	return input->ReadTag();
 }
 
 bool
-ProxyInputStream::IsAvailable()
+ProxyInputStream::IsAvailable() noexcept
 {
-	return input.IsAvailable();
+	return input && input->IsAvailable();
 }
 
 size_t
 ProxyInputStream::Read(void *ptr, size_t read_size)
 {
-	size_t nbytes = input.Read(ptr, read_size);
+	while (!input)
+		set_input_cond.wait(mutex);
+
+	size_t nbytes = input->Read(ptr, read_size);
 	CopyAttributes();
 	return nbytes;
 }

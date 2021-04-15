@@ -1,11 +1,11 @@
 Music Player Daemon - http://www.musicpd.org
-Copyright 2003-2016 The Music Player Daemon Project
+Copyright 2003-2018 The Music Player Daemon Project
 
 The following people have contributed code to MPD:
 
  Warren Dukes <warren.dukes@gmail.com>
  Avuton Olrich <avuton@gmail.com>
- Max Kellermann <max@duempel.org>
+ Max Kellermann <max.kellermann@gmail.com>
  Laszlo Ashin <kodest@gmail.com>
  Viliam Mateicka <viliam.mateicka@gmail.com>
  Eric Wollesen <encoded@xmtp.net>
@@ -30,3 +30,20 @@ The following people have contributed code to MPD:
  Jurgen Kramer <gtmkramer@xs4all.nl>
  Jean-Francois Dockes <jf@dockes.org>
  Yue Wang <yuleopen@gmail.com>
+ Matthew Leon Grinshpun <ml@matthewleon.com>
+ Dimitris Papastamos <sin@2f30.org>
+ Florian Schlichting <fsfs@debian.org>
+ François Revol <revol@free.fr>
+ Jacob Vosmaer <contact@jacobvosmaer.nl>
+ Thomas Guillem <thomas@gllm.fr>
+ Andrew Basterfield <abasterfield@gmail.com>
+ Bart Nagel <bart@tremby.net>
+ Christian Kröner <ckroener@gmx.net>
+ Christopher Zimmermann <madroach@gmerlin.de>
+ John Regan <john@jrjrtech.com>
+ Joshua Wise <joshua@joshuawise.com>
+ Ryan Walklin
+ Stefan Roellin <stefan@roellin-baumann.ch>
+ Stefano Miccoli <stefano.miccoli@polimi.it>
+ Steven O'Brien <steven_obrien1@yahoo.co.uk>
+ Thomas Zander <thomas.e.zander@googlemail.com>

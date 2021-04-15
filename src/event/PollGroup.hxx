@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,12 @@
 #ifndef MPD_EVENT_POLLGROUP_HXX
 #define MPD_EVENT_POLLGROUP_HXX
 
+#include "config.h"
+
 #ifdef USE_EPOLL
-#include "PollGroupEPoll.hxx"
-typedef PollResultEPoll PollResult;
-typedef PollGroupEPoll  PollGroup;
+#include "PollGroupEpoll.hxx"
+typedef PollResultEpoll PollResult;
+typedef PollGroupEpoll PollGroup;
 #endif
 
 #ifdef USE_WINSELECT

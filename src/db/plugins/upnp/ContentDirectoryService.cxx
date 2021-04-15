@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "lib/upnp/ContentDirectoryService.hxx"
 #include "lib/upnp/ixmlwrap.hxx"
 #include "lib/upnp/UniqueIxml.hxx"
@@ -27,6 +26,7 @@
 #include "util/UriUtil.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/StringFormat.hxx"
 
 #include <stdio.h>
 
@@ -47,10 +47,6 @@ ContentDirectoryService::readDirSlice(UpnpClient_Handle hdl,
 				      unsigned &didreadp,
 				      unsigned &totalp) const
 {
-	// Create request
-	char ofbuf[100], cntbuf[100];
-	sprintf(ofbuf, "%u", offset);
-	sprintf(cntbuf, "%u", count);
 	// Some devices require an empty SortCriteria, else bad params
 	IXML_Document *request =
 		MakeActionHelper("Browse", m_serviceType.c_str(),
@@ -58,8 +54,10 @@ ContentDirectoryService::readDirSlice(UpnpClient_Handle hdl,
 				 "BrowseFlag", "BrowseDirectChildren",
 				 "Filter", "*",
 				 "SortCriteria", "",
-				 "StartingIndex", ofbuf,
-				 "RequestedCount", cntbuf);
+				 "StartingIndex",
+				 StringFormat<32>("%u", offset).c_str(),
+				 "RequestedCount",
+				 StringFormat<32>("%u", count).c_str());
 	if (request == nullptr)
 		throw std::runtime_error("UpnpMakeAction() failed");
 
@@ -112,15 +110,13 @@ ContentDirectoryService::search(UpnpClient_Handle hdl,
 	unsigned offset = 0, total = -1, count;
 
 	do {
-		char ofbuf[100];
-		sprintf(ofbuf, "%d", offset);
-
 		UniqueIxmlDocument request(MakeActionHelper("Search", m_serviceType.c_str(),
 							    "ContainerID", objectId,
 							    "SearchCriteria", ss,
 							    "Filter", "*",
 							    "SortCriteria", "",
-							    "StartingIndex", ofbuf,
+							    "StartingIndex",
+							    StringFormat<32>("%u", offset).c_str(),
 							    "RequestedCount", "0")); // Setting a value here gets twonky into fits
 		if (!request)
 			throw std::runtime_error("UpnpMakeAction() failed");

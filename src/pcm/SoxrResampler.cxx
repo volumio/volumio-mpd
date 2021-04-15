@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SoxrResampler.hxx"
 #include "AudioFormat.hxx"
 #include "config/Block.hxx"
@@ -56,7 +55,7 @@ static constexpr struct {
 
 gcc_const
 static const char *
-soxr_quality_name(unsigned long recipe)
+soxr_quality_name(unsigned long recipe) noexcept
 {
 	for (const auto *i = soxr_quality_table;; ++i) {
 		assert(i->name != nullptr);
@@ -68,7 +67,7 @@ soxr_quality_name(unsigned long recipe)
 
 gcc_pure
 static unsigned long
-soxr_parse_quality(const char *quality)
+soxr_parse_quality(const char *quality) noexcept
 {
 	if (quality == nullptr)
 		return SOXR_DEFAULT_RECIPE;
@@ -134,9 +133,17 @@ SoxrPcmResampler::Open(AudioFormat &af, unsigned new_sample_rate)
 }
 
 void
-SoxrPcmResampler::Close()
+SoxrPcmResampler::Close() noexcept
 {
 	soxr_delete(soxr);
+}
+
+void
+SoxrPcmResampler::Reset() noexcept
+{
+#if SOXR_THIS_VERSION >= SOXR_VERSION(0,1,2)
+	soxr_clear(soxr);
+#endif
 }
 
 ConstBuffer<void>
@@ -157,6 +164,27 @@ SoxrPcmResampler::Resample(ConstBuffer<void> src)
 				      output_buffer, o_frames, &o_done);
 	if (e != nullptr)
 		throw FormatRuntimeError("soxr error: %s", e);
+
+	return { output_buffer, o_done * frame_size };
+}
+
+ConstBuffer<void>
+SoxrPcmResampler::Flush()
+{
+	const size_t frame_size = channels * sizeof(float);
+	const size_t o_frames = 1024;
+
+	float *output_buffer = (float *)buffer.Get(o_frames * frame_size);
+
+	size_t o_done;
+	soxr_error_t e = soxr_process(soxr, nullptr, 0, nullptr,
+				      output_buffer, o_frames, &o_done);
+	if (e != nullptr)
+		throw FormatRuntimeError("soxr error: %s", e);
+
+	if (o_done == 0)
+		/* flush complete */
+		output_buffer = nullptr;
 
 	return { output_buffer, o_done * frame_size };
 }

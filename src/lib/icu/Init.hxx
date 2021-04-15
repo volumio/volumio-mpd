@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_ICU_INIT_HXX
 #define MPD_ICU_INIT_HXX
 
-#include "check.h"
+#include "config.h"
 
 #ifdef HAVE_ICU
 
@@ -28,13 +28,27 @@ void
 IcuInit();
 
 void
-IcuFinish();
+IcuFinish() noexcept;
 
 #else
 
-static inline void IcuInit() {}
-static inline void IcuFinish() {}
+static inline void IcuInit() noexcept {}
+static inline void IcuFinish() noexcept {}
 
 #endif
+
+class ScopeIcuInit {
+public:
+	ScopeIcuInit() {
+		IcuInit();
+	}
+
+	~ScopeIcuInit() noexcept {
+		IcuFinish();
+	}
+
+	ScopeIcuInit(const ScopeIcuInit &) = delete;
+	ScopeIcuInit &operator=(const ScopeIcuInit &) = delete;
+};
 
 #endif

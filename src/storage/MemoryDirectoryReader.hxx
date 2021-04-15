@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_STORAGE_MEMORY_DIRECTORY_READER_HXX
 #define MPD_STORAGE_MEMORY_DIRECTORY_READER_HXX
 
-#include "check.h"
 #include "StorageInterface.hxx"
 #include "FileInfo.hxx"
 
@@ -60,7 +59,7 @@ public:
 		:entries(std::move(_entries)), first(true) {}
 
 	/* virtual methods from class StorageDirectoryReader */
-	const char *Read() override;
+	const char *Read() noexcept override;
 	StorageFileInfo GetInfo(bool follow) override;
 };
 

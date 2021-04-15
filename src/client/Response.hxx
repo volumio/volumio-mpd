@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,14 @@
 #ifndef MPD_RESPONSE_HXX
 #define MPD_RESPONSE_HXX
 
-#include "check.h"
 #include "protocol/Ack.hxx"
+#include "util/Compiler.h"
 
 #include <stddef.h>
 #include <stdarg.h>
 
 class Client;
+class TagMask;
 
 class Response {
 	Client &client;
@@ -48,6 +49,23 @@ public:
 
 	Response(const Response &) = delete;
 	Response &operator=(const Response &) = delete;
+
+	/**
+	 * Returns a const reference to the associated #Client object.
+	 * This should only be used to access a client's settings, to
+	 * determine how to format the response.  For this reason, the
+	 * returned reference is "const".
+	 */
+	const Client &GetClient() const {
+		return client;
+	}
+
+	/**
+	 * Accessor for Client::tag_mask.  Can be used if caller wants
+	 * to avoid including Client.hxx.
+	 */
+	gcc_pure
+	TagMask GetTagMask() const noexcept;
 
 	void SetCommand(const char *_command) {
 		command = _command;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PulseMixerPlugin.hxx"
 #include "lib/pulse/Domain.hxx"
 #include "lib/pulse/LogError.hxx"
@@ -25,6 +24,9 @@
 #include "mixer/MixerInternal.hxx"
 #include "mixer/Listener.hxx"
 #include "output/plugins/PulseOutputPlugin.hxx"
+#include "util/NumberParser.hxx"
+#include "util/RuntimeError.hxx"
+#include "config/Block.hxx"
 
 #include <pulse/context.h>
 #include <pulse/introspect.h>
@@ -38,13 +40,18 @@
 class PulseMixer final : public Mixer {
 	PulseOutput &output;
 
-	bool online;
+	const float volume_scale_factor;
+
+	bool online = false;
+
 	struct pa_cvolume volume;
 
 public:
-	PulseMixer(PulseOutput &_output, MixerListener &_listener)
+	PulseMixer(PulseOutput &_output, MixerListener &_listener,
+		   double _volume_scale_factor)
 		:Mixer(pulse_mixer_plugin, _listener),
-		 output(_output), online(false)
+		 output(_output),
+		 volume_scale_factor(_volume_scale_factor)
 	{
 	}
 
@@ -59,7 +66,7 @@ public:
 	void Open() override {
 	}
 
-	void Close() override {
+	void Close() noexcept override {
 	}
 
 	int GetVolume() override;
@@ -160,13 +167,30 @@ pulse_mixer_on_change(PulseMixer &pm,
 	pm.Update(context, stream);
 }
 
+static float
+parse_volume_scale_factor(const char *value) {
+	if (value == nullptr)
+		return 1.0;
+
+	char *endptr;
+	float factor = ParseFloat(value, &endptr);
+
+	if (endptr == value || *endptr != '\0' || factor < 0.5 || factor > 5.0)
+		throw FormatRuntimeError("\"%s\" is not a number in the "
+					 "range 0.5 to 5.0",
+					 value);
+
+	return factor;
+}
+
 static Mixer *
 pulse_mixer_init(gcc_unused EventLoop &event_loop, AudioOutput &ao,
 		 MixerListener &listener,
-		 gcc_unused const ConfigBlock &block)
+		 const ConfigBlock &block)
 {
 	PulseOutput &po = (PulseOutput &)ao;
-	PulseMixer *pm = new PulseMixer(po, listener);
+	float scale = parse_volume_scale_factor(block.GetBlockValue("scale_volume"));
+	PulseMixer *pm = new PulseMixer(po, listener, scale);
 
 	pulse_output_set_mixer(po, *pm);
 
@@ -192,8 +216,9 @@ PulseMixer::GetVolume()
 int
 PulseMixer::GetVolumeInternal()
 {
+	pa_volume_t max_pa_volume = volume_scale_factor * PA_VOLUME_NORM;
 	return online ?
-		(int)((100 * (pa_cvolume_avg(&volume) + 1)) / PA_VOLUME_NORM)
+		(int)((100 * (pa_cvolume_avg(&volume) + 1)) / max_pa_volume)
 		: -1;
 }
 
@@ -205,9 +230,11 @@ PulseMixer::SetVolume(unsigned new_volume)
 	if (!online)
 		throw std::runtime_error("disconnected");
 
+	pa_volume_t max_pa_volume = volume_scale_factor * PA_VOLUME_NORM;
+
 	struct pa_cvolume cvolume;
 	pa_cvolume_set(&cvolume, volume.channels,
-		       (new_volume * PA_VOLUME_NORM + 50) / 100);
+		       (new_volume * max_pa_volume + 50) / 100);
 	pulse_output_set_volume(output, &cvolume);
 	volume = cvolume;
 }

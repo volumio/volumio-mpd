@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,8 @@
 #ifndef MPD_CONFIG_BLOCK_HXX
 #define MPD_CONFIG_BLOCK_HXX
 
-#include "check.h"
 #include "Param.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 #include <vector>
@@ -38,29 +37,23 @@ struct BlockParam {
 	 * This flag is false when nobody has queried the value of
 	 * this option yet.
 	 */
-	mutable bool used;
+	mutable bool used = false;
 
+	template<typename N, typename V>
 	gcc_nonnull_all
-	BlockParam(const char *_name, const char *_value, int _line=-1)
-		:name(_name), value(_value), line(_line), used(false) {}
+	BlockParam(N &&_name, V &&_value, int _line=-1) noexcept
+		:name(std::forward<N>(_name)), value(std::forward<V>(_value)),
+		 line(_line) {}
 
-	gcc_pure
 	int GetIntValue() const;
 
-	gcc_pure
 	unsigned GetUnsignedValue() const;
+	unsigned GetPositiveValue() const;
 
-	gcc_pure
 	bool GetBoolValue() const;
 };
 
 struct ConfigBlock {
-	/**
-	 * The next #ConfigBlock with the same name.  The destructor
-	 * deletes the whole chain.
-	 */
-	ConfigBlock *next;
-
 	int line;
 
 	std::vector<BlockParam> block_params;
@@ -69,46 +62,49 @@ struct ConfigBlock {
 	 * This flag is false when nobody has queried the value of
 	 * this option yet.
 	 */
-	bool used;
+	mutable bool used = false;
 
 	explicit ConfigBlock(int _line=-1)
-		:next(nullptr), line(_line), used(false) {}
+		:line(_line) {}
 
-	ConfigBlock(const ConfigBlock &) = delete;
-
-	~ConfigBlock();
-
-	ConfigBlock &operator=(const ConfigBlock &) = delete;
+	ConfigBlock(ConfigBlock &&) = default;
+	ConfigBlock &operator=(ConfigBlock &&) = default;
 
 	/**
 	 * Determine if this is a "null" instance, i.e. an empty
 	 * object that was synthesized and not loaded from a
 	 * configuration file.
 	 */
-	bool IsNull() const {
+	bool IsNull() const noexcept {
 		return line < 0;
 	}
 
 	gcc_pure
-	bool IsEmpty() const {
+	bool IsEmpty() const noexcept {
 		return block_params.empty();
 	}
 
+	void SetUsed() const noexcept {
+		used = true;
+	}
+
+	template<typename N, typename V>
 	gcc_nonnull_all
-	void AddBlockParam(const char *_name, const char *_value,
-			   int _line=-1) {
-		block_params.emplace_back(_name, _value, _line);
+	void AddBlockParam(N &&_name, V &&_value, int _line=-1) noexcept {
+		block_params.emplace_back(std::forward<N>(_name),
+					  std::forward<V>(_value),
+					  _line);
 	}
 
 	gcc_nonnull_all gcc_pure
-	const BlockParam *GetBlockParam(const char *_name) const;
+	const BlockParam *GetBlockParam(const char *_name) const noexcept;
 
 	gcc_pure
 	const char *GetBlockValue(const char *name,
-				  const char *default_value=nullptr) const;
+				  const char *default_value=nullptr) const noexcept;
 
 	/**
-	 * Same as config_get_path(), but looks up the setting in the
+	 * Same as ConfigData::GetPath(), but looks up the setting in the
 	 * specified block.
 	 *
 	 * Throws #std::runtime_error on error.
@@ -116,13 +112,12 @@ struct ConfigBlock {
 	AllocatedPath GetPath(const char *name,
 			      const char *default_value=nullptr) const;
 
-	gcc_pure
 	int GetBlockValue(const char *name, int default_value) const;
 
-	gcc_pure
 	unsigned GetBlockValue(const char *name, unsigned default_value) const;
 
-	gcc_pure
+	unsigned GetPositiveValue(const char *name, unsigned default_value) const;
+
 	bool GetBlockValue(const char *name, bool default_value) const;
 };
 

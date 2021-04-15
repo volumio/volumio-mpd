@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,44 +17,38 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "IdleMonitor.hxx"
 #include "Loop.hxx"
 
 #include <assert.h>
 
 void
-IdleMonitor::Cancel()
+IdleMonitor::Cancel() noexcept
 {
-	assert(loop.IsInsideOrNull());
+	assert(loop.IsInside());
 
 	if (!IsActive())
 		return;
 
-	active = false;
 	loop.RemoveIdle(*this);
 }
 
 void
-IdleMonitor::Schedule()
+IdleMonitor::Schedule() noexcept
 {
-	assert(loop.IsInsideOrVirgin());
+	assert(loop.IsInside());
 
 	if (IsActive())
 		/* already scheduled */
 		return;
 
-	active = true;
 	loop.AddIdle(*this);
 }
 
 void
-IdleMonitor::Run()
+IdleMonitor::Run() noexcept
 {
 	assert(loop.IsInside());
-
-	assert(active);
-	active = false;
 
 	OnIdle();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,23 +49,29 @@ namespace Java {
 		/**
 		 * The local reference is obtained by the caller.
 		 */
-		LocalRef(JNIEnv *_env, T _value):env(_env), value(_value) {
+		LocalRef(JNIEnv *_env, T _value) noexcept
+			:env(_env), value(_value)
+		{
 			assert(env != nullptr);
 			assert(value != nullptr);
 		}
 
-		~LocalRef() {
+		~LocalRef() noexcept {
 			env->DeleteLocalRef(value);
 		}
 
 		LocalRef(const LocalRef &other) = delete;
 		LocalRef &operator=(const LocalRef &other) = delete;
 
-		T Get() const {
+		JNIEnv *GetEnv() const noexcept {
+			return env;
+		}
+
+		T Get() const noexcept {
 			return value;
 		}
 
-		operator T() const {
+		operator T() const noexcept {
 			return value;
 		}
 	};
@@ -79,19 +85,21 @@ namespace Java {
 
 	public:
 		/**
-		 * Constructs an uninitialized object.  The method set() must be
-		 * called before it is destructed.
+		 * Constructs an uninitialized object.  The method
+		 * set() must be called before it is destructed.
 		 */
 		GlobalRef() = default;
 
-		GlobalRef(JNIEnv *env, T _value):value(_value) {
+		GlobalRef(JNIEnv *env, T _value) noexcept
+			:value(_value)
+		{
 			assert(env != nullptr);
 			assert(value != nullptr);
 
 			value = (T)env->NewGlobalRef(value);
 		}
 
-		~GlobalRef() {
+		~GlobalRef() noexcept {
 			GetEnv()->DeleteGlobalRef(value);
 		}
 
@@ -99,50 +107,51 @@ namespace Java {
 		GlobalRef &operator=(const GlobalRef &other) = delete;
 
 		/**
-		 * Sets the object, ignoring the previous value.  This is only
-		 * allowed once after the default constructor was used.
+		 * Sets the object, ignoring the previous value.  This
+		 * is only allowed once after the default constructor
+		 * was used.
 		 */
-		void Set(JNIEnv *env, T _value) {
+		void Set(JNIEnv *env, T _value) noexcept {
 			assert(_value != nullptr);
 
 			value = (T)env->NewGlobalRef(_value);
 		}
 
-		T Get() const {
+		T Get() const noexcept {
 			return value;
 		}
 
-		operator T() const {
+		operator T() const noexcept {
 			return value;
 		}
 	};
 
 	/**
 	 * Container for a global reference to a JNI object that gets
-	 * initialised and deinitialised explicitly.  Since there is no
-	 * implicit initialisation in the default constructor, this is a
-	 * trivial C++ class.  It should only be used for global variables
-	 * that are implicitly initialised with zeroes.
+	 * initialised and deinitialised explicitly.  Since there is
+	 * no implicit initialisation in the default constructor, this
+	 * is a trivial C++ class.  It should only be used for global
+	 * variables that are implicitly initialised with zeroes.
 	 */
 	template<typename T>
 	class TrivialRef {
 		T value;
 
 	public:
-		constexpr TrivialRef() {};
+		TrivialRef() = default;
 
 		TrivialRef(const TrivialRef &other) = delete;
 		TrivialRef &operator=(const TrivialRef &other) = delete;
 
-		bool IsDefined() const {
+		bool IsDefined() const noexcept {
 			return value != nullptr;
 		}
 
 		/**
-		 * Obtain a global reference on the specified object and store it.
-		 * This object must not be set already.
+		 * Obtain a global reference on the specified object
+		 * and store it.  This object must not be set already.
 		 */
-		void Set(JNIEnv *env, T _value) {
+		void Set(JNIEnv *env, T _value) noexcept {
 			assert(value == nullptr);
 			assert(_value != nullptr);
 
@@ -152,7 +161,7 @@ namespace Java {
 		/**
 		 * Release the global reference and clear this object.
 		 */
-		void Clear(JNIEnv *env) {
+		void Clear(JNIEnv *env) noexcept {
 			assert(value != nullptr);
 
 			env->DeleteGlobalRef(value);
@@ -160,19 +169,20 @@ namespace Java {
 		}
 
 		/**
-		 * Release the global reference and clear this object.  It is
-		 * allowed to call this method without ever calling Set().
+		 * Release the global reference and clear this object.
+		 * It is allowed to call this method without ever
+		 * calling Set().
 		 */
-		void ClearOptional(JNIEnv *env) {
+		void ClearOptional(JNIEnv *env) noexcept {
 			if (value != nullptr)
 				Clear(env);
 		}
 
-		T Get() const {
+		T Get() const noexcept {
 			return value;
 		}
 
-		operator T() const {
+		operator T() const noexcept {
 			return value;
 		}
 	};

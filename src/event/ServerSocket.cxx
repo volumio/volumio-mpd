@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,40 +19,33 @@
 
 #include "config.h"
 #include "ServerSocket.hxx"
+#include "net/IPv4Address.hxx"
+#include "net/IPv6Address.hxx"
 #include "net/StaticSocketAddress.hxx"
 #include "net/AllocatedSocketAddress.hxx"
 #include "net/SocketAddress.hxx"
 #include "net/SocketUtil.hxx"
 #include "net/SocketError.hxx"
+#include "net/UniqueSocketDescriptor.hxx"
 #include "net/Resolver.hxx"
+#include "net/AddressInfo.hxx"
 #include "net/ToString.hxx"
 #include "event/SocketMonitor.hxx"
-#include "system/fd_util.h"
 #include "fs/AllocatedPath.hxx"
-#include "fs/FileSystem.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
-#include "util/ScopeExit.hxx"
 #include "Log.hxx"
 
 #include <string>
 #include <algorithm>
 
-#include <sys/stat.h>
-#include <string.h>
-#include <unistd.h>
 #include <assert.h>
 
-#ifdef WIN32
-#include <ws2tcpip.h>
-#include <winsock.h>
-#else
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <netdb.h>
+#ifdef HAVE_UN
+#include <sys/stat.h>
 #endif
 
-class OneServerSocket final : private SocketMonitor {
+class ServerSocket::OneServerSocket final : private SocketMonitor {
 	ServerSocket &parent;
 
 	const unsigned serial;
@@ -67,11 +60,11 @@ public:
 	template<typename A>
 	OneServerSocket(EventLoop &_loop, ServerSocket &_parent,
 			unsigned _serial,
-			A &&_address)
+			A &&_address) noexcept
 		:SocketMonitor(_loop),
 		 parent(_parent), serial(_serial),
 #ifdef HAVE_UN
-		 path(AllocatedPath::Null()),
+		 path(nullptr),
 #endif
 		 address(std::forward<A>(_address))
 	{
@@ -80,17 +73,17 @@ public:
 	OneServerSocket(const OneServerSocket &other) = delete;
 	OneServerSocket &operator=(const OneServerSocket &other) = delete;
 
-	~OneServerSocket() {
+	~OneServerSocket() noexcept {
 		if (IsDefined())
 			Close();
 	}
 
-	unsigned GetSerial() const {
+	unsigned GetSerial() const noexcept {
 		return serial;
 	}
 
 #ifdef HAVE_UN
-	void SetPath(AllocatedPath &&_path) {
+	void SetPath(AllocatedPath &&_path) noexcept {
 		assert(path.IsNull());
 
 		path = std::move(_path);
@@ -103,19 +96,19 @@ public:
 	using SocketMonitor::Close;
 
 	gcc_pure
-	std::string ToString() const {
+	std::string ToString() const noexcept {
 		return ::ToString(address);
 	}
 
-	void SetFD(int _fd) {
-		SocketMonitor::Open(_fd);
+	void SetFD(UniqueSocketDescriptor _fd) noexcept {
+		SocketMonitor::Open(_fd.Release());
 		SocketMonitor::ScheduleRead();
 	}
 
-	void Accept();
+	void Accept() noexcept;
 
 private:
-	virtual bool OnSocketReady(unsigned flags) override;
+	bool OnSocketReady(unsigned flags) noexcept override;
 };
 
 static constexpr Domain server_socket_domain("server_socket");
@@ -146,48 +139,44 @@ get_remote_uid(int fd)
 }
 
 inline void
-OneServerSocket::Accept()
+ServerSocket::OneServerSocket::Accept() noexcept
 {
 	StaticSocketAddress peer_address;
-	size_t peer_address_length = sizeof(peer_address);
-	int peer_fd =
-		accept_cloexec_nonblock(Get(), peer_address.GetAddress(),
-					&peer_address_length);
-	if (peer_fd < 0) {
+	UniqueSocketDescriptor peer_fd(GetSocket().AcceptNonBlock(peer_address));
+	if (!peer_fd.IsDefined()) {
 		const SocketErrorMessage msg;
 		FormatError(server_socket_domain,
 			    "accept() failed: %s", (const char *)msg);
 		return;
 	}
 
-	peer_address.SetSize(peer_address_length);
-
-	if (socket_keepalive(peer_fd)) {
+	if (!peer_fd.SetKeepAlive()) {
 		const SocketErrorMessage msg;
 		FormatError(server_socket_domain,
 			    "Could not set TCP keepalive option: %s",
 			    (const char *)msg);
 	}
 
-	parent.OnAccept(peer_fd, peer_address,
-			get_remote_uid(peer_fd));
+	const auto uid = get_remote_uid(peer_fd.Get());
+
+	parent.OnAccept(std::move(peer_fd), peer_address, uid);
 }
 
 bool
-OneServerSocket::OnSocketReady(gcc_unused unsigned flags)
+ServerSocket::OneServerSocket::OnSocketReady(gcc_unused unsigned flags) noexcept
 {
 	Accept();
 	return true;
 }
 
 inline void
-OneServerSocket::Open()
+ServerSocket::OneServerSocket::Open()
 {
 	assert(!IsDefined());
 
-	int _fd = socket_bind_listen(address.GetFamily(),
-				     SOCK_STREAM, 0,
-				     address, 5);
+	auto _fd = socket_bind_listen(address.GetFamily(),
+				      SOCK_STREAM, 0,
+				      address, 5);
 
 #ifdef HAVE_UN
 	/* allow everybody to connect */
@@ -196,17 +185,17 @@ OneServerSocket::Open()
 		chmod(path.c_str(), 0666);
 #endif
 
-	/* register in the EventLoop */
+	/* register in the EventLoop */	
 
-	SetFD(_fd);
+	SetFD(std::move(_fd));
 }
 
-ServerSocket::ServerSocket(EventLoop &_loop)
-	:loop(_loop), next_serial(1) {}
+ServerSocket::ServerSocket(EventLoop &_loop) noexcept
+	:loop(_loop) {}
 
 /* this is just here to allow the OneServerSocket forward
    declaration */
-ServerSocket::~ServerSocket() {}
+ServerSocket::~ServerSocket() noexcept = default;
 
 void
 ServerSocket::Open()
@@ -218,6 +207,11 @@ ServerSocket::Open()
 		assert(i.GetSerial() > 0);
 		assert(good == nullptr || i.GetSerial() >= good->GetSerial());
 
+		if (i.IsDefined())
+			/* already open - was probably added by
+			   AddFD() */
+			continue;
+
 		if (bad != nullptr && i.GetSerial() != bad->GetSerial()) {
 			Close();
 			std::rethrow_exception(last_error);
@@ -225,11 +219,11 @@ ServerSocket::Open()
 
 		try {
 			i.Open();
-		} catch (const std::runtime_error &e) {
+		} catch (...) {
 			if (good != nullptr && good->GetSerial() == i.GetSerial()) {
 				const auto address_string = i.ToString();
 				const auto good_string = good->ToString();
-				FormatError(e,
+				FormatError(std::current_exception(),
 					    "bind to '%s' failed "
 					    "(continuing anyway, because "
 					    "binding to '%s' succeeded)",
@@ -269,73 +263,62 @@ ServerSocket::Open()
 }
 
 void
-ServerSocket::Close()
+ServerSocket::Close() noexcept
 {
 	for (auto &i : sockets)
 		if (i.IsDefined())
 			i.Close();
 }
 
-OneServerSocket &
-ServerSocket::AddAddress(SocketAddress address)
+template<typename A>
+ServerSocket::OneServerSocket &
+ServerSocket::AddAddress(A &&address) noexcept
 {
 	sockets.emplace_back(loop, *this, next_serial,
-			     address);
-
-	return sockets.back();
-}
-
-OneServerSocket &
-ServerSocket::AddAddress(AllocatedSocketAddress &&address)
-{
-	sockets.emplace_back(loop, *this, next_serial,
-			     std::move(address));
+			     std::forward<A>(address));
 
 	return sockets.back();
 }
 
 void
-ServerSocket::AddFD(int fd)
+ServerSocket::AddFD(UniqueSocketDescriptor fd)
 {
-	assert(fd >= 0);
+	assert(fd.IsDefined());
 
-	StaticSocketAddress address;
-	socklen_t address_length = sizeof(address);
-	if (getsockname(fd, address.GetAddress(),
-			&address_length) < 0)
+	StaticSocketAddress address = fd.GetLocalAddress();
+	if (!address.IsDefined())
 		throw MakeSocketError("Failed to get socket address");
 
-	address.SetSize(address_length);
-
 	OneServerSocket &s = AddAddress(address);
-	s.SetFD(fd);
+	s.SetFD(std::move(fd));
+}
+
+void
+ServerSocket::AddFD(UniqueSocketDescriptor fd,
+		    AllocatedSocketAddress &&address) noexcept
+{
+	assert(fd.IsDefined());
+	assert(!address.IsNull());
+	assert(address.IsDefined());
+
+	OneServerSocket &s = AddAddress(std::move(address));
+	s.SetFD(std::move(fd));
 }
 
 #ifdef HAVE_TCP
 
 inline void
-ServerSocket::AddPortIPv4(unsigned port)
+ServerSocket::AddPortIPv4(unsigned port) noexcept
 {
-	struct sockaddr_in sin;
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_port = htons(port);
-	sin.sin_family = AF_INET;
-	sin.sin_addr.s_addr = INADDR_ANY;
-
-	AddAddress({(const sockaddr *)&sin, sizeof(sin)});
+	AddAddress(IPv4Address(port));
 }
 
 #ifdef HAVE_IPV6
 
 inline void
-ServerSocket::AddPortIPv6(unsigned port)
+ServerSocket::AddPortIPv6(unsigned port) noexcept
 {
-	struct sockaddr_in6 sin;
-	memset(&sin, 0, sizeof(sin));
-	sin.sin6_port = htons(port);
-	sin.sin6_family = AF_INET6;
-
-	AddAddress({(const sockaddr *)&sin, sizeof(sin)});
+	AddAddress(IPv6Address(port));
 }
 
 /**
@@ -343,7 +326,7 @@ ServerSocket::AddPortIPv6(unsigned port)
  */
 gcc_pure
 static bool
-SupportsIPv6()
+SupportsIPv6() noexcept
 {
 	int fd = socket(AF_INET6, SOCK_STREAM, 0);
 	if (fd < 0)
@@ -382,12 +365,9 @@ void
 ServerSocket::AddHost(const char *hostname, unsigned port)
 {
 #ifdef HAVE_TCP
-	struct addrinfo *ai = resolve_host_port(hostname, port,
-						AI_PASSIVE, SOCK_STREAM);
-	AtScopeExit(ai) { freeaddrinfo(ai); };
-
-	for (const struct addrinfo *i = ai; i != nullptr; i = i->ai_next)
-		AddAddress(SocketAddress(i->ai_addr, i->ai_addrlen));
+	for (const auto &i : Resolve(hostname, port,
+				     AI_PASSIVE, SOCK_STREAM))
+		AddAddress(i);
 
 	++next_serial;
 #else /* HAVE_TCP */
@@ -412,7 +392,29 @@ ServerSocket::AddPath(AllocatedPath &&path)
 #else /* !HAVE_UN */
 	(void)path;
 
-	throw std::runtime_error("UNIX domain socket support is disabled");
+	throw std::runtime_error("Local socket support is disabled");
 #endif /* !HAVE_UN */
 }
 
+
+void
+ServerSocket::AddAbstract(const char *name)
+{
+#if !defined(__linux__)
+	(void)name;
+
+	throw std::runtime_error("Abstract sockets are only available on Linux");
+#elif !defined(HAVE_UN)
+	(void)name;
+
+	throw std::runtime_error("Local socket support is disabled");
+#else
+	assert(name != nullptr);
+	assert(*name == '@');
+
+	AllocatedSocketAddress address;
+	address.SetLocal(name);
+
+	AddAddress(std::move(address));
+#endif
+}

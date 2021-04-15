@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FileSystem.hxx"
 #include "AllocatedPath.hxx"
 #include "Limits.hxx"
@@ -29,7 +28,7 @@
 void
 RenameFile(Path oldpath, Path newpath)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	if (!MoveFileEx(oldpath.c_str(), newpath.c_str(),
 			MOVEFILE_REPLACE_EXISTING))
 		throw MakeLastError("Failed to rename file");
@@ -42,18 +41,18 @@ RenameFile(Path oldpath, Path newpath)
 AllocatedPath
 ReadLink(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	(void)path;
 	errno = EINVAL;
-	return AllocatedPath::Null();
+	return nullptr;
 #else
 	char buffer[MPD_PATH_MAX];
 	ssize_t size = readlink(path.c_str(), buffer, MPD_PATH_MAX);
 	if (size < 0)
-		return AllocatedPath::Null();
+		return nullptr;
 	if (size_t(size) >= MPD_PATH_MAX) {
 		errno = ENOMEM;
-		return AllocatedPath::Null();
+		return nullptr;
 	}
 	buffer[size] = '\0';
 	return AllocatedPath::FromFS(buffer);
@@ -63,7 +62,7 @@ ReadLink(Path path)
 void
 TruncateFile(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	HANDLE h = CreateFile(path.c_str(), GENERIC_WRITE, 0, nullptr,
 			      TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL,
 			      nullptr);
@@ -72,18 +71,16 @@ TruncateFile(Path path)
 
 	CloseHandle(h);
 #else
-	int fd = open_cloexec(path.c_str(), O_WRONLY|O_TRUNC, 0);
-	if (fd < 0)
+	UniqueFileDescriptor fd;
+	if (!fd.Open(path.c_str(), O_WRONLY|O_TRUNC))
 		throw FormatErrno("Failed to truncate %s", path.c_str());
-
-	close(fd);
 #endif
 }
 
 void
 RemoveFile(Path path)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	if (!DeleteFile(path.c_str()))
 		throw FormatLastError("Failed to delete %s", path.c_str());
 #else

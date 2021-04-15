@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DirectorySave.hxx"
 #include "Directory.hxx"
 #include "Song.hxx"
 #include "SongSave.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "PlaylistDatabase.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
+#include "time/ChronoUtil.hxx"
 #include "util/StringCompare.hxx"
 #include "util/NumberParser.hxx"
 #include "util/RuntimeError.hxx"
@@ -40,7 +40,7 @@
 
 gcc_const
 static const char *
-DeviceToTypeString(unsigned device)
+DeviceToTypeString(unsigned device) noexcept
 {
 	switch (device) {
 	case DEVICE_INARCHIVE:
@@ -56,7 +56,7 @@ DeviceToTypeString(unsigned device)
 
 gcc_pure
 static unsigned
-ParseTypeString(const char *type)
+ParseTypeString(const char *type) noexcept
 {
 	if (strcmp(type, "archive") == 0)
 		return DEVICE_INARCHIVE;
@@ -74,18 +74,19 @@ directory_save(BufferedOutputStream &os, const Directory &directory)
 		if (type != nullptr)
 			os.Format(DIRECTORY_TYPE "%s\n", type);
 
-		if (directory.mtime != 0)
+		if (!IsNegative(directory.mtime))
 			os.Format(DIRECTORY_MTIME "%lu\n",
-				  (unsigned long)directory.mtime);
+				  (unsigned long)std::chrono::system_clock::to_time_t(directory.mtime));
 
 		os.Format("%s%s\n", DIRECTORY_BEGIN, directory.GetPath());
 	}
 
 	for (const auto &child : directory.children) {
-		os.Format(DIRECTORY_DIR "%s\n", child.GetName());
+		if (child.IsMount())
+			continue;
 
-		if (!child.IsMount())
-			directory_save(os, child);
+		os.Format(DIRECTORY_DIR "%s\n", child.GetName());
+		directory_save(os, child);
 	}
 
 	for (const auto &song : directory.songs)
@@ -102,7 +103,9 @@ ParseLine(Directory &directory, const char *line)
 {
 	const char *p;
 	if ((p = StringAfterPrefix(line, DIRECTORY_MTIME))) {
-		directory.mtime = ParseUint64(p);
+		const auto mtime = ParseUint64(p);
+		if (mtime > 0)
+			directory.mtime = std::chrono::system_clock::from_time_t(mtime);
 	} else if ((p = StringAfterPrefix(line, DIRECTORY_TYPE))) {
 		directory.device = ParseTypeString(p);
 	} else
@@ -157,11 +160,15 @@ directory_load(TextFile &file, Directory &directory)
 			if (directory.FindSong(name) != nullptr)
 				throw FormatRuntimeError("Duplicate song '%s'", name);
 
-			DetachedSong *song = song_load(file, name);
+			auto audio_format = AudioFormat::Undefined();
+			auto detached_song = song_load(file, name,
+						       &audio_format);
 
-			directory.AddSong(Song::NewFrom(std::move(*song),
-							directory));
-			delete song;
+			auto song = Song::NewFrom(std::move(*detached_song),
+						  directory);
+			song->audio_format = audio_format;
+
+			directory.AddSong(song);
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_META_BEGIN))) {
 			const char *name = p;
 			playlist_metadata_load(file, directory.playlists, name);

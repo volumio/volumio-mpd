@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
 
-#include "config.h"
 #include "Init.hxx"
 #include "LogCallback.hxx"
 
@@ -33,6 +32,9 @@ FfmpegInit()
 {
 	av_log_set_callback(FfmpegLogCallback);
 
+#if LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58, 9, 100)
+	/* deprecated as of FFmpeg 4.0 */
 	av_register_all();
+#endif
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,8 @@
 #ifndef MPD_THREAD_NAME_HXX
 #define MPD_THREAD_NAME_HXX
 
+#include "config.h"
+
 #if defined(HAVE_PTHREAD_SETNAME_NP) && !defined(__NetBSD__)
 #  define HAVE_THREAD_NAME
 #  include <pthread.h>
@@ -31,11 +33,11 @@
 #endif
 
 #ifdef HAVE_THREAD_NAME
-#  include <stdio.h>
+#include "util/StringFormat.hxx"
 #endif
 
 static inline void
-SetThreadName(const char *name)
+SetThreadName(const char *name) noexcept
 {
 #if defined(HAVE_PTHREAD_SETNAME_NP) && !defined(__NetBSD__)
 	/* not using pthread_setname_np() on NetBSD because it
@@ -56,12 +58,10 @@ SetThreadName(const char *name)
 
 template<typename... Args>
 static inline void
-FormatThreadName(const char *fmt, gcc_unused Args&&... args)
+FormatThreadName(const char *fmt, gcc_unused Args&&... args) noexcept
 {
 #ifdef HAVE_THREAD_NAME
-	char buffer[16];
-	snprintf(buffer, sizeof(buffer), fmt, args...);
-	SetThreadName(buffer);
+	SetThreadName(StringFormat<16>(fmt, args...));
 #else
 	(void)fmt;
 #endif

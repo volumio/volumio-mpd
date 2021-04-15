@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmFormat.hxx"
 #include "PcmBuffer.hxx"
-#include "PcmUtils.hxx"
+#include "Clamp.hxx"
 #include "Traits.hxx"
 #include "FloatConvert.hxx"
 #include "ShiftConvert.hxx"
@@ -161,7 +160,7 @@ pcm_allocate_float_to_16(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int16_t>
 pcm_convert_to_16(PcmBuffer &buffer, PcmDither &dither,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -229,7 +228,7 @@ pcm_allocate_float_to_24(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int32_t>
 pcm_convert_to_24(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -297,7 +296,7 @@ pcm_allocate_float_to_32(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int32_t>
 pcm_convert_to_32(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -365,7 +364,7 @@ pcm_allocate_32_to_float(PcmBuffer &buffer, ConstBuffer<int32_t> src)
 
 ConstBuffer<float>
 pcm_convert_to_float(PcmBuffer &buffer,
-		     SampleFormat src_format, ConstBuffer<void> src)
+		     SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:

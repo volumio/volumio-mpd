@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,14 +20,17 @@
 #ifndef MPD_COMMAND_LINE_HXX
 #define MPD_COMMAND_LINE_HXX
 
+struct ConfigData;
+
 struct options {
-	bool kill;
-	bool daemon;
-	bool log_stderr;
-	bool verbose;
+	bool kill = false;
+	bool daemon = true;
+	bool log_stderr = false;
+	bool verbose = false;
 };
 
 void
-ParseCommandLine(int argc, char **argv, struct options *options);
+ParseCommandLine(int argc, char **argv, struct options &options,
+		 ConfigData &config);
 
 #endif

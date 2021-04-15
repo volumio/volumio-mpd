@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "ArchiveLookup.hxx"
 #include "ArchiveDomain.hxx"
 #include "Log.hxx"
@@ -28,7 +27,7 @@
 
 gcc_pure
 static char *
-FindSlash(char *p, size_t i)
+FindSlash(char *p, size_t i) noexcept
 {
 	for (; i > 0; --i)
 		if (p[i] == '/')
@@ -39,7 +38,7 @@ FindSlash(char *p, size_t i)
 
 gcc_pure
 static const char *
-FindSuffix(const char *p, const char *i)
+FindSuffix(const char *p, const char *i) noexcept
 {
 	for (; i > p; --i) {
 		if (*i == '.')

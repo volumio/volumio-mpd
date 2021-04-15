@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FilterRegistry.hxx"
 #include "FilterPlugin.hxx"
 
@@ -27,12 +26,11 @@ static const FilterPlugin *const filter_plugins[] = {
 	&null_filter_plugin,
 	&route_filter_plugin,
 	&normalize_filter_plugin,
-	&volume_filter_plugin,
 	nullptr,
 };
 
 const FilterPlugin *
-filter_plugin_by_name(const char *name)
+filter_plugin_by_name(const char *name) noexcept
 {
 	for (unsigned i = 0; filter_plugins[i] != nullptr; ++i)
 		if (strcmp(filter_plugins[i]->name, name) == 0)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmBuffer.hxx"
 
 void *
-PcmBuffer::Get(size_t new_size)
+PcmBuffer::Get(size_t new_size) noexcept
 {
 	if (new_size == 0)
 		/* never return nullptr, because nullptr would be

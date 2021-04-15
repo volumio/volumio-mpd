@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,32 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabasePlaylist.hxx"
 #include "DatabaseSong.hxx"
 #include "Selection.hxx"
 #include "PlaylistFile.hxx"
 #include "Interface.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 
 #include <functional>
 
-static bool
-AddSong(const Storage &storage, const char *playlist_path_utf8,
+static void
+AddSong(const Storage *storage, const char *playlist_path_utf8,
 	const LightSong &song)
 {
 	spl_append_song(playlist_path_utf8,
 			DatabaseDetachSong(storage, song));
-	return true;
 }
 
 void
-search_add_to_playlist(const Database &db, const Storage &storage,
+search_add_to_playlist(const Database &db, const Storage *storage,
 		       const char *uri, const char *playlist_path_utf8,
 		       const SongFilter *filter)
 {
 	const DatabaseSelection selection(uri, true, filter);
 
 	using namespace std::placeholders;
-	const auto f = std::bind(AddSong, std::ref(storage),
+	const auto f = std::bind(AddSong, storage,
 				 playlist_path_utf8, _1);
 	db.Visit(selection, f);
 }

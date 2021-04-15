@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,9 @@
 #ifndef MPD_SOCKET_SIGNAL_MONITOR_HXX
 #define MPD_SOCKET_SIGNAL_MONITOR_HXX
 
-#include "check.h"
-
 class EventLoop;
 
-#ifndef WIN32
+#ifndef _WIN32
 
 #include "util/BindMethod.hxx"
 
@@ -32,6 +30,8 @@ typedef BoundMethod<void()> SignalHandler;
 
 /**
  * Initialise the signal monitor subsystem.
+ *
+ * Throws on error.
  */
 void
 SignalMonitorInit(EventLoop &loop);
@@ -40,7 +40,7 @@ SignalMonitorInit(EventLoop &loop);
  * Deinitialise the signal monitor subsystem.
  */
 void
-SignalMonitorFinish();
+SignalMonitorFinish() noexcept;
 
 /**
  * Register a handler for the specified signal.  The handler will be
@@ -57,7 +57,7 @@ SignalMonitorInit(EventLoop &)
 }
 
 static inline void
-SignalMonitorFinish()
+SignalMonitorFinish() noexcept
 {
 }
 

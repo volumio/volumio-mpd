@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MpcdecDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "CheckAudioFormat.hxx"
 #include "pcm/Traits.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "util/Domain.hxx"
 #include "util/Macros.hxx"
 #include "util/Clamp.hxx"
@@ -32,7 +31,7 @@
 
 #include <mpc/mpcdec.h>
 
-#include <stdexcept>
+#include <exception>
 
 #include <math.h>
 
@@ -67,7 +66,7 @@ mpc_seek_cb(mpc_reader *reader, mpc_int32_t offset)
 	try {
 		data->is.LockSeek(offset);
 		return true;
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 }
@@ -138,6 +137,28 @@ mpc_to_mpd_buffer(MpcdecSampleTraits::pointer_type dest,
 		*dest++ = mpc_to_mpd_sample(*src++);
 }
 
+static constexpr ReplayGainTuple
+ImportMpcdecReplayGain(mpc_uint16_t gain, mpc_uint16_t peak) noexcept
+{
+	auto t = ReplayGainTuple::Undefined();
+
+	if (gain != 0 && peak != 0) {
+		t.gain = MPC_OLD_GAIN_REF - (gain  / 256.);
+		t.peak = pow(10, peak / 256. / 20) / 32767;
+	}
+
+	return t;
+}
+
+static constexpr ReplayGainInfo
+ImportMpcdecReplayGain(const mpc_streaminfo &info) noexcept
+{
+	auto rgi = ReplayGainInfo::Undefined();
+	rgi.album = ImportMpcdecReplayGain(info.gain_album, info.peak_album);
+	rgi.track = ImportMpcdecReplayGain(info.gain_title, info.peak_title);
+	return rgi;
+}
+
 static void
 mpcdec_decode(DecoderClient &client, InputStream &is)
 {
@@ -168,14 +189,11 @@ mpcdec_decode(DecoderClient &client, InputStream &is)
 					     mpcdec_sample_format,
 					     info.channels);
 
-	ReplayGainInfo rgi;
-	rgi.Clear();
-	rgi.album.gain = MPC_OLD_GAIN_REF  - (info.gain_album  / 256.);
-	rgi.album.peak = pow(10, info.peak_album / 256. / 20) / 32767;
-	rgi.track.gain = MPC_OLD_GAIN_REF  - (info.gain_title  / 256.);
-	rgi.track.peak = pow(10, info.peak_title / 256. / 20) / 32767;
-
-	client.SubmitReplayGain(&rgi);
+	{
+		const auto rgi = ImportMpcdecReplayGain(info);
+		if (rgi.IsDefined())
+			client.SubmitReplayGain(&rgi);
+	}
 
 	client.Ready(audio_format, is.IsSeekable(),
 		     SongTime::FromS(mpc_streaminfo_get_length(&info)));
@@ -206,6 +224,15 @@ mpcdec_decode(DecoderClient &client, InputStream &is)
 
 		if (frame.bits == -1)
 			break;
+
+		if (frame.samples <= 0) {
+			/* empty frame - this has been observed to
+			   happen spuriously after seeking; skip this
+			   obscure frame, and hope libmpcdec
+			   recovers */
+			cmd = client.GetCommand();
+			continue;
+		}
 
 		mpc_uint32_t ret = frame.samples;
 		ret *= info.channels;
@@ -248,14 +275,13 @@ mpcdec_get_file_duration(InputStream &is)
 }
 
 static bool
-mpcdec_scan_stream(InputStream &is,
-		   const TagHandler &handler, void *handler_ctx)
+mpcdec_scan_stream(InputStream &is, TagHandler &handler) noexcept
 {
 	const auto duration = mpcdec_get_file_duration(is);
 	if (duration.IsNegative())
 		return false;
 
-	tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
+	handler.OnDuration(SongTime(duration));
 	return true;
 }
 

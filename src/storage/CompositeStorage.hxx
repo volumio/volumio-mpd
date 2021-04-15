@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,11 @@
 #ifndef MPD_COMPOSITE_STORAGE_HXX
 #define MPD_COMPOSITE_STORAGE_HXX
 
-#include "check.h"
 #include "StorageInterface.hxx"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
+#include <memory>
 #include <string>
 #include <map>
 
@@ -47,29 +47,26 @@ class CompositeStorage final : public Storage {
 		 * Other Directory instances may have one, and child
 		 * mounts will be "mixed" in.
 		 */
-		Storage *storage;
+		std::unique_ptr<Storage> storage;
 
 		std::map<std::string, Directory> children;
 
-		Directory():storage(nullptr) {}
-		~Directory();
-
 		gcc_pure
-		bool IsEmpty() const {
+		bool IsEmpty() const noexcept {
 			return storage == nullptr && children.empty();
 		}
 
 		gcc_pure
-		const Directory *Find(const char *uri) const;
+		const Directory *Find(const char *uri) const noexcept;
 
 		Directory &Make(const char *uri);
 
-		bool Unmount();
-		bool Unmount(const char *uri);
+		bool Unmount() noexcept;
+		bool Unmount(const char *uri) noexcept;
 
 		gcc_pure
 		bool MapToRelativeUTF8(std::string &buffer,
-				       const char *uri) const;
+				       const char *uri) const noexcept;
 	};
 
 	struct FindResult {
@@ -89,7 +86,7 @@ class CompositeStorage final : public Storage {
 	mutable std::string relative_buffer;
 
 public:
-	CompositeStorage();
+	CompositeStorage() noexcept;
 	virtual ~CompositeStorage();
 
 	/**
@@ -101,7 +98,7 @@ public:
 	 * value is being used.
 	 */
 	gcc_pure gcc_nonnull_all
-	Storage *GetMount(const char *uri);
+	Storage *GetMount(const char *uri) noexcept;
 
 	/**
 	 * Call the given function for each mounted storage, including
@@ -110,32 +107,31 @@ public:
 	 */
 	template<typename T>
 	void VisitMounts(T t) const {
-		const ScopeLock protect(mutex);
+		const std::lock_guard<Mutex> protect(mutex);
 		std::string uri;
 		VisitMounts(uri, root, t);
 	}
 
-	void Mount(const char *uri, Storage *storage);
+	void Mount(const char *uri, std::unique_ptr<Storage> storage);
 	bool Unmount(const char *uri);
 
 	/* virtual methods from class Storage */
 	StorageFileInfo GetInfo(const char *uri, bool follow) override;
 
-	StorageDirectoryReader *OpenDirectory(const char *uri) override;
+	std::unique_ptr<StorageDirectoryReader> OpenDirectory(const char *uri) override;
 
-	std::string MapUTF8(const char *uri) const override;
+	std::string MapUTF8(const char *uri) const noexcept override;
 
-	AllocatedPath MapFS(const char *uri) const override;
+	AllocatedPath MapFS(const char *uri) const noexcept override;
 
-	const char *MapToRelativeUTF8(const char *uri) const override;
+	const char *MapToRelativeUTF8(const char *uri) const noexcept override;
 
 private:
 	template<typename T>
 	void VisitMounts(std::string &uri, const Directory &directory,
 			 T t) const {
-		const Storage *const storage = directory.storage;
-		if (storage != nullptr)
-			t(uri.c_str(), *storage);
+		if (directory.storage)
+			t(uri.c_str(), *directory.storage);
 
 		if (!uri.empty())
 			uri.push_back('/');
@@ -159,7 +155,7 @@ private:
 	 * the URI was used).
 	 */
 	gcc_pure
-	FindResult FindStorage(const char *uri) const;
+	FindResult FindStorage(const char *uri) const noexcept;
 
 	const char *MapToRelativeUTF8(const Directory &directory,
 				      const char *uri) const;

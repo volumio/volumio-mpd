@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,11 +30,13 @@ class DetachedSong;
  */
 class SongEnumerator {
 public:
-	virtual ~SongEnumerator() {}
+	virtual ~SongEnumerator() noexcept {}
 
 	/**
 	 * Obtain the next song.  Returns nullptr if there are no more
 	 * songs.
+	 *
+	 * Throws on error.
 	 */
 	virtual std::unique_ptr<DetachedSong> NextSong() = 0;
 };

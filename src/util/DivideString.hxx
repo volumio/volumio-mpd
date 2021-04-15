@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,7 @@ public:
 	 * @param strip strip the first part and left-strip the second
 	 * part?
 	 */
-	DivideString(const char *s, char separator, bool strip=false);
+	DivideString(const char *s, char separator, bool strip=false) noexcept;
 
 	~DivideString() {
 		delete[] first;
@@ -53,7 +53,7 @@ public:
 	/**
 	 * Is the first part empty?
 	 */
-	bool IsEmpty() const {
+	bool empty() const {
 		assert(IsDefined());
 
 		return *first == 0;

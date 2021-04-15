@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "UpnpNeighborPlugin.hxx"
 #include "lib/upnp/ClientInit.hxx"
 #include "lib/upnp/Discovery.hxx"
@@ -43,40 +42,42 @@ class UpnpNeighborExplorer final
 		Server(const Server &) = delete;
 
 		gcc_pure
-		bool operator==(const Server &other) const {
+		bool operator==(const Server &other) const noexcept {
 			return name == other.name;
 		}
 
 		gcc_pure
-		NeighborInfo Export() const {
+		NeighborInfo Export() const noexcept {
 			return { "smb://" + name + "/", comment };
 		}
 	};
 
+	EventLoop &event_loop;
+
 	UPnPDeviceDirectory *discovery;
 
 public:
-	UpnpNeighborExplorer(NeighborListener &_listener)
-		:NeighborExplorer(_listener) {}
+	UpnpNeighborExplorer(EventLoop &_event_loop,
+			     NeighborListener &_listener)
+		:NeighborExplorer(_listener), event_loop(_event_loop) {}
 
 	/* virtual methods from class NeighborExplorer */
 	void Open() override;
-	virtual void Close() override;
-	virtual List GetList() const override;
+	void Close() noexcept override;
+	List GetList() const noexcept override;
 
 private:
 	/* virtual methods from class UPnPDiscoveryListener */
-	virtual void FoundUPnP(const ContentDirectoryService &service) override;
-	virtual void LostUPnP(const ContentDirectoryService &service) override;
+	void FoundUPnP(const ContentDirectoryService &service) override;
+	void LostUPnP(const ContentDirectoryService &service) override;
 };
 
 void
 UpnpNeighborExplorer::Open()
 {
-	UpnpClient_Handle handle;
-	UpnpClientGlobalInit(handle);
+	auto handle = UpnpClientGlobalInit();
 
-	discovery = new UPnPDeviceDirectory(handle, this);
+	discovery = new UPnPDeviceDirectory(event_loop, handle, this);
 
 	try {
 		discovery->Start();
@@ -88,21 +89,21 @@ UpnpNeighborExplorer::Open()
 }
 
 void
-UpnpNeighborExplorer::Close()
+UpnpNeighborExplorer::Close() noexcept
 {
 	delete discovery;
 	UpnpClientGlobalFinish();
 }
 
 NeighborExplorer::List
-UpnpNeighborExplorer::GetList() const
+UpnpNeighborExplorer::GetList() const noexcept
 {
 	std::vector<ContentDirectoryService> tmp;
 
 	try {
 		tmp = discovery->GetDirectories();
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 	}
 
 	List result;
@@ -125,12 +126,12 @@ UpnpNeighborExplorer::LostUPnP(const ContentDirectoryService &service)
 	listener.LostNeighbor(n);
 }
 
-static NeighborExplorer *
-upnp_neighbor_create(gcc_unused EventLoop &loop,
+static std::unique_ptr<NeighborExplorer>
+upnp_neighbor_create(EventLoop &event_loop,
 		     NeighborListener &listener,
 		     gcc_unused const ConfigBlock &block)
 {
-	return new UpnpNeighborExplorer(listener);
+	return std::make_unique<UpnpNeighborExplorer>(event_loop, listener);
 }
 
 const NeighborPlugin upnp_neighbor_plugin = {

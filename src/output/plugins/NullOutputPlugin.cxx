@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,45 +17,43 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "NullOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "../Wrapper.hxx"
 #include "../Timer.hxx"
 
-class NullOutput {
-	friend struct AudioOutputWrapper<NullOutput>;
-
-	AudioOutput base;
-
+class NullOutput final  : AudioOutput {
 	const bool sync;
 
 	Timer *timer;
 
 public:
 	NullOutput(const ConfigBlock &block)
-		:base(null_output_plugin, block),
+		:AudioOutput(0),
 		 sync(block.GetBlockValue("sync", true)) {}
 
-	static NullOutput *Create(const ConfigBlock &block);
+	static AudioOutput *Create(EventLoop &,
+				   const ConfigBlock &block) {
+		return new NullOutput(block);
+	}
 
-	void Open(AudioFormat &audio_format) {
+private:
+	void Open(AudioFormat &audio_format) override {
 		if (sync)
 			timer = new Timer(audio_format);
 	}
 
-	void Close() {
+	void Close() noexcept override {
 		if (sync)
 			delete timer;
 	}
 
-	unsigned Delay() const {
+	std::chrono::steady_clock::duration Delay() const noexcept override {
 		return sync && timer->IsStarted()
 			? timer->GetDelay()
-			: 0;
+			: std::chrono::steady_clock::duration::zero();
 	}
 
-	size_t Play(gcc_unused const void *chunk, size_t size) {
+	size_t Play(gcc_unused const void *chunk, size_t size) override {
 		if (sync) {
 			if (!timer->IsStarted())
 				timer->Start();
@@ -65,34 +63,15 @@ public:
 		return size;
 	}
 
-	void Cancel() {
+	void Cancel() noexcept override {
 		if (sync)
 			timer->Reset();
 	}
 };
 
-inline NullOutput *
-NullOutput::Create(const ConfigBlock &block)
-{
-	return new NullOutput(block);
-}
-
-typedef AudioOutputWrapper<NullOutput> Wrapper;
-
 const struct AudioOutputPlugin null_output_plugin = {
 	"null",
 	nullptr,
-	&Wrapper::Init,
-	&Wrapper::Finish,
-	nullptr,
-	nullptr,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	&Wrapper::Delay,
-	nullptr,
-	&Wrapper::Play,
-	nullptr,
-	&Wrapper::Cancel,
-	nullptr,
+	&NullOutput::Create,
 	nullptr,
 };

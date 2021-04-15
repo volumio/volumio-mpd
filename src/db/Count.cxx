@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Count.hxx"
 #include "Selection.hxx"
 #include "Interface.hxx"
 #include "Partition.hxx"
 #include "client/Response.hxx"
-#include "LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "tag/Tag.hxx"
+#include "tag/VisitFallback.hxx"
+#include "TagPrint.hxx"
 
 #include <functional>
 #include <map>
@@ -41,7 +42,7 @@ class TagCountMap : public std::map<std::string, SearchStats> {
 };
 
 static void
-PrintSearchStats(Response &r, const SearchStats &stats)
+PrintSearchStats(Response &r, const SearchStats &stats) noexcept
 {
 	unsigned total_duration_s =
 		std::chrono::duration_cast<std::chrono::seconds>(stats.total_duration).count();
@@ -52,59 +53,46 @@ PrintSearchStats(Response &r, const SearchStats &stats)
 }
 
 static void
-Print(Response &r, TagType group, const TagCountMap &m)
+Print(Response &r, TagType group, const TagCountMap &m) noexcept
 {
 	assert(unsigned(group) < TAG_NUM_OF_ITEM_TYPES);
 
 	for (const auto &i : m) {
-		r.Format("%s: %s\n", tag_item_names[group], i.first.c_str());
+		tag_print(r, group, i.first.c_str());
 		PrintSearchStats(r, i.second);
 	}
 }
 
-static bool
-stats_visitor_song(SearchStats &stats, const LightSong &song)
+static void
+stats_visitor_song(SearchStats &stats, const LightSong &song) noexcept
 {
 	stats.n_songs++;
 
 	const auto duration = song.GetDuration();
 	if (!duration.IsNegative())
 		stats.total_duration += duration;
-
-	return true;
 }
 
-static bool
-CollectGroupCounts(TagCountMap &map, TagType group, const Tag &tag)
+static void
+CollectGroupCounts(TagCountMap &map, const Tag &tag,
+		   const char *value) noexcept
 {
-	bool found = false;
-	for (const auto &item : tag) {
-		if (item.type == group) {
-			auto r = map.insert(std::make_pair(item.value,
-							   SearchStats()));
-			SearchStats &s = r.first->second;
-			++s.n_songs;
-			if (!tag.duration.IsNegative())
-				s.total_duration += tag.duration;
-
-			found = true;
-		}
-	}
-
-	return found;
+	auto r = map.insert(std::make_pair(value, SearchStats()));
+	SearchStats &s = r.first->second;
+	++s.n_songs;
+	if (!tag.duration.IsNegative())
+		s.total_duration += tag.duration;
 }
 
-static bool
-GroupCountVisitor(TagCountMap &map, TagType group, const LightSong &song)
+static void
+GroupCountVisitor(TagCountMap &map, TagType group,
+		  const LightSong &song) noexcept
 {
-	assert(song.tag != nullptr);
-
-	const Tag &tag = *song.tag;
-	if (!CollectGroupCounts(map, group, tag) && group == TAG_ALBUM_ARTIST)
-		/* fall back to "Artist" if no "AlbumArtist" was found */
-		CollectGroupCounts(map, TAG_ARTIST, tag);
-
-	return true;
+	const Tag &tag = song.tag;
+	VisitTagWithFallbackOrEmpty(tag, group,
+				    std::bind(CollectGroupCounts, std::ref(map),
+					      std::cref(tag),
+					      std::placeholders::_1));
 }
 
 void

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Bridge.hxx"
 #include "DecoderAPI.hxx"
-#include "DecoderError.hxx"
-#include "DecoderControl.hxx"
-#include "DetachedSong.hxx"
+#include "Domain.hxx"
+#include "Control.hxx"
+#include "song/DetachedSong.hxx"
 #include "pcm/PcmConvert.hxx"
 #include "MusicPipe.hxx"
 #include "MusicBuffer.hxx"
@@ -32,6 +31,7 @@
 #include "Log.hxx"
 #include "input/InputStream.hxx"
 #include "util/ConstBuffer.hxx"
+#include "util/StringBuffer.hxx"
 
 #include <assert.h>
 #include <string.h>
@@ -46,14 +46,10 @@ DecoderBridge::~DecoderBridge()
 		convert->Close();
 		delete convert;
 	}
-
-	delete song_tag;
-	delete stream_tag;
-	delete decoder_tag;
 }
 
 bool
-DecoderBridge::CheckCancelRead() const
+DecoderBridge::CheckCancelRead() const noexcept
 {
 	if (error)
 		/* this translates to DecoderCommand::STOP */
@@ -77,7 +73,7 @@ DecoderBridge::CheckCancelRead() const
  * one.
  */
 static DecoderCommand
-need_chunks(DecoderControl &dc)
+need_chunks(DecoderControl &dc) noexcept
 {
 	if (dc.command == DecoderCommand::NONE)
 		dc.Wait();
@@ -86,19 +82,19 @@ need_chunks(DecoderControl &dc)
 }
 
 static DecoderCommand
-LockNeedChunks(DecoderControl &dc)
+LockNeedChunks(DecoderControl &dc) noexcept
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return need_chunks(dc);
 }
 
 MusicChunk *
-DecoderBridge::GetChunk()
+DecoderBridge::GetChunk() noexcept
 {
 	DecoderCommand cmd;
 
 	if (current_chunk != nullptr)
-		return current_chunk;
+		return current_chunk.get();
 
 	do {
 		current_chunk = dc.buffer->Allocate();
@@ -107,7 +103,7 @@ DecoderBridge::GetChunk()
 			if (replay_gain_serial != 0)
 				current_chunk->replay_gain_info = replay_gain_info;
 
-			return current_chunk;
+			return current_chunk.get();
 		}
 
 		cmd = LockNeedChunks(dc);
@@ -124,13 +120,11 @@ DecoderBridge::FlushChunk()
 	assert(!initial_seek_pending);
 	assert(current_chunk != nullptr);
 
-	auto *chunk = std::exchange(current_chunk, nullptr);
-	if (chunk->IsEmpty())
-		dc.buffer->Return(chunk);
-	else
-		dc.pipe->Push(chunk);
+	auto chunk = std::move(current_chunk);
+	if (!chunk->IsEmpty())
+		dc.pipe->Push(std::move(chunk));
 
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	if (dc.client_is_waiting)
 		dc.client_cond.signal();
 }
@@ -176,7 +170,7 @@ DecoderBridge::PrepareInitialSeek()
 }
 
 DecoderCommand
-DecoderBridge::GetVirtualCommand()
+DecoderBridge::GetVirtualCommand() noexcept
 {
 	if (error)
 		/* an error has occurred: stop the decoder plugin */
@@ -191,9 +185,9 @@ DecoderBridge::GetVirtualCommand()
 }
 
 DecoderCommand
-DecoderBridge::LockGetVirtualCommand()
+DecoderBridge::LockGetVirtualCommand() noexcept
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 	return GetVirtualCommand();
 }
 
@@ -214,18 +208,18 @@ DecoderBridge::DoSendTag(const Tag &tag)
 		return dc.command;
 	}
 
-	chunk->tag = new Tag(tag);
+	chunk->tag = std::make_unique<Tag>(tag);
 	return DecoderCommand::NONE;
 }
 
 bool
 DecoderBridge::UpdateStreamTag(InputStream *is)
 {
-	auto *tag = is != nullptr
+	auto tag = is != nullptr
 		? is->LockReadTag()
 		: nullptr;
 	if (tag == nullptr) {
-		tag = song_tag;
+		tag = std::move(song_tag);
 		if (tag == nullptr)
 			return false;
 
@@ -233,12 +227,9 @@ DecoderBridge::UpdateStreamTag(InputStream *is)
 		   instead */
 	} else
 		/* discard the song tag; we don't need it */
-		delete song_tag;
+		song_tag.reset();
 
-	song_tag = nullptr;
-
-	delete stream_tag;
-	stream_tag = tag;
+	stream_tag = std::move(tag);
 	return true;
 }
 
@@ -246,26 +237,23 @@ void
 DecoderBridge::Ready(const AudioFormat audio_format,
 		     bool seekable, SignedSongTime duration)
 {
-	struct audio_format_string af_string;
-
 	assert(convert == nullptr);
 	assert(stream_tag == nullptr);
 	assert(decoder_tag == nullptr);
 	assert(!seeking);
 
 	FormatDebug(decoder_domain, "audio_format=%s, seekable=%s",
-		    audio_format_to_string(audio_format, &af_string),
+		    ToString(audio_format).c_str(),
 		    seekable ? "true" : "false");
 
 	{
-		const ScopeLock protect(dc.mutex);
+		const std::lock_guard<Mutex> protect(dc.mutex);
 		dc.SetReady(audio_format, seekable, duration);
 	}
 
 	if (dc.in_audio_format != dc.out_audio_format) {
 		FormatDebug(decoder_domain, "converting to %s",
-			    audio_format_to_string(dc.out_audio_format,
-						   &af_string));
+			    ToString(dc.out_audio_format).c_str());
 
 		convert = new PcmConvert();
 
@@ -279,7 +267,7 @@ DecoderBridge::Ready(const AudioFormat audio_format,
 }
 
 DecoderCommand
-DecoderBridge::GetCommand()
+DecoderBridge::GetCommand() noexcept
 {
 	return LockGetVirtualCommand();
 }
@@ -287,7 +275,7 @@ DecoderBridge::GetCommand()
 void
 DecoderBridge::CommandFinished()
 {
-	const ScopeLock protect(dc.mutex);
+	const std::lock_guard<Mutex> protect(dc.mutex);
 
 	assert(dc.command != DecoderCommand::NONE || initial_seek_running);
 	assert(dc.command != DecoderCommand::SEEK ||
@@ -301,7 +289,8 @@ DecoderBridge::CommandFinished()
 		assert(dc.pipe->IsEmpty());
 
 		initial_seek_running = false;
-		timestamp = dc.start_time.ToDoubleS();
+		timestamp = std::chrono::duration_cast<FloatDuration>(dc.start_time);
+		absolute_frame = dc.start_time.ToScale<uint64_t>(dc.in_audio_format.sample_rate);
 		return;
 	}
 
@@ -310,14 +299,15 @@ DecoderBridge::CommandFinished()
 
 		/* delete frames from the old song position */
 
-		if (current_chunk != nullptr) {
-			dc.buffer->Return(current_chunk);
-			current_chunk = nullptr;
-		}
+		current_chunk.reset();
 
-		dc.pipe->Clear(*dc.buffer);
+		dc.pipe->Clear();
 
-		timestamp = dc.seek_time.ToDoubleS();
+		if (convert != nullptr)
+			convert->Reset();
+
+		timestamp = std::chrono::duration_cast<FloatDuration>(dc.seek_time);
+		absolute_frame = dc.seek_time.ToScale<uint64_t>(dc.in_audio_format.sample_rate);
 	}
 
 	dc.command = DecoderCommand::NONE;
@@ -325,7 +315,7 @@ DecoderBridge::CommandFinished()
 }
 
 SongTime
-DecoderBridge::GetSeekTime()
+DecoderBridge::GetSeekTime() noexcept
 {
 	assert(dc.pipe != nullptr);
 
@@ -340,7 +330,7 @@ DecoderBridge::GetSeekTime()
 }
 
 uint64_t
-DecoderBridge::GetSeekFrame()
+DecoderBridge::GetSeekFrame() noexcept
 {
 	return GetSeekTime().ToScale<uint64_t>(dc.in_audio_format.sample_rate);
 }
@@ -374,9 +364,10 @@ DecoderBridge::OpenUri(const char *uri)
 	Mutex &mutex = dc.mutex;
 	Cond &cond = dc.cond;
 
-	auto is = InputStream::Open(uri, mutex, cond);
+	auto is = InputStream::Open(uri, mutex);
+	is->SetHandler(&dc);
 
-	const ScopeLock lock(mutex);
+	const std::lock_guard<Mutex> lock(mutex);
 	while (true) {
 		is->Update();
 		if (is->IsReady())
@@ -399,7 +390,7 @@ try {
 	if (length == 0)
 		return 0;
 
-	ScopeLock lock(is.mutex);
+	std::lock_guard<Mutex> lock(is.mutex);
 
 	while (true) {
 		if (CheckCancelRead())
@@ -408,24 +399,25 @@ try {
 		if (is.IsAvailable())
 			break;
 
-		is.cond.wait(is.mutex);
+		dc.cond.wait(is.mutex);
 	}
 
 	size_t nbytes = is.Read(buffer, length);
 	assert(nbytes > 0 || is.IsEOF());
 
 	return nbytes;
-} catch (const std::runtime_error &e) {
+} catch (...) {
 	error = std::current_exception();
 	return 0;
 }
 
 void
-DecoderBridge::SubmitTimestamp(double t)
+DecoderBridge::SubmitTimestamp(FloatDuration t)
 {
-	assert(t >= 0);
+	assert(t.count() >= 0);
 
 	timestamp = t;
+	absolute_frame = uint64_t(t.count() * dc.in_audio_format.sample_rate);
 }
 
 DecoderCommand
@@ -449,18 +441,39 @@ DecoderBridge::SubmitData(InputStream *is,
 	/* send stream tags */
 
 	if (UpdateStreamTag(is)) {
-		if (decoder_tag != nullptr) {
+		if (decoder_tag != nullptr)
 			/* merge with tag from decoder plugin */
-			Tag *tag = Tag::Merge(*decoder_tag,
-					      *stream_tag);
-			cmd = DoSendTag(*tag);
-			delete tag;
-		} else
+			cmd = DoSendTag(*Tag::Merge(*decoder_tag,
+						    *stream_tag));
+		else
 			/* send only the stream tag */
 			cmd = DoSendTag(*stream_tag);
 
 		if (cmd != DecoderCommand::NONE)
 			return cmd;
+	}
+
+	cmd = DecoderCommand::NONE;
+
+	const size_t frame_size = dc.in_audio_format.GetFrameSize();
+	size_t data_frames = length / frame_size;
+
+	if (dc.end_time.IsPositive()) {
+		/* enforce the given end time */
+
+		const uint64_t end_frame =
+			dc.end_time.ToScale<uint64_t>(dc.in_audio_format.sample_rate);
+		if (absolute_frame >= end_frame)
+			return DecoderCommand::STOP;
+
+		const uint64_t remaining_frames = end_frame - absolute_frame;
+		if (data_frames >= remaining_frames) {
+			/* past the end of the range: truncate this
+			   data submission and stop the decoder */
+			data_frames = remaining_frames;
+			length = data_frames * frame_size;
+			cmd = DecoderCommand::STOP;
+		}
 	}
 
 	if (convert != nullptr) {
@@ -470,7 +483,7 @@ DecoderBridge::SubmitData(InputStream *is,
 			auto result = convert->Convert({data, length});
 			data = result.data;
 			length = result.size;
-		} catch (const std::runtime_error &e) {
+		} catch (...) {
 			/* the PCM conversion has failed - stop
 			   playback, since we have no better way to
 			   bail out */
@@ -492,10 +505,10 @@ DecoderBridge::SubmitData(InputStream *is,
 
 		const auto dest =
 			chunk->Write(dc.out_audio_format,
-				     SongTime::FromS(timestamp) -
+				     SongTime::Cast(timestamp) -
 				     dc.song->GetStartTime(),
 				     kbit_rate);
-		if (dest.IsEmpty()) {
+		if (dest.empty()) {
 			/* the chunk is full, flush it */
 			FlushChunk();
 			continue;
@@ -518,17 +531,12 @@ DecoderBridge::SubmitData(InputStream *is,
 		data = (const uint8_t *)data + nbytes;
 		length -= nbytes;
 
-		timestamp += (double)nbytes /
-			dc.out_audio_format.GetTimeToSize();
-
-		if (dc.end_time.IsPositive() &&
-		    timestamp >= dc.end_time.ToDoubleS())
-			/* the end of this range has been reached:
-			   stop decoding */
-			return DecoderCommand::STOP;
+		timestamp += dc.out_audio_format.SizeToTime<FloatDuration>(nbytes);
 	}
 
-	return DecoderCommand::NONE;
+	absolute_frame += data_frames;
+
+	return cmd;
 }
 
 DecoderCommand
@@ -541,8 +549,7 @@ DecoderBridge::SubmitTag(InputStream *is, Tag &&tag)
 
 	/* save the tag */
 
-	delete decoder_tag;
-	decoder_tag = new Tag(std::move(tag));
+	decoder_tag = std::make_unique<Tag>(std::move(tag));
 
 	/* check for a new stream tag */
 
@@ -558,14 +565,10 @@ DecoderBridge::SubmitTag(InputStream *is, Tag &&tag)
 
 	/* send tag to music pipe */
 
-	if (stream_tag != nullptr) {
+	if (stream_tag != nullptr)
 		/* merge with tag from input stream */
-		Tag *merged;
-
-		merged = Tag::Merge(*stream_tag, *decoder_tag);
-		cmd = DoSendTag(*merged);
-		delete merged;
-	} else
+		cmd = DoSendTag(*Tag::Merge(*stream_tag, *decoder_tag));
+	else
 		/* send only the decoder tag */
 		cmd = DoSendTag(*decoder_tag);
 

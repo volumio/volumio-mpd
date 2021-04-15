@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,51 +30,34 @@
 #ifndef CAST_HXX
 #define CAST_HXX
 
+#include "OffsetPointer.hxx"
 #include "Compiler.h"
 
 #include <stddef.h>
 
-/**
- * Offset the given pointer by the specified number of bytes.
- */
-static inline constexpr void *
-OffsetPointer(void *p, ptrdiff_t offset)
-{
-	return (char *)p + offset;
-}
-
-/**
- * Offset the given pointer by the specified number of bytes.
- */
-static inline constexpr const void *
-OffsetPointer(const void *p, ptrdiff_t offset)
-{
-	return (const char *)p + offset;
-}
-
 template<typename T, typename U>
-static inline constexpr T *
+constexpr T *
 OffsetCast(U *p, ptrdiff_t offset)
 {
 	return reinterpret_cast<T *>(OffsetPointer(p, offset));
 }
 
 template<typename T, typename U>
-static inline constexpr T *
+constexpr T *
 OffsetCast(const U *p, ptrdiff_t offset)
 {
 	return reinterpret_cast<const T *>(OffsetPointer(p, offset));
 }
 
 template<class C, class A>
-static constexpr inline ptrdiff_t
+constexpr ptrdiff_t
 ContainerAttributeOffset(const C *null_c, const A C::*p)
 {
-	return ptrdiff_t((const char *)null_c - (const char *)&(null_c->*p));
+	return ptrdiff_t((const char *)&(null_c->*p) - (const char *)null_c);
 }
 
 template<class C, class A>
-static constexpr inline ptrdiff_t
+constexpr ptrdiff_t
 ContainerAttributeOffset(const A C::*p)
 {
 	return ContainerAttributeOffset<C, A>(nullptr, p);
@@ -84,26 +67,20 @@ ContainerAttributeOffset(const A C::*p)
  * Cast the given pointer to a struct member to its parent structure.
  */
 template<class C, class A>
-#if CLANG_OR_GCC_VERSION(4,7)
-constexpr
-#endif
-static inline C &
-ContainerCast(A &a, A C::*member)
+constexpr C &
+ContainerCast(A &a, const A C::*member)
 {
-	return *OffsetCast<C, A>(&a, ContainerAttributeOffset<C, A>(member));
+	return *OffsetCast<C, A>(&a, -ContainerAttributeOffset<C, A>(member));
 }
 
 /**
  * Cast the given pointer to a struct member to its parent structure.
  */
 template<class C, class A>
-#if CLANG_OR_GCC_VERSION(4,7)
-constexpr
-#endif
-static inline const C &
-ContainerCast(const A &a, A C::*member)
+constexpr const C &
+ContainerCast(const A &a, const A C::*member)
 {
-	return *OffsetCast<const C, const A>(&a, ContainerAttributeOffset<C, A>(member));
+	return *OffsetCast<const C, const A>(&a, -ContainerAttributeOffset<C, A>(member));
 }
 
 #endif

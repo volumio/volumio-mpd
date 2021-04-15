@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@ template<typename T> class AllocatedString;
  */
 gcc_nonnull_all
 AllocatedString<char>
-FormatStringV(const char *fmt, va_list args);
+FormatStringV(const char *fmt, va_list args) noexcept;
 
 /**
  * Format into a newly allocated string.  The caller frees the return
@@ -40,6 +40,6 @@ FormatStringV(const char *fmt, va_list args);
  */
 gcc_nonnull(1) gcc_printf(1,2)
 AllocatedString<char>
-FormatString(const char *fmt, ...);
+FormatString(const char *fmt, ...) noexcept;
 
 #endif

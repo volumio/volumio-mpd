@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2012-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,25 +27,19 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "FileDescriptor.hxx"
 
+#include <assert.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#ifndef WIN32
+#ifndef _WIN32
 #include <poll.h>
 #endif
 
-#ifdef USE_EVENTFD
+#ifdef __linux__
 #include <sys/eventfd.h>
-#endif
-
-#ifdef USE_SIGNALFD
 #include <sys/signalfd.h>
-#endif
-
-#ifdef HAVE_INOTIFY_INIT
 #include <sys/inotify.h>
 #endif
 
@@ -57,35 +51,104 @@
 #define O_CLOEXEC 0
 #endif
 
+#ifndef _WIN32
+
 bool
-FileDescriptor::Open(const char *pathname, int flags, mode_t mode)
+FileDescriptor::IsValid() const noexcept
+{
+	return IsDefined() && fcntl(fd, F_GETFL) >= 0;
+}
+
+bool
+FileDescriptor::IsPipe() const noexcept
+{
+	struct stat st;
+	return IsDefined() && fstat(fd, &st) == 0 && S_ISFIFO(st.st_mode);
+}
+
+bool
+FileDescriptor::IsSocket() const noexcept
+{
+	struct stat st;
+	return IsDefined() && fstat(fd, &st) == 0 && S_ISSOCK(st.st_mode);
+}
+
+#endif
+
+#ifdef __linux__
+
+bool
+FileDescriptor::Open(FileDescriptor dir, const char *pathname,
+		     int flags, mode_t mode) noexcept
+{
+	fd = ::openat(dir.Get(), pathname, flags | O_NOCTTY | O_CLOEXEC, mode);
+	return IsDefined();
+}
+
+#endif
+
+bool
+FileDescriptor::Open(const char *pathname, int flags, mode_t mode) noexcept
 {
 	fd = ::open(pathname, flags | O_NOCTTY | O_CLOEXEC, mode);
 	return IsDefined();
 }
 
+#ifdef _WIN32
+
 bool
-FileDescriptor::OpenReadOnly(const char *pathname)
+FileDescriptor::Open(const wchar_t *pathname, int flags, mode_t mode) noexcept
+{
+	fd = ::_wopen(pathname, flags | O_NOCTTY | O_CLOEXEC, mode);
+	return IsDefined();
+}
+
+#endif
+
+bool
+FileDescriptor::OpenReadOnly(const char *pathname) noexcept
 {
 	return Open(pathname, O_RDONLY);
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 
 bool
-FileDescriptor::OpenNonBlocking(const char *pathname)
+FileDescriptor::OpenNonBlocking(const char *pathname) noexcept
 {
 	return Open(pathname, O_RDWR | O_NONBLOCK);
 }
 
+#endif
+
+#ifdef __linux__
+
 bool
-FileDescriptor::CreatePipe(FileDescriptor &r, FileDescriptor &w)
+FileDescriptor::CreatePipe(FileDescriptor &r, FileDescriptor &w,
+			   int flags) noexcept
 {
 	int fds[2];
-
-#ifdef HAVE_PIPE2
-	const int flags = O_CLOEXEC;
 	const int result = pipe2(fds, flags);
+	if (result < 0)
+		return false;
+
+	r = FileDescriptor(fds[0]);
+	w = FileDescriptor(fds[1]);
+	return true;
+}
+
+#endif
+
+bool
+FileDescriptor::CreatePipe(FileDescriptor &r, FileDescriptor &w) noexcept
+{
+#ifdef __linux__
+	return CreatePipe(r, w, O_CLOEXEC);
+#else
+	int fds[2];
+
+#ifdef _WIN32
+	const int result = _pipe(fds, 512, _O_BINARY);
 #else
 	const int result = pipe(fds);
 #endif
@@ -96,10 +159,29 @@ FileDescriptor::CreatePipe(FileDescriptor &r, FileDescriptor &w)
 	r = FileDescriptor(fds[0]);
 	w = FileDescriptor(fds[1]);
 	return true;
+#endif
+}
+
+#ifndef _WIN32
+
+bool
+FileDescriptor::CreatePipeNonBlock(FileDescriptor &r,
+				   FileDescriptor &w) noexcept
+{
+#ifdef __linux__
+	return CreatePipe(r, w, O_CLOEXEC|O_NONBLOCK);
+#else
+	if (!CreatePipe(r, w))
+		return false;
+
+	r.SetNonBlocking();
+	w.SetNonBlocking();
+	return true;
+#endif
 }
 
 void
-FileDescriptor::SetNonBlocking()
+FileDescriptor::SetNonBlocking() noexcept
 {
 	assert(IsDefined());
 
@@ -108,7 +190,7 @@ FileDescriptor::SetNonBlocking()
 }
 
 void
-FileDescriptor::SetBlocking()
+FileDescriptor::SetBlocking() noexcept
 {
 	assert(IsDefined());
 
@@ -116,23 +198,47 @@ FileDescriptor::SetBlocking()
 	fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
 }
 
-#endif
+void
+FileDescriptor::EnableCloseOnExec() noexcept
+{
+	assert(IsDefined());
 
-#ifdef USE_EVENTFD
+	const int old_flags = fcntl(fd, F_GETFD, 0);
+	fcntl(fd, F_SETFD, old_flags | FD_CLOEXEC);
+}
+
+void
+FileDescriptor::DisableCloseOnExec() noexcept
+{
+	assert(IsDefined());
+
+	const int old_flags = fcntl(fd, F_GETFD, 0);
+	fcntl(fd, F_SETFD, old_flags & ~FD_CLOEXEC);
+}
 
 bool
-FileDescriptor::CreateEventFD(unsigned initval)
+FileDescriptor::CheckDuplicate(FileDescriptor new_fd) noexcept
+{
+	if (*this == new_fd) {
+		DisableCloseOnExec();
+		return true;
+	} else
+		return Duplicate(new_fd);
+}
+
+#endif
+
+#ifdef __linux__
+
+bool
+FileDescriptor::CreateEventFD(unsigned initval) noexcept
 {
 	fd = ::eventfd(initval, EFD_NONBLOCK|EFD_CLOEXEC);
 	return fd >= 0;
 }
 
-#endif
-
-#ifdef USE_SIGNALFD
-
 bool
-FileDescriptor::CreateSignalFD(const sigset_t *mask)
+FileDescriptor::CreateSignalFD(const sigset_t *mask) noexcept
 {
 	int new_fd = ::signalfd(fd, mask, SFD_NONBLOCK|SFD_CLOEXEC);
 	if (new_fd < 0)
@@ -142,24 +248,12 @@ FileDescriptor::CreateSignalFD(const sigset_t *mask)
 	return true;
 }
 
-#endif
-
-#ifdef HAVE_INOTIFY_INIT
-
 bool
-FileDescriptor::CreateInotify()
+FileDescriptor::CreateInotify() noexcept
 {
-#ifdef HAVE_INOTIFY_INIT1
 	int new_fd = inotify_init1(IN_CLOEXEC|IN_NONBLOCK);
-#else
-	int new_fd = inotify_init();
-#endif
 	if (new_fd < 0)
 		return false;
-
-#ifndef HAVE_INOTIFY_INIT1
-	SetNonBlocking();
-#endif
 
 	fd = new_fd;
 	return true;
@@ -168,7 +262,7 @@ FileDescriptor::CreateInotify()
 #endif
 
 bool
-FileDescriptor::Rewind()
+FileDescriptor::Rewind() noexcept
 {
 	assert(IsDefined());
 
@@ -176,7 +270,7 @@ FileDescriptor::Rewind()
 }
 
 off_t
-FileDescriptor::GetSize() const
+FileDescriptor::GetSize() const noexcept
 {
 	struct stat st;
 	return ::fstat(fd, &st) >= 0
@@ -184,10 +278,10 @@ FileDescriptor::GetSize() const
 		: -1;
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 
 int
-FileDescriptor::Poll(short events, int timeout) const
+FileDescriptor::Poll(short events, int timeout) const noexcept
 {
 	assert(IsDefined());
 
@@ -201,15 +295,21 @@ FileDescriptor::Poll(short events, int timeout) const
 }
 
 int
-FileDescriptor::WaitReadable(int timeout) const
+FileDescriptor::WaitReadable(int timeout) const noexcept
 {
 	return Poll(POLLIN, timeout);
 }
 
 int
-FileDescriptor::WaitWritable(int timeout) const
+FileDescriptor::WaitWritable(int timeout) const noexcept
 {
 	return Poll(POLLOUT, timeout);
+}
+
+bool
+FileDescriptor::IsReadyForWriting() const noexcept
+{
+	return WaitWritable(0) > 0;
 }
 
 #endif

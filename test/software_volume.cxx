@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,12 +23,11 @@
  *
  */
 
-#include "config.h"
 #include "pcm/Volume.hxx"
 #include "AudioParser.hxx"
 #include "AudioFormat.hxx"
 #include "util/ConstBuffer.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -59,7 +58,7 @@ try {
 	}
 
 	pv.Close();
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

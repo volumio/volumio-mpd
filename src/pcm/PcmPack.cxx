@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #include "system/ByteOrder.hxx"
 
 static void
-pack_sample(uint8_t *dest, const int32_t *src0)
+pack_sample(uint8_t *dest, const int32_t *src0) noexcept
 {
 	const uint8_t *src = (const uint8_t *)src0;
 
@@ -34,7 +34,7 @@ pack_sample(uint8_t *dest, const int32_t *src0)
 }
 
 void
-pcm_pack_24(uint8_t *dest, const int32_t *src, const int32_t *src_end)
+pcm_pack_24(uint8_t *dest, const int32_t *src, const int32_t *src_end) noexcept
 {
 	/* duplicate loop to help the compiler's optimizer (constant
 	   parameter to the pack_sample() inline function) */
@@ -45,32 +45,63 @@ pcm_pack_24(uint8_t *dest, const int32_t *src, const int32_t *src_end)
 	}
 }
 
-static void
-unpack_sample(int32_t *dest0, const uint8_t *src)
+/**
+ * Construct a signed 24 bit integer from three bytes into a int32_t.
+ */
+static constexpr int32_t
+ConstructS24(uint8_t low, uint8_t mid, uint8_t high) noexcept
 {
-	uint8_t *dest = (uint8_t *)dest0;
+	return int32_t(low) | (int32_t(mid) << 8) | (int32_t(high) << 16) |
+		/* extend the sign bit */
+		(high & 0x80 ? ~int32_t(0xffffff) : 0);
+}
 
-	if (IsBigEndian())
-		/* extend the sign bit to the most fourth byte */
-		*dest++ = *src & 0x80 ? 0xff : 0x00;
+/**
+ * Read a packed signed little-endian 24 bit integer.
+ */
+gcc_pure
+static int32_t
+ReadS24LE(const uint8_t *src) noexcept
+{
+	return ConstructS24(src[0], src[1], src[2]);
+}
 
-	*dest++ = *src++;
-	*dest++ = *src++;
-	*dest++ = *src;
+/**
+ * Read a packed signed big-endian 24 bit integer.
+ */
+gcc_pure
+static int32_t
+ReadS24BE(const uint8_t *src) noexcept
+{
+	return ConstructS24(src[2], src[1], src[0]);
+}
 
-	if (IsLittleEndian())
-		/* extend the sign bit to the most fourth byte */
-		*dest++ = *src & 0x80 ? 0xff : 0x00;
+/**
+ * Read a packed signed native-endian 24 bit integer.
+ */
+gcc_pure
+static int32_t
+ReadS24(const uint8_t *src) noexcept
+{
+	return IsBigEndian() ? ReadS24BE(src) : ReadS24LE(src);
 }
 
 void
-pcm_unpack_24(int32_t *dest, const uint8_t *src, const uint8_t *src_end)
+pcm_unpack_24(int32_t *dest,
+	      const uint8_t *src, const uint8_t *src_end) noexcept
 {
-	/* duplicate loop to help the compiler's optimizer (constant
-	   parameter to the unpack_sample() inline function) */
-
 	while (src < src_end) {
-		unpack_sample(dest++, src);
+		*dest++ = ReadS24(src);
+		src += 3;
+	}
+}
+
+void
+pcm_unpack_24be(int32_t *dest,
+		const uint8_t *src, const uint8_t *src_end) noexcept
+{
+	while (src < src_end) {
+		*dest++ = ReadS24BE(src);
 		src += 3;
 	}
 }

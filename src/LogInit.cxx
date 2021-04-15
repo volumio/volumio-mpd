@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,13 +22,17 @@
 #include "LogBackend.hxx"
 #include "Log.hxx"
 #include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
 #include "system/Error.hxx"
+
+#ifdef ENABLE_SYSTEMD_DAEMON
+#include <systemd/sd-daemon.h>
+#endif
 
 #include <assert.h>
 #include <string.h>
@@ -41,12 +45,13 @@
 #define LOG_DATE_BUF_SIZE 16
 #define LOG_DATE_LEN (LOG_DATE_BUF_SIZE - 1)
 
+gcc_unused
 static constexpr Domain log_domain("log");
 
 #ifndef ANDROID
 
 static int out_fd = -1;
-static AllocatedPath out_path = AllocatedPath::Null();
+static AllocatedPath out_path = nullptr;
 
 static void redirect_logs(int fd)
 {
@@ -62,7 +67,7 @@ open_log_file(void)
 {
 	assert(!out_path.IsNull());
 
-	return OpenFile(out_path, O_CREAT | O_WRONLY | O_APPEND, 0666);
+	return OpenFile(out_path, O_CREAT | O_WRONLY | O_APPEND, 0666).Steal();
 }
 
 static void
@@ -72,7 +77,7 @@ log_init_file(int line)
 
 	out_fd = open_log_file();
 	if (out_fd < 0) {
-#ifdef WIN32
+#ifdef _WIN32
 		const std::string out_path_utf8 = out_path.ToUTF8();
 		throw FormatRuntimeError("failed to open log file \"%s\" (config line %d)",
 					 out_path_utf8.c_str(), line);
@@ -104,7 +109,7 @@ parse_log_level(const char *value, int line)
 #endif
 
 void
-log_early_init(bool verbose)
+log_early_init(bool verbose) noexcept
 {
 #ifdef ANDROID
 	(void)verbose;
@@ -118,25 +123,36 @@ log_early_init(bool verbose)
 }
 
 void
-log_init(bool verbose, bool use_stdout)
+log_init(const ConfigData &config, bool verbose, bool use_stdout)
 {
 #ifdef ANDROID
+	(void)config;
 	(void)verbose;
 	(void)use_stdout;
 #else
 	if (verbose)
 		SetLogThreshold(LogLevel::DEBUG);
-	else if (const auto &param = config_get_param(ConfigOption::LOG_LEVEL))
+	else if (const auto &param = config.GetParam(ConfigOption::LOG_LEVEL))
 		SetLogThreshold(parse_log_level(param->value.c_str(),
 						param->line));
 
 	if (use_stdout) {
 		out_fd = STDOUT_FILENO;
 	} else {
-		const auto *param = config_get_param(ConfigOption::LOG_FILE);
+		const auto *param = config.GetParam(ConfigOption::LOG_FILE);
 		if (param == nullptr) {
 			/* no configuration: default to syslog (if
 			   available) */
+#ifdef ENABLE_SYSTEMD_DAEMON
+			if (sd_booted() &&
+			    getenv("NOTIFY_SOCKET") != nullptr) {
+				/* if MPD was started as a systemd
+				   service, default to journal (which
+				   is connected to fd=2) */
+				out_fd = STDOUT_FILENO;
+				return;
+			}
+#endif
 #ifndef HAVE_SYSLOG
 			throw std::runtime_error("config parameter 'log_file' not found");
 #endif
@@ -155,7 +171,7 @@ log_init(bool verbose, bool use_stdout)
 #ifndef ANDROID
 
 static void
-close_log_files(void)
+close_log_files() noexcept
 {
 #ifdef HAVE_SYSLOG
 	LogFinishSysLog();
@@ -165,11 +181,11 @@ close_log_files(void)
 #endif
 
 void
-log_deinit(void)
+log_deinit() noexcept
 {
 #ifndef ANDROID
 	close_log_files();
-	out_path = AllocatedPath::Null();
+	out_path = nullptr;
 #endif
 }
 
@@ -182,7 +198,7 @@ void setup_log_output()
 	fflush(nullptr);
 
 	if (out_fd < 0) {
-#ifdef WIN32
+#ifdef _WIN32
 		return;
 #else
 		out_fd = open("/dev/null", O_WRONLY);
@@ -197,7 +213,8 @@ void setup_log_output()
 #endif
 }
 
-int cycle_log_files(void)
+int
+cycle_log_files() noexcept
 {
 #ifdef ANDROID
 	return 0;

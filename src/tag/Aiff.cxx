@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2018 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Aiff.hxx"
 #include "input/InputStream.hxx"
 #include "system/ByteOrder.hxx"
@@ -49,7 +48,7 @@ aiff_seek_id3(InputStream &is)
 	aiff_header header;
 	is.ReadFull(&header, sizeof(header));
 	if (memcmp(header.id, "FORM", 4) != 0 ||
-	    (is.KnownSize() && FromLE32(header.size) > is.GetSize()) ||
+	    (is.KnownSize() && FromBE32(header.size) > is.GetSize()) ||
 	    (memcmp(header.format, "AIFF", 4) != 0 &&
 	     memcmp(header.format, "AIFC", 4) != 0))
 		throw std::runtime_error("Not an AIFF file");
