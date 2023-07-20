@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Volume.hxx"
 #include "output/MultipleOutputs.hxx"
 #include "Idle.hxx"
@@ -27,7 +26,8 @@
 #include "fs/io/BufferedOutputStream.hxx"
 #include "Log.hxx"
 
-#include <assert.h>
+#include <cassert>
+
 #include <stdlib.h>
 
 #define SW_VOLUME_STATE                         "sw_volume: "
@@ -42,17 +42,17 @@ static int last_hardware_volume = -1;
 static PeriodClock hardware_volume_clock;
 
 void
-InvalidateHardwareVolume()
+InvalidateHardwareVolume() noexcept
 {
 	/* flush the hardware volume cache */
 	last_hardware_volume = -1;
 }
 
 int
-volume_level_get(const MultipleOutputs &outputs)
+volume_level_get(const MultipleOutputs &outputs) noexcept
 {
 	if (last_hardware_volume >= 0 &&
-	    !hardware_volume_clock.CheckUpdate(1000))
+	    !hardware_volume_clock.CheckUpdate(std::chrono::seconds(1)))
 		/* throttle access to hardware mixers */
 		return last_hardware_volume;
 
@@ -106,8 +106,8 @@ read_sw_volume_state(const char *line, MultipleOutputs &outputs)
 	if (*end == 0 && sv >= 0 && sv <= 100)
 		software_volume_change(outputs, sv);
 	else
-		FormatWarning(volume_domain,
-			      "Can't parse software volume: %s", line);
+		FmtWarning(volume_domain,
+			   "Can't parse software volume: {}", line);
 	return true;
 }
 
@@ -118,7 +118,7 @@ save_sw_volume_state(BufferedOutputStream &os)
 }
 
 unsigned
-sw_volume_state_get_hash(void)
+sw_volume_state_get_hash() noexcept
 {
 	return volume_software_set;
 }

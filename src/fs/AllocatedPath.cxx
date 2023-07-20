@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,59 +17,39 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AllocatedPath.hxx"
-#include "Domain.hxx"
 #include "Charset.hxx"
-#include "Compiler.h"
-
-#include <stdexcept>
+#include "Features.hxx"
 
 /* no inlining, please */
-AllocatedPath::~AllocatedPath() {}
+AllocatedPath::~AllocatedPath() noexcept = default;
 
 AllocatedPath
-AllocatedPath::FromUTF8(const char *path_utf8)
+AllocatedPath::FromUTF8(std::string_view path_utf8) noexcept
 {
-#if defined(HAVE_FS_CHARSET) || defined(WIN32)
+#ifdef FS_CHARSET_ALWAYS_UTF8
+	return FromFS(path_utf8);
+#else
 	try {
-		return AllocatedPath(::PathFromUTF8(path_utf8));
-	} catch (const std::runtime_error &) {
+		return {::PathFromUTF8(path_utf8)};
+	} catch (...) {
 		return nullptr;
 	}
-#else
-	return FromFS(path_utf8);
 #endif
 }
 
 AllocatedPath
-AllocatedPath::FromUTF8Throw(const char *path_utf8)
+AllocatedPath::FromUTF8Throw(std::string_view path_utf8)
 {
-#if defined(HAVE_FS_CHARSET) || defined(WIN32)
-	return AllocatedPath(::PathFromUTF8(path_utf8));
-#else
+#ifdef FS_CHARSET_ALWAYS_UTF8
 	return FromFS(path_utf8);
+#else
+	return {::PathFromUTF8(path_utf8)};
 #endif
-}
-
-AllocatedPath
-AllocatedPath::GetDirectoryName() const
-{
-	return FromFS(PathTraitsFS::GetParent(c_str()));
-}
-
-std::string
-AllocatedPath::ToUTF8() const
-{
-	try {
-		return ::PathToUTF8(c_str());
-	} catch (const std::runtime_error &) {
-		return std::string();
-	}
 }
 
 void
-AllocatedPath::ChopSeparators()
+AllocatedPath::ChopSeparators() noexcept
 {
 	size_t l = length();
 	const auto *p = data();
@@ -77,10 +57,6 @@ AllocatedPath::ChopSeparators()
 	while (l >= 2 && PathTraitsFS::IsSeparator(p[l - 1])) {
 		--l;
 
-#if GCC_CHECK_VERSION(4,7)
 		value.pop_back();
-#else
-		value.erase(value.end() - 1, value.end());
-#endif
 	}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "OpusDecoderPlugin.h"
 #include "OggDecoder.hxx"
 #include "OpusDomain.hxx"
@@ -29,8 +28,8 @@
 #include "decoder/Reader.hxx"
 #include "input/Reader.hxx"
 #include "OggCodec.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "input/InputStream.hxx"
 #include "util/RuntimeError.hxx"
 #include "Log.hxx"
@@ -42,30 +41,41 @@
 
 namespace {
 
-static constexpr opus_int32 opus_sample_rate = 48000;
+constexpr opus_int32 opus_sample_rate = 48000;
 
 /**
  * Allocate an output buffer for 16 bit PCM samples big enough to hold
  * a quarter second, larger than 120ms required by libopus.
  */
-static constexpr unsigned opus_output_buffer_frames = opus_sample_rate / 4;
+constexpr unsigned opus_output_buffer_frames = opus_sample_rate / 4;
 
 gcc_pure
-static bool
-IsOpusHead(const ogg_packet &packet)
+bool
+IsOpusHead(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusHead", 8) == 0;
 }
 
 gcc_pure
-static bool
-IsOpusTags(const ogg_packet &packet)
+bool
+IsOpusTags(const ogg_packet &packet) noexcept
 {
 	return packet.bytes >= 8 && memcmp(packet.packet, "OpusTags", 8) == 0;
 }
 
-static bool
-mpd_opus_init(gcc_unused const ConfigBlock &block)
+/**
+ * Convert an EBU R128 value to ReplayGain.
+ */
+constexpr float
+EbuR128ToReplayGain(float ebu_r128) noexcept
+{
+	/* add 5dB to compensate for the different reference levels
+	   between ReplayGain (89dB) and EBU R128 (-23 LUFS) */
+	return ebu_r128 + 5;
+}
+
+bool
+mpd_opus_init([[maybe_unused]] const ConfigBlock &block)
 {
 	LogDebug(opus_domain, opus_get_version_string());
 
@@ -77,6 +87,26 @@ class MPDOpusDecoder final : public OggDecoder {
 	opus_int16 *output_buffer = nullptr;
 
 	/**
+	 * The output gain from the Opus header in dB that should be
+	 * applied unconditionally, but is often used specifically for
+	 * ReplayGain.  Initialized by OnOggBeginning().
+	 */
+	float output_gain;
+
+	/**
+	 * The pre-skip value from the Opus header.  Initialized by
+	 * OnOggBeginning().
+	 */
+	unsigned pre_skip;
+
+	/**
+	 * The number of decoded samples which shall be skipped.  At
+	 * the beginning of the file, this gets set to #pre_skip (by
+	 * OnOggBeginning()), and may also be set while seeking.
+	 */
+	unsigned skip;
+
+	/**
 	 * If non-zero, then a previous Opus stream has been found
 	 * already with this number of channels.  If opus_decoder is
 	 * nullptr, then its end-of-stream packet has been found
@@ -86,22 +116,47 @@ class MPDOpusDecoder final : public OggDecoder {
 
 	size_t frame_size;
 
+	/**
+	 * The granulepos of the next sample to be submitted to
+	 * DecoderClient::SubmitData().  Negative if unkown.
+	 * Initialized by OnOggBeginning().
+	 */
+	ogg_int64_t granulepos;
+
+	/**
+	 * Was DecoderClient::SubmitReplayGain() called?  We need to
+	 * keep track of this, because it will usually be called by
+	 * HandleTags(), but if there is no OpusTags packet, we need
+	 * to submit our #output_gain value from the OpusHead.
+	 */
+	bool submitted_replay_gain = false;
+
 public:
 	explicit MPDOpusDecoder(DecoderReader &reader)
 		:OggDecoder(reader) {}
 
 	~MPDOpusDecoder();
 
+	MPDOpusDecoder(const MPDOpusDecoder &) = delete;
+	MPDOpusDecoder &operator=(const MPDOpusDecoder &) = delete;
+
 	/**
 	 * Has DecoderClient::Ready() been called yet?
 	 */
-	bool IsInitialized() const {
+	[[nodiscard]] bool IsInitialized() const {
 		return previous_channels != 0;
 	}
 
 	bool Seek(uint64_t where_frame);
 
 private:
+	void AddGranulepos(ogg_int64_t n) noexcept {
+		assert(n >= 0);
+
+		if (granulepos >= 0)
+			granulepos += n;
+	}
+
 	void HandleTags(const ogg_packet &packet);
 	void HandleAudio(const ogg_packet &packet);
 
@@ -138,9 +193,16 @@ MPDOpusDecoder::OnOggBeginning(const ogg_packet &packet)
 		throw std::runtime_error("BOS packet must be OpusHead");
 
 	unsigned channels;
-	if (!ScanOpusHeader(packet.packet, packet.bytes, channels) ||
+	signed output_gain_i;
+	if (!ScanOpusHeader(packet.packet, packet.bytes, channels, output_gain_i, pre_skip) ||
 	    !audio_valid_channel_count(channels))
 		throw std::runtime_error("Malformed BOS packet");
+
+	/* convert Q7.8 fixed-point to float */
+	output_gain = float(output_gain_i) / 256.0f;
+
+	granulepos = 0;
+	skip = pre_skip;
 
 	assert(opus_decoder == nullptr);
 	assert(IsInitialized() == (output_buffer != nullptr));
@@ -178,8 +240,12 @@ MPDOpusDecoder::OnOggBeginning(const ogg_packet &packet)
 	client.Ready(audio_format, eos_granulepos > 0, duration);
 	frame_size = audio_format.GetFrameSize();
 
-	output_buffer = new opus_int16[opus_output_buffer_frames
-				       * audio_format.channels];
+	if (output_buffer == nullptr)
+		/* note: if we ever support changing the channel count
+		   in chained streams, we need to reallocate this
+		   buffer instead of keeping it */
+		output_buffer = new opus_int16[opus_output_buffer_frames
+					       * audio_format.channels];
 
 	auto cmd = client.GetCommand();
 	if (cmd != DecoderCommand::NONE)
@@ -207,13 +273,23 @@ MPDOpusDecoder::HandleTags(const ogg_packet &packet)
 	rgi.Clear();
 
 	TagBuilder tag_builder;
+	AddTagHandler h(tag_builder);
 
-	if (ScanOpusTags(packet.packet, packet.bytes,
-			 &rgi,
-			 add_tag_handler, &tag_builder) &&
-	    !tag_builder.IsEmpty()) {
+	if (!ScanOpusTags(packet.packet, packet.bytes, &rgi, h))
+		return;
+
+	if (rgi.IsDefined()) {
+		/* submit all valid EBU R128 values with output_gain
+		   applied */
+		if (rgi.track.IsDefined())
+			rgi.track.gain += EbuR128ToReplayGain(output_gain);
+		if (rgi.album.IsDefined())
+			rgi.album.gain += EbuR128ToReplayGain(output_gain);
 		client.SubmitReplayGain(&rgi);
+		submitted_replay_gain = true;
+	}
 
+	if (!tag_builder.empty()) {
 		Tag tag = tag_builder.Commit();
 		auto cmd = client.SubmitTag(input_stream, std::move(tag));
 		if (cmd != DecoderCommand::NONE)
@@ -226,27 +302,75 @@ MPDOpusDecoder::HandleAudio(const ogg_packet &packet)
 {
 	assert(opus_decoder != nullptr);
 
+	if (!submitted_replay_gain) {
+		/* if we didn't see an OpusTags packet with EBU R128
+		   values, we still need to apply the output gain
+		   value from the OpusHead packet; submit it as "track
+		   gain" value */
+		ReplayGainInfo rgi;
+		rgi.Clear();
+		rgi.track.gain = EbuR128ToReplayGain(output_gain);
+		client.SubmitReplayGain(&rgi);
+		submitted_replay_gain = true;
+	}
+
 	int nframes = opus_decode(opus_decoder,
 				  (const unsigned char*)packet.packet,
 				  packet.bytes,
 				  output_buffer, opus_output_buffer_frames,
 				  0);
-	if (nframes < 0)
-		throw FormatRuntimeError("libopus error: %s",
-					 opus_strerror(nframes));
-
-	if (nframes > 0) {
-		const size_t nbytes = nframes * frame_size;
-		auto cmd = client.SubmitData(input_stream,
-					     output_buffer, nbytes,
-					     0);
-		if (cmd != DecoderCommand::NONE)
-			throw cmd;
-
-		if (packet.granulepos > 0)
-			client.SubmitTimestamp(double(packet.granulepos)
-					       / opus_sample_rate);
+	if (gcc_unlikely(nframes <= 0)) {
+		if (nframes < 0)
+			throw FormatRuntimeError("libopus error: %s",
+						 opus_strerror(nframes));
+		else
+			return;
 	}
+
+	/* apply the "skip" value */
+	if (skip >= (unsigned)nframes) {
+		skip -= nframes;
+		AddGranulepos(nframes);
+		return;
+	}
+
+	const opus_int16 *data = output_buffer;
+	data += skip * previous_channels;
+	nframes -= skip;
+	AddGranulepos(skip);
+	skip = 0;
+
+	if (packet.e_o_s && packet.granulepos > 0 && granulepos >= 0) {
+		/* End Trimming (RFC7845 4.4): "The page with the 'end
+		   of stream' flag set MAY have a granule position
+		   that indicates the page contains less audio data
+		   than would normally be returned by decoding up
+		   through the final packet.  This is used to end the
+		   stream somewhere other than an even frame
+		   boundary. [...] The remaining samples are
+		   discarded. */
+		ogg_int64_t remaining = packet.granulepos - granulepos;
+		if (remaining <= 0)
+			return;
+
+		if (remaining < nframes)
+			nframes = remaining;
+	}
+
+	/* submit decoded samples to the DecoderClient */
+	const size_t nbytes = nframes * frame_size;
+	auto cmd = client.SubmitData(input_stream,
+				     data, nbytes,
+				     0);
+	if (cmd != DecoderCommand::NONE)
+		throw cmd;
+
+	if (packet.granulepos > 0) {
+		granulepos = packet.granulepos;
+		client.SubmitTimestamp(FloatDuration(granulepos - pre_skip)
+				       / opus_sample_rate);
+	} else
+		AddGranulepos(nframes);
 }
 
 bool
@@ -258,15 +382,27 @@ MPDOpusDecoder::Seek(uint64_t where_frame)
 
 	const ogg_int64_t where_granulepos(where_frame);
 
+	/* we don't know the exact granulepos after seeking, so let's
+	   set it to -1 - it will be set after the next packet which
+	   declares its granulepos */
+	granulepos = -1;
+
 	try {
 		SeekGranulePos(where_granulepos);
+
+		/* since all frame numbers are offset by the file's
+		   pre-skip value, we need to apply it here as well;
+		   we could just seek to "where_frame+pre_skip" as
+		   well, but I think by decoding those samples and
+		   discard them, we're safer */
+		skip = pre_skip;
 		return true;
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 }
 
-static void
+void
 mpd_opus_stream_decode(DecoderClient &client,
 		       InputStream &input_stream)
 {
@@ -277,7 +413,7 @@ mpd_opus_stream_decode(DecoderClient &client,
 	   moved it */
 	try {
 		input_stream.LockRewind();
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 	}
 
 	DecoderReader reader(client, input_stream);
@@ -300,21 +436,22 @@ mpd_opus_stream_decode(DecoderClient &client,
 	}
 }
 
-static bool
+bool
 ReadAndParseOpusHead(OggSyncState &sync, OggStreamState &stream,
-		     unsigned &channels)
+		     unsigned &channels, signed &output_gain, unsigned &pre_skip)
 {
 	ogg_packet packet;
 
 	return OggReadPacket(sync, stream, packet) && packet.b_o_s &&
 		IsOpusHead(packet) &&
-		ScanOpusHeader(packet.packet, packet.bytes, channels) &&
+		ScanOpusHeader(packet.packet, packet.bytes, channels,
+			       output_gain, pre_skip) &&
 		audio_valid_channel_count(channels);
 }
 
-static bool
+bool
 ReadAndVisitOpusTags(OggSyncState &sync, OggStreamState &stream,
-		     const TagHandler &handler, void *handler_ctx)
+		     TagHandler &handler)
 {
 	ogg_packet packet;
 
@@ -322,26 +459,26 @@ ReadAndVisitOpusTags(OggSyncState &sync, OggStreamState &stream,
 		IsOpusTags(packet) &&
 		ScanOpusTags(packet.packet, packet.bytes,
 			     nullptr,
-			     handler, handler_ctx);
+			     handler);
 }
 
-static void
+void
 VisitOpusDuration(InputStream &is, OggSyncState &sync, OggStreamState &stream,
-		  const TagHandler &handler, void *handler_ctx)
+		  ogg_int64_t pre_skip, TagHandler &handler)
 {
 	ogg_packet packet;
 
-	if (OggSeekFindEOS(sync, stream, packet, is)) {
+	if (OggSeekFindEOS(sync, stream, packet, is) &&
+	    packet.granulepos >= pre_skip) {
 		const auto duration =
 			SongTime::FromScale<uint64_t>(packet.granulepos,
 						      opus_sample_rate);
-		tag_handler_invoke_duration(handler, handler_ctx, duration);
+		handler.OnDuration(duration);
 	}
 }
 
 static bool
-mpd_opus_scan_stream(InputStream &is,
-		     const TagHandler &handler, void *handler_ctx)
+mpd_opus_scan_stream(InputStream &is, TagHandler &handler)
 {
 	InputStreamReader reader(is);
 	OggSyncState oy(reader);
@@ -352,23 +489,27 @@ mpd_opus_scan_stream(InputStream &is,
 
 	OggStreamState os(first_page);
 
-	unsigned channels;
-	if (!ReadAndParseOpusHead(oy, os, channels) ||
-	    !ReadAndVisitOpusTags(oy, os, handler, handler_ctx))
+	unsigned channels, pre_skip;
+	signed output_gain;
+	if (!ReadAndParseOpusHead(oy, os, channels, output_gain, pre_skip) ||
+	    !ReadAndVisitOpusTags(oy, os, handler))
 		return false;
 
-	VisitOpusDuration(is, oy, os, handler, handler_ctx);
+	handler.OnAudioFormat(AudioFormat(opus_sample_rate,
+					  SampleFormat::S16, channels));
+
+	VisitOpusDuration(is, oy, os, pre_skip, handler);
 	return true;
 }
 
-static const char *const opus_suffixes[] = {
+const char *const opus_suffixes[] = {
 	"opus",
 	"ogg",
 	"oga",
 	nullptr
 };
 
-static const char *const opus_mime_types[] = {
+const char *const opus_mime_types[] = {
 	/* the official MIME type (RFC 5334) */
 	"audio/ogg",
 
@@ -382,15 +523,8 @@ static const char *const opus_mime_types[] = {
 
 } /* anonymous namespace */
 
-const struct DecoderPlugin opus_decoder_plugin = {
-	"opus",
-	mpd_opus_init,
-	nullptr,
-	mpd_opus_stream_decode,
-	nullptr,
-	nullptr,
-	mpd_opus_scan_stream,
-	nullptr,
-	opus_suffixes,
-	opus_mime_types,
-};
+constexpr DecoderPlugin opus_decoder_plugin =
+	DecoderPlugin("opus", mpd_opus_stream_decode, mpd_opus_scan_stream)
+	.WithInit(mpd_opus_init)
+	.WithSuffixes(opus_suffixes)
+	.WithMimeTypes(opus_mime_types);

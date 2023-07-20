@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,9 +17,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Tags.hxx"
-#include "tag/TagTable.hxx"
+#include "tag/Table.hxx"
 
 const struct tag_table upnp_tags[] = {
 	{ "upnp:artist", TAG_ARTIST },

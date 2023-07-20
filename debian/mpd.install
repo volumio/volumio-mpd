@@ -1,0 +1,2 @@
+debian/mpd.conf			etc
+debian/source_mpd.py            usr/share/apport/package-hooks

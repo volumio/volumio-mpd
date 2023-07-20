@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "RssPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../MemorySongEnumerator.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 #include "util/ASCII.hxx"
 #include "util/StringView.hxx"
 #include "lib/expat/ExpatParser.hxx"
-#include "Log.hxx"
 
 /**
  * This is the state object for the our XML parser.
@@ -42,7 +40,7 @@ struct RssParser {
 	 */
 	enum {
 		ROOT, ITEM,
-	} state;
+	} state{ROOT};
 
 	/**
 	 * The current tag within the "entry" element.  This is only
@@ -59,15 +57,14 @@ struct RssParser {
 
 	TagBuilder tag_builder;
 
-	RssParser()
-		:state(ROOT) {}
+	RssParser() = default;
 };
 
 static void XMLCALL
 rss_start_element(void *user_data, const XML_Char *element_name,
 		  const XML_Char **atts)
 {
-	RssParser *parser = (RssParser *)user_data;
+	auto *parser = (RssParser *)user_data;
 
 	switch (parser->state) {
 	case RssParser::ROOT:
@@ -97,7 +94,7 @@ rss_start_element(void *user_data, const XML_Char *element_name,
 static void XMLCALL
 rss_end_element(void *user_data, const XML_Char *element_name)
 {
-	RssParser *parser = (RssParser *)user_data;
+	auto *parser = (RssParser *)user_data;
 
 	switch (parser->state) {
 	case RssParser::ROOT:
@@ -120,7 +117,7 @@ rss_end_element(void *user_data, const XML_Char *element_name)
 static void XMLCALL
 rss_char_data(void *user_data, const XML_Char *s, int len)
 {
-	RssParser *parser = (RssParser *)user_data;
+	auto *parser = (RssParser *)user_data;
 
 	switch (parser->state) {
 	case RssParser::ROOT:
@@ -140,7 +137,7 @@ rss_char_data(void *user_data, const XML_Char *s, int len)
  *
  */
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 rss_open_stream(InputStreamPtr &&is)
 {
 	RssParser parser;
@@ -153,29 +150,22 @@ rss_open_stream(InputStreamPtr &&is)
 	}
 
 	parser.songs.reverse();
-	return new MemorySongEnumerator(std::move(parser.songs));
+	return std::make_unique<MemorySongEnumerator>(std::move(parser.songs));
 }
 
-static const char *const rss_suffixes[] = {
+static constexpr const char *rss_suffixes[] = {
 	"rss",
 	nullptr
 };
 
-static const char *const rss_mime_types[] = {
+static constexpr const char *rss_mime_types[] = {
 	"application/rss+xml",
+	"application/xml",
 	"text/xml",
 	nullptr
 };
 
-const struct playlist_plugin rss_playlist_plugin = {
-	"rss",
-
-	nullptr,
-	nullptr,
-	nullptr,
-	rss_open_stream,
-
-	nullptr,
-	rss_suffixes,
-	rss_mime_types,
-};
+const PlaylistPlugin rss_playlist_plugin =
+	PlaylistPlugin("rss", rss_open_stream)
+	.WithSuffixes(rss_suffixes)
+	.WithMimeTypes(rss_mime_types);

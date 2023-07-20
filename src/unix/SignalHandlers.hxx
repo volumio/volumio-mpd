@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,23 @@
 #ifndef MPD_SIGNAL_HANDLERS_HXX
 #define MPD_SIGNAL_HANDLERS_HXX
 
-class EventLoop;
+struct Instance;
 
 void
-SignalHandlersInit(EventLoop &loop);
+SignalHandlersInit(Instance &instance);
 
 void
-SignalHandlersFinish();
+SignalHandlersFinish() noexcept;
+
+class ScopeSignalHandlersInit {
+public:
+	ScopeSignalHandlersInit(Instance &instance) {
+		SignalHandlersInit(instance);
+	}
+
+	~ScopeSignalHandlersInit() noexcept {
+		SignalHandlersFinish();
+	}
+};
 
 #endif

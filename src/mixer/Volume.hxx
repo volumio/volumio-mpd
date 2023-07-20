@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,17 +20,15 @@
 #ifndef MPD_VOLUME_HXX
 #define MPD_VOLUME_HXX
 
-#include "Compiler.h"
-
 class MultipleOutputs;
 class BufferedOutputStream;
 
 void
-InvalidateHardwareVolume();
+InvalidateHardwareVolume() noexcept;
 
-gcc_pure
+[[gnu::pure]]
 int
-volume_level_get(const MultipleOutputs &outputs);
+volume_level_get(const MultipleOutputs &outputs) noexcept;
 
 bool
 volume_level_change(MultipleOutputs &outputs, unsigned volume);
@@ -47,8 +45,8 @@ save_sw_volume_state(BufferedOutputStream &os);
  * determine whether the state has changed and the state file should
  * be saved.
  */
-gcc_pure
+[[gnu::pure]]
 unsigned
-sw_volume_state_get_hash();
+sw_volume_state_get_hash() noexcept;
 
 #endif

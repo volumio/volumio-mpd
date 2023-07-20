@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,11 +23,10 @@
  *
  */
 
-#include "config.h"
 #include "AudioCompress/compress.h"
-#include "AudioParser.hxx"
-#include "AudioFormat.hxx"
-#include "Log.hxx"
+#include "pcm/AudioParser.hxx"
+#include "pcm/AudioFormat.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdexcept>
 
@@ -58,12 +57,12 @@ try {
 		Compressor_Process_int16(compressor,
 					 (int16_t *)buffer, nbytes / 2);
 
-		gcc_unused ssize_t ignored = write(1, buffer, nbytes);
+		[[maybe_unused]] ssize_t ignored = write(1, buffer, nbytes);
 	}
 
 	Compressor_delete(compressor);
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

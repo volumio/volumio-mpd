@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Directory.hxx"
-#include "lib/upnp/Util.hxx"
 #include "lib/expat/ExpatParser.hxx"
 #include "Tags.hxx"
-#include "tag/TagBuilder.hxx"
-#include "tag/TagTable.hxx"
+#include "tag/Builder.hxx"
+#include "tag/Table.hxx"
 #include "util/NumberParser.hxx"
 #include "util/StringView.hxx"
 
@@ -32,46 +30,42 @@
 
 #include <string.h>
 
-UPnPDirContent::~UPnPDirContent()
-{
-	/* this destructor exists here just so it won't get inlined */
-}
+/* this destructor exists here just so it won't get inlined */
+UPnPDirContent::~UPnPDirContent() = default;
 
-gcc_pure
+[[gnu::pure]]
 static UPnPDirObject::ItemClass
-ParseItemClass(StringView name)
+ParseItemClass(StringView name) noexcept
 {
-	if (name.EqualsLiteral("object.item.audioItem.musicTrack"))
+	if (name.Equals("object.item.audioItem.musicTrack"))
 		return UPnPDirObject::ItemClass::MUSIC;
-	else if (name.EqualsLiteral("object.item.playlistItem"))
+	else if (name.Equals("object.item.playlistItem"))
 		return UPnPDirObject::ItemClass::PLAYLIST;
 	else
 		return UPnPDirObject::ItemClass::UNKNOWN;
 }
 
-gcc_pure
+[[gnu::pure]]
 static SignedSongTime
-ParseDuration(const char *duration)
+ParseDuration(const char *duration) noexcept
 {
 	char *endptr;
 
-	unsigned result = ParseUnsigned(duration, &endptr);
+	int hours = ParseInt(duration, &endptr);
 	if (endptr == duration || *endptr != ':')
 		return SignedSongTime::Negative();
 
-	result *= 60;
 	duration = endptr + 1;
-	result += ParseUnsigned(duration, &endptr);
+	unsigned minutes = ParseUnsigned(duration, &endptr);
 	if (endptr == duration || *endptr != ':')
 		return SignedSongTime::Negative();
 
-	result *= 60;
 	duration = endptr + 1;
-	result += ParseUnsigned(duration, &endptr);
-	if (endptr == duration || *endptr != 0)
+	double seconds = ParseDouble(duration, &endptr);
+	if (endptr == duration || *endptr != 0 || seconds < 0.0)
 		return SignedSongTime::Negative();
 
-	return SignedSongTime::FromS(result);
+	return SignedSongTime::FromS((((hours * 60) + minutes) * 60) + seconds);
 }
 
 /**
@@ -79,9 +73,9 @@ ParseDuration(const char *duration)
  * elements. There is a very slight risk of collision in doing
  * this. Twonky returns directory names (titles) like 'Artist/Album'.
  */
-gcc_pure
+[[gnu::pure]]
 static std::string &&
-TitleToPathSegment(std::string &&s)
+TitleToPathSegment(std::string &&s) noexcept
 {
 	std::replace(s.begin(), s.end(), '/', '_');
 	return std::move(s);
@@ -115,7 +109,7 @@ class UPnPDirParser final : public CommonExpatParser {
 	TagBuilder tag;
 
 public:
-	UPnPDirParser(UPnPDirContent &_directory)
+	explicit UPnPDirParser(UPnPDirContent &_directory)
 		:directory(_directory),
 		 state(NONE),
 		 tag_type(TAG_NUM_OF_ITEM_TYPES)
@@ -124,7 +118,7 @@ public:
 	}
 
 protected:
-	virtual void StartElement(const XML_Char *name, const XML_Char **attrs)
+	void StartElement(const XML_Char *name, const XML_Char **attrs) override
 	{
 		if (object.type != UPnPDirObject::Type::UNKNOWN &&
 		    tag_type == TAG_NUM_OF_ITEM_TYPES) {
@@ -188,7 +182,7 @@ protected:
 		}
 	}
 
-	virtual void EndElement(const XML_Char *name)
+	void EndElement(const XML_Char *name) override
 	{
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);
@@ -198,7 +192,7 @@ protected:
 			if (tag_type == TAG_TITLE)
 				object.name = TitleToPathSegment(std::move(value));
 
-			value.clear();
+			value = {};
 			tag_type = TAG_NUM_OF_ITEM_TYPES;
 			return;
 		}
@@ -212,7 +206,7 @@ protected:
 		state = NONE;
 	}
 
-	virtual void CharacterData(const XML_Char *s, int len)
+	void CharacterData(const XML_Char *s, int len) override
 	{
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#define __STDC_FORMAT_MACROS /* for PRIu64 */
-
 #include "config.h"
 #include "StorageCommands.hxx"
 #include "Request.hxx"
-#include "CommandError.hxx"
+#include "time/ChronoUtil.hxx"
 #include "util/UriUtil.hxx"
 #include "util/ConstBuffer.hxx"
 #include "fs/Traits.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
-#include "Partition.hxx"
 #include "Instance.hxx"
 #include "storage/Registry.hxx"
 #include "storage/CompositeStorage.hxx"
@@ -36,26 +33,18 @@
 #include "db/plugins/simple/SimpleDatabasePlugin.hxx"
 #include "db/update/Service.hxx"
 #include "TimePrint.hxx"
-#include "IOThread.hxx"
-#include "Idle.hxx"
+#include "IdleFlags.hxx"
+
+#include <fmt/format.h>
 
 #include <memory>
 
-#include <inttypes.h> /* for PRIu64 */
-
 gcc_pure
 static bool
-skip_path(const char *name_utf8)
+skip_path(const char *name_utf8) noexcept
 {
-	return strchr(name_utf8, '\n') != nullptr;
+	return std::strchr(name_utf8, '\n') != nullptr;
 }
-
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
-/* PRIu64 causes bogus compiler warning */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-#endif
 
 static void
 handle_listfiles_storage(Response &r, StorageDirectoryReader &reader)
@@ -68,7 +57,7 @@ handle_listfiles_storage(Response &r, StorageDirectoryReader &reader)
 		StorageFileInfo info;
 		try {
 			info = reader.GetInfo(false);
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 			continue;
 		}
 
@@ -78,23 +67,23 @@ handle_listfiles_storage(Response &r, StorageDirectoryReader &reader)
 			continue;
 
 		case StorageFileInfo::Type::REGULAR:
-			r.Format("file: %s\n"
-				 "size: %" PRIu64 "\n",
-				 name_utf8,
-				 info.size);
+			r.Fmt(FMT_STRING("file: {}\n"
+					 "size: {}\n"),
+			      name_utf8,
+			      info.size);
 			break;
 
 		case StorageFileInfo::Type::DIRECTORY:
-			r.Format("directory: %s\n", name_utf8);
+			r.Fmt(FMT_STRING("directory: {}\n"), name_utf8);
 			break;
 		}
 
-		if (info.mtime != 0)
+		if (!IsNegative(info.mtime))
 			time_print(r, "Last-Modified", info.mtime);
 	}
 }
 
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
+#if defined(_WIN32) && GCC_CHECK_VERSION(4,6)
 #pragma GCC diagnostic pop
 #endif
 
@@ -107,9 +96,10 @@ handle_listfiles_storage(Response &r, Storage &storage, const char *uri)
 }
 
 CommandResult
-handle_listfiles_storage(Response &r, const char *uri)
+handle_listfiles_storage(Client &client, Response &r, const char *uri)
 {
-	std::unique_ptr<Storage> storage(CreateStorageURI(io_thread_get(), uri));
+	auto &event_loop = client.GetInstance().io_thread.GetEventLoop();
+	std::unique_ptr<Storage> storage(CreateStorageURI(event_loop, uri));
 	if (storage == nullptr) {
 		r.Error(ACK_ERROR_ARG, "Unrecognized storage URI");
 		return CommandResult::ERROR;
@@ -141,13 +131,13 @@ print_storage_uri(Client &client, Response &r, const Storage &storage)
 			uri = std::move(allocated);
 	}
 
-	r.Format("storage: %s\n", uri.c_str());
+	r.Fmt(FMT_STRING("storage: {}\n"), uri);
 }
 
 CommandResult
-handle_listmounts(Client &client, gcc_unused Request args, Response &r)
+handle_listmounts(Client &client, [[maybe_unused]] Request args, Response &r)
 {
-	Storage *_composite = client.partition.instance.storage;
+	Storage *_composite = client.GetInstance().storage;
 	if (_composite == nullptr) {
 		r.Error(ACK_ERROR_NO_EXIST, "No database");
 		return CommandResult::ERROR;
@@ -157,7 +147,7 @@ handle_listmounts(Client &client, gcc_unused Request args, Response &r)
 
 	const auto visitor = [&client, &r](const char *mount_uri,
 					   const Storage &storage){
-		r.Format("mount: %s\n", mount_uri);
+		r.Fmt(FMT_STRING("mount: {}\n"), mount_uri);
 		print_storage_uri(client, r, storage);
 	};
 
@@ -169,7 +159,9 @@ handle_listmounts(Client &client, gcc_unused Request args, Response &r)
 CommandResult
 handle_mount(Client &client, Request args, Response &r)
 {
-	Storage *_composite = client.partition.instance.storage;
+	auto &instance = client.GetInstance();
+
+	Storage *_composite = instance.storage;
 	if (_composite == nullptr) {
 		r.Error(ACK_ERROR_NO_EXIST, "No database");
 		return CommandResult::ERROR;
@@ -185,7 +177,7 @@ handle_mount(Client &client, Request args, Response &r)
 		return CommandResult::ERROR;
 	}
 
-	if (strchr(local_uri, '/') != nullptr) {
+	if (std::strchr(local_uri, '/') != nullptr) {
 		/* allow only top-level mounts for now */
 		/* TODO: eliminate this limitation after ensuring that
 		   UpdateQueue::Erase() really gets called for every
@@ -195,22 +187,32 @@ handle_mount(Client &client, Request args, Response &r)
 		return CommandResult::ERROR;
 	}
 
-	Storage *storage = CreateStorageURI(io_thread_get(), remote_uri);
+	if (composite.IsMountPoint(local_uri)) {
+		r.Error(ACK_ERROR_ARG, "Mount point busy");
+		return CommandResult::ERROR;
+	}
+
+	if (composite.IsMounted(remote_uri)) {
+		r.Error(ACK_ERROR_ARG, "This storage is already mounted");
+		return CommandResult::ERROR;
+	}
+
+	auto &event_loop = instance.io_thread.GetEventLoop();
+	auto storage = CreateStorageURI(event_loop, remote_uri);
 	if (storage == nullptr) {
 		r.Error(ACK_ERROR_ARG, "Unrecognized storage URI");
 		return CommandResult::ERROR;
 	}
 
-	composite.Mount(local_uri, storage);
-	client.partition.EmitIdle(IDLE_MOUNT);
+	composite.Mount(local_uri, std::move(storage));
+	instance.EmitIdle(IDLE_MOUNT);
 
 #ifdef ENABLE_DATABASE
-	Database *_db = client.partition.instance.database;
-	if (_db != nullptr && _db->IsPlugin(simple_db_plugin)) {
-		SimpleDatabase &db = *(SimpleDatabase *)_db;
+	if (auto *db = dynamic_cast<SimpleDatabase *>(instance.GetDatabase())) {
+		bool need_update;
 
 		try {
-			db.Mount(local_uri, remote_uri);
+			need_update = !db->Mount(local_uri, remote_uri);
 		} catch (...) {
 			composite.Unmount(local_uri);
 			throw;
@@ -218,7 +220,13 @@ handle_mount(Client &client, Request args, Response &r)
 
 		// TODO: call Instance::OnDatabaseModified()?
 		// TODO: trigger database update?
-		client.partition.EmitIdle(IDLE_DATABASE);
+		instance.EmitIdle(IDLE_DATABASE);
+
+		if (need_update) {
+			UpdateService *update = client.GetInstance().update;
+			if (update != nullptr)
+				update->Enqueue(local_uri, false);
+		}
 	}
 #endif
 
@@ -228,7 +236,9 @@ handle_mount(Client &client, Request args, Response &r)
 CommandResult
 handle_unmount(Client &client, Request args, Response &r)
 {
-	Storage *_composite = client.partition.instance.storage;
+	auto &instance = client.GetInstance();
+
+	Storage *_composite = instance.storage;
 	if (_composite == nullptr) {
 		r.Error(ACK_ERROR_NO_EXIST, "No database");
 		return CommandResult::ERROR;
@@ -244,19 +254,16 @@ handle_unmount(Client &client, Request args, Response &r)
 	}
 
 #ifdef ENABLE_DATABASE
-	if (client.partition.instance.update != nullptr)
+	if (instance.update != nullptr)
 		/* ensure that no database update will attempt to work
 		   with the database/storage instances we're about to
 		   destroy here */
-		client.partition.instance.update->CancelMount(local_uri);
+		instance.update->CancelMount(local_uri);
 
-	Database *_db = client.partition.instance.database;
-	if (_db != nullptr && _db->IsPlugin(simple_db_plugin)) {
-		SimpleDatabase &db = *(SimpleDatabase *)_db;
-
-		if (db.Unmount(local_uri))
+	if (auto *db = dynamic_cast<SimpleDatabase *>(instance.GetDatabase())) {
+		if (db->Unmount(local_uri))
 			// TODO: call Instance::OnDatabaseModified()?
-			client.partition.EmitIdle(IDLE_DATABASE);
+			instance.EmitIdle(IDLE_DATABASE);
 	}
 #endif
 
@@ -265,7 +272,7 @@ handle_unmount(Client &client, Request args, Response &r)
 		return CommandResult::ERROR;
 	}
 
-	client.partition.EmitIdle(IDLE_MOUNT);
+	instance.EmitIdle(IDLE_MOUNT);
 
 	return CommandResult::OK;
 }

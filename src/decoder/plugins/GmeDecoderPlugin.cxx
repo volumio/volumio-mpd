@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,28 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "GmeDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "config/Block.cxx"
-#include "CheckAudioFormat.hxx"
-#include "DetachedSong.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "config/Block.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "song/DetachedSong.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "fs/Path.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "fs/FileSystem.hxx"
+#include "fs/NarrowPath.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/FormatString.hxx"
-#include "util/UriUtil.hxx"
+#include "util/StringCompare.hxx"
+#include "util/StringFormat.hxx"
+#include "util/StringView.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
 #include <gme/gme.h>
 
-#include <assert.h>
+#include <cassert>
+
 #include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
 
 #define SUBTUNE_PREFIX "tune_"
 
@@ -58,9 +59,10 @@ struct GmeContainerPath {
 #if GME_VERSION >= 0x000600
 static int gme_accuracy;
 #endif
+static unsigned gme_default_fade;
 
 static bool
-gme_plugin_init(gcc_unused const ConfigBlock &block)
+gme_plugin_init([[maybe_unused]] const ConfigBlock &block)
 {
 #if GME_VERSION >= 0x000600
 	auto accuracy = block.GetBlockParam("accuracy");
@@ -68,18 +70,21 @@ gme_plugin_init(gcc_unused const ConfigBlock &block)
 		? (int)accuracy->GetBoolValue()
 		: -1;
 #endif
+	auto fade = block.GetBlockParam("default_fade");
+	gme_default_fade = fade != nullptr
+		? fade->GetUnsignedValue() * 1000
+		: 8000;
 
 	return true;
 }
 
 gcc_pure
 static unsigned
-ParseSubtuneName(const char *base)
+ParseSubtuneName(const char *base) noexcept
 {
-	if (memcmp(base, SUBTUNE_PREFIX, sizeof(SUBTUNE_PREFIX) - 1) != 0)
+	base = StringAfterPrefix(base, SUBTUNE_PREFIX);
+	if (base == nullptr)
 		return 0;
-
-	base += sizeof(SUBTUNE_PREFIX) - 1;
 
 	char *endptr;
 	auto track = strtoul(base, &endptr, 10);
@@ -99,29 +104,64 @@ ParseContainerPath(Path path_fs)
 	const Path base = path_fs.GetBase();
 	unsigned track;
 	if (base.IsNull() ||
-	    (track = ParseSubtuneName(base.c_str())) < 1)
+	    (track = ParseSubtuneName(NarrowPath(base))) < 1)
 		return { AllocatedPath(path_fs), 0 };
 
 	return { path_fs.GetDirectoryName(), track - 1 };
 }
+
+static AllocatedPath
+ReplaceSuffix(Path src,
+	      const PathTraitsFS::const_pointer new_suffix) noexcept
+{
+	const auto *old_suffix = src.GetSuffix();
+	if (old_suffix == nullptr)
+		return nullptr;
+
+	PathTraitsFS::string s(src.c_str(), old_suffix);
+	s += new_suffix;
+	return AllocatedPath::FromFS(std::move(s));
+}
+
+static Music_Emu*
+LoadGmeAndM3u(const GmeContainerPath& container) {
+
+	Music_Emu *emu;
+	const char *gme_err =
+		gme_open_file(NarrowPath(container.path), &emu, GME_SAMPLE_RATE);
+	if (gme_err != nullptr) {
+		LogWarning(gme_domain, gme_err);
+		return nullptr;
+	}
+
+	const auto m3u_path = ReplaceSuffix(container.path,
+					    PATH_LITERAL("m3u"));
+    /*
+     * Some GME formats lose metadata if you attempt to
+     * load a non-existant M3U file, so check that one
+     * exists before loading.
+     */
+	if (!m3u_path.IsNull() && FileExists(m3u_path))
+		gme_load_m3u(emu, NarrowPath(m3u_path));
+
+	return emu;
+}
+
 
 static void
 gme_file_decode(DecoderClient &client, Path path_fs)
 {
 	const auto container = ParseContainerPath(path_fs);
 
-	Music_Emu *emu;
-	const char *gme_err =
-		gme_open_file(container.path.c_str(), &emu, GME_SAMPLE_RATE);
-	if (gme_err != nullptr) {
-		LogWarning(gme_domain, gme_err);
+	Music_Emu *emu = LoadGmeAndM3u(container);
+	if(emu == nullptr) {
 		return;
 	}
 
 	AtScopeExit(emu) { gme_delete(emu); };
 
-	FormatDebug(gme_domain, "emulator type '%s'\n",
-		    gme_type_system(gme_type(emu)));
+	FmtDebug(gme_domain, "emulator type '{}'",
+		 gme_type_system(gme_type(emu)));
 
 #if GME_VERSION >= 0x000600
 	if (gme_accuracy >= 0)
@@ -129,17 +169,23 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 #endif
 
 	gme_info_t *ti;
-	gme_err = gme_track_info(emu, &ti, container.track);
+	const char *gme_err = gme_track_info(emu, &ti, container.track);
 	if (gme_err != nullptr) {
 		LogWarning(gme_domain, gme_err);
 		return;
 	}
 
 	const int length = ti->play_length;
+#if GME_VERSION >= 0x000700
+	const int fade   = ti->fade_length;
+#else
+	const int fade   = -1;
+#endif
 	gme_free_info(ti);
 
 	const SignedSongTime song_len = length > 0
-		? SignedSongTime::FromMS(length)
+		? SignedSongTime::FromMS(length +
+			(fade == -1 ? gme_default_fade : fade))
 		: SignedSongTime::Negative();
 
 	/* initialize the MPD decoder */
@@ -154,8 +200,12 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 	if (gme_err != nullptr)
 		LogWarning(gme_domain, gme_err);
 
-	if (length > 0)
-		gme_set_fade(emu, length);
+	if (length > 0 && fade != 0)
+		gme_set_fade(emu, length
+#if GME_VERSION >= 0x000700
+			     , fade == -1 ? gme_default_fade : fade
+#endif
+			     );
 
 	/* play */
 	DecoderCommand cmd;
@@ -185,53 +235,45 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 
 static void
 ScanGmeInfo(const gme_info_t &info, unsigned song_num, int track_count,
-	    const TagHandler &handler, void *handler_ctx)
+	    TagHandler &handler) noexcept
 {
 	if (info.play_length > 0)
-		tag_handler_invoke_duration(handler, handler_ctx,
-					    SongTime::FromMS(info.play_length));
+		handler.OnDuration(SongTime::FromMS(info.play_length
+#if GME_VERSION >= 0x000700
+			+ (info.fade_length == -1 ? gme_default_fade : info.fade_length)
+#endif
+			));
 
-	if (track_count > 1) {
-		char track[16];
-		sprintf(track, "%u", song_num + 1);
-		tag_handler_invoke_tag(handler, handler_ctx, TAG_TRACK, track);
-	}
+	if (track_count > 1)
+		handler.OnTag(TAG_TRACK, StringFormat<16>("%u", song_num + 1).c_str());
 
-	if (info.song != nullptr) {
+	if (!StringIsEmpty(info.song)) {
 		if (track_count > 1) {
 			/* start numbering subtunes from 1 */
-			char tag_title[1024];
-			snprintf(tag_title, sizeof(tag_title),
-				 "%s (%u/%d)",
-				 info.song, song_num + 1,
-				 track_count);
-			tag_handler_invoke_tag(handler, handler_ctx,
-					       TAG_TITLE, tag_title);
+			const auto tag_title =
+				StringFormat<1024>("%s (%u/%d)",
+						   info.song, song_num + 1,
+						   track_count);
+			handler.OnTag(TAG_TITLE, tag_title.c_str());
 		} else
-			tag_handler_invoke_tag(handler, handler_ctx,
-					       TAG_TITLE, info.song);
+			handler.OnTag(TAG_TITLE, info.song);
 	}
 
-	if (info.author != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_ARTIST, info.author);
+	if (!StringIsEmpty(info.author))
+		handler.OnTag(TAG_ARTIST, info.author);
 
-	if (info.game != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_ALBUM, info.game);
+	if (!StringIsEmpty(info.game))
+		handler.OnTag(TAG_ALBUM, info.game);
 
-	if (info.comment != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_COMMENT, info.comment);
+	if (!StringIsEmpty(info.comment))
+		handler.OnTag(TAG_COMMENT, info.comment);
 
-	if (info.copyright != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_DATE, info.copyright);
+	if (!StringIsEmpty(info.copyright))
+		handler.OnTag(TAG_DATE, info.copyright);
 }
 
 static bool
-ScanMusicEmu(Music_Emu *emu, unsigned song_num,
-	     const TagHandler &handler, void *handler_ctx)
+ScanMusicEmu(Music_Emu *emu, unsigned song_num, TagHandler &handler) noexcept
 {
 	gme_info_t *ti;
 	const char *gme_err = gme_track_info(emu, &ti, song_num);
@@ -244,40 +286,33 @@ ScanMusicEmu(Music_Emu *emu, unsigned song_num,
 
 	AtScopeExit(ti) { gme_free_info(ti); };
 
-	ScanGmeInfo(*ti, song_num, gme_track_count(emu),
-		    handler, handler_ctx);
+	ScanGmeInfo(*ti, song_num, gme_track_count(emu), handler);
 	return true;
 }
 
 static bool
-gme_scan_file(Path path_fs,
-	      const TagHandler &handler, void *handler_ctx)
+gme_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	const auto container = ParseContainerPath(path_fs);
 
-	Music_Emu *emu;
-	const char *gme_err =
-		gme_open_file(container.path.c_str(), &emu, GME_SAMPLE_RATE);
-	if (gme_err != nullptr) {
-		LogWarning(gme_domain, gme_err);
+	Music_Emu *emu = LoadGmeAndM3u(container);
+	if(emu == nullptr) {
 		return false;
 	}
 
 	AtScopeExit(emu) { gme_delete(emu); };
 
-	return ScanMusicEmu(emu, container.track, handler, handler_ctx);
+	return ScanMusicEmu(emu, container.track, handler);
 }
 
 static std::forward_list<DetachedSong>
 gme_container_scan(Path path_fs)
 {
 	std::forward_list<DetachedSong> list;
+	const auto container = ParseContainerPath(path_fs);
 
-	Music_Emu *emu;
-	const char *gme_err = gme_open_file(path_fs.c_str(), &emu,
-					    GME_SAMPLE_RATE);
-	if (gme_err != nullptr) {
-		LogWarning(gme_domain, gme_err);
+	Music_Emu *emu = LoadGmeAndM3u(container);
+	if(emu == nullptr) {
 		return list;
 	}
 
@@ -288,18 +323,18 @@ gme_container_scan(Path path_fs)
 	if (num_songs < 2)
 		return list;
 
-	const char *subtune_suffix = uri_get_suffix(path_fs.c_str());
+	const auto *subtune_suffix = path_fs.GetSuffix();
 
 	TagBuilder tag_builder;
 
 	auto tail = list.before_begin();
-	for (unsigned i = 1; i <= num_songs; ++i) {
-		ScanMusicEmu(emu, i,
-			     add_tag_handler, &tag_builder);
+	for (unsigned i = 0; i < num_songs; ++i) {
+		AddTagHandler h(tag_builder);
+		ScanMusicEmu(emu, i, h);
 
-		char track_name[64];
-		snprintf(track_name, sizeof(track_name),
-			 SUBTUNE_PREFIX "%03u.%s", i, subtune_suffix);
+		const auto track_name =
+			StringFormat<64>(SUBTUNE_PREFIX "%03u.%s", i+1,
+					 subtune_suffix);
 		tail = list.emplace_after(tail, track_name,
 					  tag_builder.Commit());
 	}
@@ -309,19 +344,12 @@ gme_container_scan(Path path_fs)
 
 static const char *const gme_suffixes[] = {
 	"ay", "gbs", "gym", "hes", "kss", "nsf",
-	"nsfe", "sap", "spc", "vgm", "vgz",
+	"nsfe", "rsn", "sap", "spc", "vgm", "vgz",
 	nullptr
 };
 
-const struct DecoderPlugin gme_decoder_plugin = {
-	"gme",
-	gme_plugin_init,
-	nullptr,
-	nullptr,
-	gme_file_decode,
-	gme_scan_file,
-	nullptr,
-	gme_container_scan,
-	gme_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin gme_decoder_plugin =
+	DecoderPlugin("gme", gme_file_decode, gme_scan_file)
+	.WithInit(gme_plugin_init)
+	.WithContainer(gme_container_scan)
+	.WithSuffixes(gme_suffixes);

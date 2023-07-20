@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,41 +17,105 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Discovery.hxx"
 #include "ContentDirectoryService.hxx"
-#include "system/Clock.hxx"
 #include "Log.hxx"
+#include "lib/curl/Global.hxx"
+#include "event/Call.hxx"
+#include "util/DeleteDisposer.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <upnp/upnptools.h>
+#include <upnptools.h>
 
 #include <stdlib.h>
 #include <string.h>
+
+UPnPDeviceDirectory::Downloader::Downloader(UPnPDeviceDirectory &_parent,
+					    const UpnpDiscovery &disco)
+	:defer_start_event(_parent.GetEventLoop(),
+			   BIND_THIS_METHOD(OnDeferredStart)),
+	 parent(_parent),
+	 id(UpnpDiscovery_get_DeviceID_cstr(&disco)),
+	 url(UpnpDiscovery_get_Location_cstr(&disco)),
+	 expires(std::chrono::seconds(UpnpDiscovery_get_Expires(&disco))),
+	 request(*parent.curl, url.c_str(), *this)
+{
+	const std::scoped_lock<Mutex> protect(parent.mutex);
+	parent.downloaders.push_back(*this);
+}
+
+void
+UPnPDeviceDirectory::Downloader::Destroy() noexcept
+{
+	const std::scoped_lock<Mutex> protect(parent.mutex);
+	unlink();
+	delete this;
+}
+
+void
+UPnPDeviceDirectory::Downloader::OnHeaders(unsigned status,
+					   std::multimap<std::string, std::string> &&)
+{
+	if (status != 200) {
+		Destroy();
+		return;
+	}
+}
+
+void
+UPnPDeviceDirectory::Downloader::OnData(ConstBuffer<void> _data)
+{
+	data.append((const char *)_data.data, _data.size);
+}
+
+void
+UPnPDeviceDirectory::Downloader::OnEnd()
+{
+	AtScopeExit(this) { Destroy(); };
+
+	ContentDirectoryDescriptor d(std::move(id),
+				     std::chrono::steady_clock::now(),
+				     expires);
+
+	try {
+		d.Parse(url, data.c_str());
+	} catch (...) {
+		LogError(std::current_exception());
+	}
+
+	parent.LockAdd(std::move(d));
+}
+
+void
+UPnPDeviceDirectory::Downloader::OnError(std::exception_ptr e) noexcept
+{
+	LogError(e);
+	Destroy();
+}
 
 // The service type string we are looking for.
 static constexpr char ContentDirectorySType[] = "urn:schemas-upnp-org:service:ContentDirectory:1";
 
 // We don't include a version in comparisons, as we are satisfied with
 // version 1
-gcc_pure
+[[gnu::pure]]
 static bool
-isCDService(const char *st)
+isCDService(const char *st) noexcept
 {
 	constexpr size_t sz = sizeof(ContentDirectorySType) - 3;
-	return memcmp(ContentDirectorySType, st, sz) == 0;
+	return strncmp(ContentDirectorySType, st, sz) == 0;
 }
 
 // The type of device we're asking for in search
 static constexpr char MediaServerDType[] = "urn:schemas-upnp-org:device:MediaServer:1";
 
-gcc_pure
+[[gnu::pure]]
 static bool
-isMSDevice(const char *st)
+isMSDevice(const char *st) noexcept
 {
 	constexpr size_t sz = sizeof(MediaServerDType) - 3;
-	return memcmp(MediaServerDType, st, sz) == 0;
+	return strncmp(MediaServerDType, st, sz) == 0;
 }
 
 static void
@@ -75,7 +139,7 @@ AnnounceLostUPnP(UPnPDiscoveryListener &listener, const UPnPDevice &device)
 inline void
 UPnPDeviceDirectory::LockAdd(ContentDirectoryDescriptor &&d)
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	for (auto &i : directories) {
 		if (i.id == d.id) {
@@ -93,7 +157,7 @@ UPnPDeviceDirectory::LockAdd(ContentDirectoryDescriptor &&d)
 inline void
 UPnPDeviceDirectory::LockRemove(const std::string &id)
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	for (auto i = directories.begin(), end = directories.end();
 	     i != end; ++i) {
@@ -107,71 +171,39 @@ UPnPDeviceDirectory::LockRemove(const std::string &id)
 	}
 }
 
-inline void
-UPnPDeviceDirectory::Explore()
-{
-	for (;;) {
-		std::unique_ptr<DiscoveredTask> tsk;
-		if (!queue.take(tsk)) {
-			queue.workerExit();
-			return;
-		}
-
-		// Device signals its existence and well-being. Perform the
-		// UPnP "description" phase by downloading and decoding the
-		// description document.
-		char *buf;
-		// LINE_SIZE is defined by libupnp's upnp.h...
-		char contentType[LINE_SIZE];
-		int code = UpnpDownloadUrlItem(tsk->url.c_str(), &buf, contentType);
-		if (code != UPNP_E_SUCCESS) {
-			continue;
-		}
-
-		AtScopeExit(buf){ free(buf); };
-
-		// Update or insert the device
-		ContentDirectoryDescriptor d(std::move(tsk->device_id),
-					     MonotonicClockS(), tsk->expires);
-
-		try {
-			d.Parse(tsk->url, buf);
-		} catch (const std::exception &e) {
-			LogError(e);
-		}
-
-		LockAdd(std::move(d));
-	}
-}
-
-void *
-UPnPDeviceDirectory::Explore(void *ctx)
-{
-	UPnPDeviceDirectory &directory = *(UPnPDeviceDirectory *)ctx;
-	directory.Explore();
-	return (void*)1;
-}
-
 inline int
-UPnPDeviceDirectory::OnAlive(Upnp_Discovery *disco)
+UPnPDeviceDirectory::OnAlive(const UpnpDiscovery *disco) noexcept
 {
-	if (isMSDevice(disco->DeviceType) ||
-	    isCDService(disco->ServiceType)) {
-		DiscoveredTask *tp = new DiscoveredTask(disco);
-		if (queue.put(tp))
-			return UPNP_E_FINISH;
+	if (isMSDevice(UpnpDiscovery_get_DeviceType_cstr(disco)) ||
+	    isCDService(UpnpDiscovery_get_ServiceType_cstr(disco))) {
+		try {
+			auto *downloader = new Downloader(*this, *disco);
+
+			try {
+				downloader->Start();
+			} catch (...) {
+				BlockingCall(GetEventLoop(), [downloader](){
+						downloader->Destroy();
+					});
+
+				throw;
+			}
+		} catch (...) {
+			LogError(std::current_exception());
+			return UPNP_E_SUCCESS;
+		}
 	}
 
 	return UPNP_E_SUCCESS;
 }
 
 inline int
-UPnPDeviceDirectory::OnByeBye(Upnp_Discovery *disco)
+UPnPDeviceDirectory::OnByeBye(const UpnpDiscovery *disco) noexcept
 {
-	if (isMSDevice(disco->DeviceType) ||
-	    isCDService(disco->ServiceType)) {
+	if (isMSDevice(UpnpDiscovery_get_DeviceType_cstr(disco)) ||
+	    isCDService(UpnpDiscovery_get_ServiceType_cstr(disco))) {
 		// Device signals it is going off.
-		LockRemove(disco->DeviceId);
+		LockRemove(UpnpDiscovery_get_DeviceID_cstr(disco));
 	}
 
 	return UPNP_E_SUCCESS;
@@ -182,19 +214,19 @@ UPnPDeviceDirectory::OnByeBye(Upnp_Discovery *disco)
 // Example: ContentDirectories appearing and disappearing from the network
 // We queue a task for our worker thread(s)
 int
-UPnPDeviceDirectory::Invoke(Upnp_EventType et, void *evp)
+UPnPDeviceDirectory::Invoke(Upnp_EventType et, const void *evp) noexcept
 {
 	switch (et) {
 	case UPNP_DISCOVERY_SEARCH_RESULT:
 	case UPNP_DISCOVERY_ADVERTISEMENT_ALIVE:
 		{
-			Upnp_Discovery *disco = (Upnp_Discovery *)evp;
+			auto *disco = (const UpnpDiscovery *)evp;
 			return OnAlive(disco);
 		}
 
 	case UPNP_DISCOVERY_ADVERTISEMENT_BYEBYE:
 		{
-			Upnp_Discovery *disco = (Upnp_Discovery *)evp;
+			auto *disco = (const UpnpDiscovery *)evp;
 			return OnByeBye(disco);
 		}
 
@@ -209,51 +241,53 @@ UPnPDeviceDirectory::Invoke(Upnp_EventType et, void *evp)
 void
 UPnPDeviceDirectory::ExpireDevices()
 {
-	const unsigned now = MonotonicClockS();
+	const auto now = std::chrono::steady_clock::now();
 	bool didsomething = false;
 
-	for (auto it = directories.begin();
-	     it != directories.end();) {
-		if (now > it->expires) {
-			it = directories.erase(it);
-			didsomething = true;
-		} else {
-			it++;
-		}
-	}
+	directories.remove_if([now, &didsomething](const ContentDirectoryDescriptor &d){
+			bool expired = now > d.expires;
+			if (expired)
+				didsomething = true;
+			return expired;
+		});
 
 	if (didsomething)
 		Search();
 }
 
-UPnPDeviceDirectory::UPnPDeviceDirectory(UpnpClient_Handle _handle,
+UPnPDeviceDirectory::UPnPDeviceDirectory(EventLoop &event_loop,
+					 UpnpClient_Handle _handle,
 					 UPnPDiscoveryListener *_listener)
-	:handle(_handle),
-	 listener(_listener),
-	 queue("DiscoveredQueue"),
-	 search_timeout(2), last_search(0)
+	:curl(event_loop), handle(_handle),
+	 listener(_listener)
 {
 }
 
-UPnPDeviceDirectory::~UPnPDeviceDirectory()
+UPnPDeviceDirectory::~UPnPDeviceDirectory() noexcept
 {
-	/* this destructor exists here just so it won't get inlined */
+	BlockingCall(GetEventLoop(), [this]() {
+		const std::scoped_lock<Mutex> protect(mutex);
+		downloaders.clear_and_dispose(DeleteDisposer());
+	});
+}
+
+inline EventLoop &
+UPnPDeviceDirectory::GetEventLoop() const noexcept
+{
+	return curl->GetEventLoop();
 }
 
 void
 UPnPDeviceDirectory::Start()
 {
-	if (!queue.start(1, Explore, this))
-		throw std::runtime_error("Discover work queue start failed");
-
 	Search();
 }
 
 void
 UPnPDeviceDirectory::Search()
 {
-	const unsigned now = MonotonicClockS();
-	if (now - last_search < 10)
+	const auto now = std::chrono::steady_clock::now();
+	if (now - last_search < std::chrono::seconds(10))
 		return;
 	last_search = now;
 
@@ -274,16 +308,15 @@ UPnPDeviceDirectory::Search()
 std::vector<ContentDirectoryService>
 UPnPDeviceDirectory::GetDirectories()
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	ExpireDevices();
 
 	std::vector<ContentDirectoryService> out;
-	for (auto dit = directories.begin();
-	     dit != directories.end(); dit++) {
-		for (const auto &service : dit->device.services) {
+	for (const auto &descriptor : directories) {
+		for (const auto &service : descriptor.device.services) {
 			if (isCDService(service.serviceType.c_str())) {
-				out.emplace_back(dit->device, service);
+				out.emplace_back(descriptor.device, service);
 			}
 		}
 	}
@@ -292,9 +325,9 @@ UPnPDeviceDirectory::GetDirectories()
 }
 
 ContentDirectoryService
-UPnPDeviceDirectory::GetServer(const char *friendly_name)
+UPnPDeviceDirectory::GetServer(std::string_view friendly_name)
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	ExpireDevices();
 
@@ -306,8 +339,7 @@ UPnPDeviceDirectory::GetServer(const char *friendly_name)
 
 		for (const auto &service : device.services)
 			if (isCDService(service.serviceType.c_str()))
-				return ContentDirectoryService(device,
-							       service);
+				return {device, service};
 	}
 
 	throw std::runtime_error("Server not found");

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "QueuePrint.hxx"
 #include "Queue.hxx"
-#include "SongFilter.hxx"
+#include "song/Filter.hxx"
 #include "SongPrint.hxx"
+#include "song/DetachedSong.hxx"
+#include "song/LightSong.hxx"
 #include "client/Response.hxx"
+
+#include <fmt/format.h>
 
 /**
  * Send detailed information about a range of songs in the queue to a
@@ -33,58 +36,53 @@
  * @param end the index of the last song (excluding)
  */
 static void
-queue_print_song_info(Response &r, Partition &partition, const Queue &queue,
+queue_print_song_info(Response &r, const Queue &queue,
 		      unsigned position)
 {
-	song_print_info(r, partition, queue.Get(position));
-	r.Format("Pos: %u\nId: %u\n",
-		 position, queue.PositionToId(position));
+	song_print_info(r, queue.Get(position));
+	r.Fmt(FMT_STRING("Pos: {}\nId: {}\n"),
+	      position, queue.PositionToId(position));
 
 	uint8_t priority = queue.GetPriorityAtPosition(position);
 	if (priority != 0)
-		r.Format("Prio: %u\n", priority);
+		r.Fmt(FMT_STRING("Prio: {}\n"), priority);
 }
 
 void
-queue_print_info(Response &r, Partition &partition, const Queue &queue,
+queue_print_info(Response &r, const Queue &queue,
 		 unsigned start, unsigned end)
 {
 	assert(start <= end);
 	assert(end <= queue.GetLength());
 
 	for (unsigned i = start; i < end; ++i)
-		queue_print_song_info(r, partition, queue, i);
+		queue_print_song_info(r, queue, i);
 }
 
 void
-queue_print_uris(Response &r, Partition &partition, const Queue &queue,
+queue_print_uris(Response &r, const Queue &queue,
 		 unsigned start, unsigned end)
 {
 	assert(start <= end);
 	assert(end <= queue.GetLength());
 
 	for (unsigned i = start; i < end; ++i) {
-		r.Format("%i:", i);
-		song_print_uri(r, partition, queue.Get(i));
+		r.Fmt(FMT_STRING("{}:"), i);
+		song_print_uri(r, queue.Get(i));
 	}
 }
 
 void
-queue_print_changes_info(Response &r, Partition &partition, const Queue &queue,
+queue_print_changes_info(Response &r, const Queue &queue,
 			 uint32_t version,
 			 unsigned start, unsigned end)
 {
 	assert(start <= end);
-
-	if (start >= queue.GetLength())
-		return;
-
-	if (end > queue.GetLength())
-		end = queue.GetLength();
+	assert(end <= queue.GetLength());
 
 	for (unsigned i = start; i < end; i++)
 		if (queue.IsNewerAtPosition(i, version))
-			queue_print_song_info(r, partition, queue, i);
+			queue_print_song_info(r, queue, i);
 }
 
 void
@@ -93,27 +91,22 @@ queue_print_changes_position(Response &r, const Queue &queue,
 			     unsigned start, unsigned end)
 {
 	assert(start <= end);
-
-	if (start >= queue.GetLength())
-		return;
-
-	if (end > queue.GetLength())
-		end = queue.GetLength();
+	assert(end <= queue.GetLength());
 
 	for (unsigned i = start; i < end; i++)
 		if (queue.IsNewerAtPosition(i, version))
-			r.Format("cpos: %i\nId: %i\n",
-				 i, queue.PositionToId(i));
+			r.Fmt(FMT_STRING("cpos: {}\nId: {}\n"),
+			      i, queue.PositionToId(i));
 }
 
 void
-queue_find(Response &r, Partition &partition, const Queue &queue,
+queue_find(Response &r, const Queue &queue,
 	   const SongFilter &filter)
 {
 	for (unsigned i = 0; i < queue.GetLength(); i++) {
-		const DetachedSong &song = queue.Get(i);
+		const LightSong song{queue.Get(i)};
 
 		if (filter.Match(song))
-			queue_print_song_info(r, partition, queue, i);
+			queue_print_song_info(r, queue, i);
 	}
 }

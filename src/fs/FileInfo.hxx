@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,41 +20,24 @@
 #ifndef MPD_FS_FILE_INFO_HXX
 #define MPD_FS_FILE_INFO_HXX
 
-#include "check.h"
 #include "Path.hxx"
 #include "system/Error.hxx"
 
-#include <stdint.h>
-
-#ifdef WIN32
-#include <fileapi.h>
+#ifdef _WIN32
+#include "time/FileTime.hxx"
 #else
 #include <sys/stat.h>
 #endif
 
-#ifdef WIN32
-
-static inline constexpr uint64_t
-ConstructUint64(DWORD lo, DWORD hi)
-{
-	return uint64_t(lo) | (uint64_t(hi) << 32);
-}
-
-static constexpr time_t
-FileTimeToTimeT(FILETIME ft)
-{
-	return (ConstructUint64(ft.dwLowDateTime, ft.dwHighDateTime)
-		- 116444736000000000) / 10000000;
-}
-
-#endif
+#include <chrono>
+#include <cstdint>
 
 class FileInfo {
 	friend bool GetFileInfo(Path path, FileInfo &info,
 				bool follow_symlinks);
 	friend class FileReader;
 
-#ifdef WIN32
+#ifdef _WIN32
 	WIN32_FILE_ATTRIBUTE_DATA data;
 #else
 	struct stat st;
@@ -65,7 +48,7 @@ public:
 
 	FileInfo(Path path, bool follow_symlinks=true) {
 		if (!GetFileInfo(path, *this, follow_symlinks)) {
-#ifdef WIN32
+#ifdef _WIN32
 			throw FormatLastError("Failed to access %s",
 					      path.ToUTF8().c_str());
 #else
@@ -76,7 +59,7 @@ public:
 	}
 
 	bool IsRegular() const {
-#ifdef WIN32
+#ifdef _WIN32
 		return (data.dwFileAttributes &
 			(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_DEVICE)) == 0;
 #else
@@ -85,7 +68,7 @@ public:
 	}
 
 	bool IsDirectory() const {
-#ifdef WIN32
+#ifdef _WIN32
 		return data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 #else
 		return S_ISDIR(st.st_mode);
@@ -93,22 +76,22 @@ public:
 	}
 
 	uint64_t GetSize() const {
-#ifdef WIN32
+#ifdef _WIN32
 		return ConstructUint64(data.nFileSizeLow, data.nFileSizeHigh);
 #else
 		return st.st_size;
 #endif
 	}
 
-	time_t GetModificationTime() const {
-#ifdef WIN32
-		return FileTimeToTimeT(data.ftLastWriteTime);
+	std::chrono::system_clock::time_point GetModificationTime() const {
+#ifdef _WIN32
+		return FileTimeToChrono(data.ftLastWriteTime);
 #else
-		return st.st_mtime;
+		return std::chrono::system_clock::from_time_t(st.st_mtime);
 #endif
 	}
 
-#ifndef WIN32
+#ifndef _WIN32
 	uid_t GetUid() const {
 		return st.st_uid;
 	}
@@ -130,7 +113,7 @@ public:
 inline bool
 GetFileInfo(Path path, FileInfo &info, bool follow_symlinks=true)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	(void)follow_symlinks;
 	return GetFileAttributesEx(path.c_str(), GetFileExInfoStandard,
 				   &info.data);

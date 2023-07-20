@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,18 @@
 #include "config.h"
 #include "MikmodDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "tag/TagHandler.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "tag/Handler.hxx"
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/StringView.hxx"
 #include "Log.hxx"
+#include "Version.h"
 
 #include <mikmod.h>
 
-#include <assert.h>
+#include <cassert>
 
 static constexpr Domain mikmod_domain("mikmod");
 
@@ -37,34 +40,31 @@ static constexpr Domain mikmod_domain("mikmod");
 static constexpr size_t MIKMOD_FRAME_SIZE = 4096;
 
 static BOOL
-mikmod_mpd_init(void)
+mikmod_mpd_init()
 {
 	return VC_Init();
 }
 
 static void
-mikmod_mpd_exit(void)
+mikmod_mpd_exit()
 {
 	VC_Exit();
 }
 
 static void
-mikmod_mpd_update(void)
+mikmod_mpd_update()
 {
 }
 
 static BOOL
-mikmod_mpd_is_present(void)
+mikmod_mpd_is_present()
 {
 	return true;
 }
 
-static char drv_name[] = PACKAGE_NAME;
-static char drv_version[] = VERSION;
-
-#if (LIBMIKMOD_VERSION > 0x030106)
-static char drv_alias[] = PACKAGE;
-#endif
+static constexpr char drv_name[] = PACKAGE_NAME;
+static constexpr char drv_version[] = VERSION;
+static constexpr char drv_alias[] = PACKAGE;
 
 static MDRIVER drv_mpd = {
 	nullptr,
@@ -72,13 +72,9 @@ static MDRIVER drv_mpd = {
 	drv_version,
 	0,
 	255,
-#if (LIBMIKMOD_VERSION > 0x030106)
 	drv_alias,
-#if (LIBMIKMOD_VERSION >= 0x030200)
 	nullptr,  /* CmdLineHelp */
-#endif
 	nullptr,  /* CommandLine */
-#endif
 	mikmod_mpd_is_present,
 	VC_SampleLoad,
 	VC_SampleUnload,
@@ -114,7 +110,7 @@ mikmod_decoder_init(const ConfigBlock &block)
 	static char params[] = "";
 
 	mikmod_loop = block.GetBlockValue("loop", false);
-	mikmod_sample_rate = block.GetBlockValue("sample_rate", 44100u);
+	mikmod_sample_rate = block.GetPositiveValue("sample_rate", 44100U);
 	if (!audio_valid_sample_rate(mikmod_sample_rate))
 		throw FormatRuntimeError("Invalid sample rate in line %d: %u",
 					 block.line, mikmod_sample_rate);
@@ -131,9 +127,9 @@ mikmod_decoder_init(const ConfigBlock &block)
 		   DMODE_16BITS);
 
 	if (MikMod_Init(params)) {
-		FormatError(mikmod_domain,
-			    "Could not init MikMod: %s",
-			    MikMod_strerror(MikMod_errno));
+		FmtError(mikmod_domain,
+			 "Could not init MikMod: {}",
+			 MikMod_strerror(MikMod_errno));
 		return false;
 	}
 
@@ -141,7 +137,7 @@ mikmod_decoder_init(const ConfigBlock &block)
 }
 
 static void
-mikmod_decoder_finish(void)
+mikmod_decoder_finish() noexcept
 {
 	MikMod_Exit();
 }
@@ -160,8 +156,7 @@ mikmod_decoder_file_decode(DecoderClient &client, Path path_fs)
 	handle = Player_Load(path2, 128, 0);
 
 	if (handle == nullptr) {
-		FormatError(mikmod_domain,
-			    "failed to open mod: %s", path_fs.c_str());
+		FmtError(mikmod_domain, "failed to open mod: {}", path_fs);
 		return;
 	}
 
@@ -185,8 +180,7 @@ mikmod_decoder_file_decode(DecoderClient &client, Path path_fs)
 }
 
 static bool
-mikmod_decoder_scan_file(Path path_fs,
-			 const TagHandler &handler, void *handler_ctx)
+mikmod_decoder_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	/* deconstify the path because libmikmod wants a non-const
 	   string pointer */
@@ -195,8 +189,7 @@ mikmod_decoder_scan_file(Path path_fs,
 	MODULE *handle = Player_Load(path2, 128, 0);
 
 	if (handle == nullptr) {
-		FormatDebug(mikmod_domain,
-			    "Failed to open file: %s", path_fs.c_str());
+		FmtDebug(mikmod_domain, "Failed to open file: {}", path_fs);
 		return false;
 	}
 
@@ -204,13 +197,8 @@ mikmod_decoder_scan_file(Path path_fs,
 
 	char *title = Player_LoadTitle(path2);
 	if (title != nullptr) {
-		tag_handler_invoke_tag(handler, handler_ctx,
-				       TAG_TITLE, title);
-#if (LIBMIKMOD_VERSION >= 0x030200)
+		handler.OnTag(TAG_TITLE, title);
 		MikMod_free(title);
-#else
-		free(title);
-#endif
 	}
 
 	return true;
@@ -235,15 +223,8 @@ static const char *const mikmod_decoder_suffixes[] = {
 	nullptr
 };
 
-const struct DecoderPlugin mikmod_decoder_plugin = {
-	"mikmod",
-	mikmod_decoder_init,
-	mikmod_decoder_finish,
-	nullptr,
-	mikmod_decoder_file_decode,
-	mikmod_decoder_scan_file,
-	nullptr,
-	nullptr,
-	mikmod_decoder_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin mikmod_decoder_plugin =
+	DecoderPlugin("mikmod",
+		      mikmod_decoder_file_decode, mikmod_decoder_scan_file)
+	.WithInit(mikmod_decoder_init, mikmod_decoder_finish)
+	.WithSuffixes(mikmod_decoder_suffixes);

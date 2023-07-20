@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,28 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "IcyMetaDataParser.hxx"
-#include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
-#include "util/Domain.hxx"
+#include "tag/Builder.hxx"
+#include "util/AllocatedString.hxx"
 #include "util/StringView.hxx"
-#include "Log.hxx"
 
-#include <assert.h>
+#include <algorithm>
+#include <cassert>
+
 #include <string.h>
 
-static constexpr Domain icy_metadata_domain("icy_metadata");
+#ifdef HAVE_ICU_CONVERTER
 
 void
-IcyMetaDataParser::Reset()
+IcyMetaDataParser::SetCharset(const char *charset)
+{
+	icu_converter = IcuConverter::Create(charset);
+}
+
+#endif
+
+void
+IcyMetaDataParser::Reset() noexcept
 {
 	if (!IsDefined())
 		return;
@@ -39,14 +46,14 @@ IcyMetaDataParser::Reset()
 	if (data_rest == 0 && meta_size > 0)
 		delete[] meta_data;
 
-	delete tag;
+	tag.reset();
 
 	data_rest = data_size;
 	meta_size = 0;
 }
 
 size_t
-IcyMetaDataParser::Data(size_t length)
+IcyMetaDataParser::Data(size_t length) noexcept
 {
 	assert(length > 0);
 
@@ -66,28 +73,40 @@ IcyMetaDataParser::Data(size_t length)
 }
 
 static void
-icy_add_item(TagBuilder &tag, TagType type, const char *value)
+icy_add_item(TagBuilder &tag, TagType type, StringView value) noexcept
 {
-	size_t length = strlen(value);
-
-	if (length >= 2 && value[0] == '\'' && value[length - 1] == '\'') {
+	if (value.size >= 2 && value.front() == '\'' && value.back() == '\'') {
 		/* strip the single quotes */
-		++value;
-		length -= 2;
+		++value.data;
+		value.size -= 2;
 	}
 
-	if (length > 0)
-		tag.AddItem(type, {value, length});
+	if (value.size > 0)
+		tag.AddItem(type, value);
 }
 
 static void
-icy_parse_tag_item(TagBuilder &tag, const char *name, const char *value)
+icy_parse_tag_item(TagBuilder &tag,
+#ifdef HAVE_ICU_CONVERTER
+		   const IcuConverter *icu_converter,
+#endif
+		   const char *name, const char *value) noexcept
 {
-	if (strcmp(name, "StreamTitle") == 0)
+	if (strcmp(name, "StreamTitle") == 0) {
+#ifdef HAVE_ICU_CONVERTER
+		if (icu_converter != nullptr) {
+			try {
+				icy_add_item(tag, TAG_TITLE,
+					     icu_converter->ToUTF8(value).c_str());
+			} catch (...) {
+			}
+
+			return;
+		}
+#endif
+
 		icy_add_item(tag, TAG_TITLE, value);
-	else
-		FormatDebug(icy_metadata_domain,
-			    "unknown icy-tag: '%s'", name);
+	}
 }
 
 /**
@@ -96,7 +115,7 @@ icy_parse_tag_item(TagBuilder &tag, const char *name, const char *value)
  * that also fails, return #end.
  */
 static char *
-find_end_quote(char *p, char *const end)
+find_end_quote(char *p, char *const end) noexcept
 {
 	char *fallback = std::find(p, end, '\'');
 	if (fallback >= end - 1 || fallback[1] == ';')
@@ -115,8 +134,12 @@ find_end_quote(char *p, char *const end)
 	}
 }
 
-static Tag *
-icy_parse_tag(char *p, char *const end)
+static std::unique_ptr<Tag>
+icy_parse_tag(
+#ifdef HAVE_ICU_CONVERTER
+	      const IcuConverter *icu_converter,
+#endif
+	      char *p, char *const end) noexcept
 {
 	assert(p != nullptr);
 	assert(end != nullptr);
@@ -153,7 +176,11 @@ icy_parse_tag(char *p, char *const end)
 		*quote = 0;
 		p = quote + 1;
 
-		icy_parse_tag_item(tag, name, value);
+		icy_parse_tag_item(tag,
+#ifdef HAVE_ICU_CONVERTER
+				   icu_converter,
+#endif
+				   name, value);
 
 		char *semicolon = std::find(p, end, ';');
 		if (semicolon == end)
@@ -165,9 +192,9 @@ icy_parse_tag(char *p, char *const end)
 }
 
 size_t
-IcyMetaDataParser::Meta(const void *data, size_t length)
+IcyMetaDataParser::Meta(const void *data, size_t length) noexcept
 {
-	const unsigned char *p = (const unsigned char *)data;
+	const auto *p = (const unsigned char *)data;
 
 	assert(IsDefined());
 	assert(data_rest == 0);
@@ -208,9 +235,11 @@ IcyMetaDataParser::Meta(const void *data, size_t length)
 	if (meta_position == meta_size) {
 		/* parse */
 
-		delete tag;
-
-		tag = icy_parse_tag(meta_data, meta_data + meta_size);
+		tag = icy_parse_tag(
+#ifdef HAVE_ICU_CONVERTER
+				    icu_converter.get(),
+#endif
+				    meta_data, meta_data + meta_size);
 		delete[] meta_data;
 
 		/* change back to normal data mode */
@@ -223,9 +252,9 @@ IcyMetaDataParser::Meta(const void *data, size_t length)
 }
 
 size_t
-IcyMetaDataParser::ParseInPlace(void *data, size_t length)
+IcyMetaDataParser::ParseInPlace(void *data, size_t length) noexcept
 {
-	uint8_t *const dest0 = (uint8_t *)data;
+	auto *const dest0 = (uint8_t *)data;
 	uint8_t *dest = dest0;
 	const uint8_t *src = dest0;
 

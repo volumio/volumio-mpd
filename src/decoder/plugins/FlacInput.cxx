@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FlacInput.hxx"
 #include "FlacDomain.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "Log.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#include <stdexcept>
+#include <exception>
 
 FLAC__StreamDecoderReadStatus
 FlacInput::Read(FLAC__byte buffer[], size_t *bytes)
@@ -54,8 +53,8 @@ FlacInput::Seek(FLAC__uint64 absolute_byte_offset)
 	try {
 		input_stream.LockSeek(absolute_byte_offset);
 		return FLAC__STREAM_DECODER_SEEK_STATUS_OK;
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		return FLAC__STREAM_DECODER_SEEK_STATUS_ERROR;
 	}
 }
@@ -99,56 +98,56 @@ FlacInput::Error(FLAC__StreamDecoderErrorStatus status)
 }
 
 FLAC__StreamDecoderReadStatus
-FlacInput::Read(gcc_unused const FLAC__StreamDecoder *flac_decoder,
+FlacInput::Read([[maybe_unused]] const FLAC__StreamDecoder *flac_decoder,
 		FLAC__byte buffer[], size_t *bytes,
 		void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	return i->Read(buffer, bytes);
 }
 
 FLAC__StreamDecoderSeekStatus
-FlacInput::Seek(gcc_unused const FLAC__StreamDecoder *flac_decoder,
+FlacInput::Seek([[maybe_unused]] const FLAC__StreamDecoder *flac_decoder,
 		FLAC__uint64 absolute_byte_offset, void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	return i->Seek(absolute_byte_offset);
 }
 
 FLAC__StreamDecoderTellStatus
-FlacInput::Tell(gcc_unused const FLAC__StreamDecoder *flac_decoder,
+FlacInput::Tell([[maybe_unused]] const FLAC__StreamDecoder *flac_decoder,
 		FLAC__uint64 *absolute_byte_offset, void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	return i->Tell(absolute_byte_offset);
 }
 
 FLAC__StreamDecoderLengthStatus
-FlacInput::Length(gcc_unused const FLAC__StreamDecoder *flac_decoder,
+FlacInput::Length([[maybe_unused]] const FLAC__StreamDecoder *flac_decoder,
 		  FLAC__uint64 *stream_length, void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	return i->Length(stream_length);
 }
 
 FLAC__bool
-FlacInput::Eof(gcc_unused const FLAC__StreamDecoder *flac_decoder,
+FlacInput::Eof([[maybe_unused]] const FLAC__StreamDecoder *flac_decoder,
 	       void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	return i->Eof();
 }
 
 void
-FlacInput::Error(gcc_unused const FLAC__StreamDecoder *decoder,
+FlacInput::Error([[maybe_unused]] const FLAC__StreamDecoder *decoder,
 		 FLAC__StreamDecoderErrorStatus status, void *client_data)
 {
-	FlacInput *i = (FlacInput *)client_data;
+	auto *i = (FlacInput *)client_data;
 
 	i->Error(status);
 }

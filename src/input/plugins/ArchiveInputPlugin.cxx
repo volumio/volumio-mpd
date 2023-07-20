@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,70 +17,48 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ArchiveInputPlugin.hxx"
-#include "archive/ArchiveDomain.hxx"
-#include "archive/ArchiveLookup.hxx"
 #include "archive/ArchiveList.hxx"
 #include "archive/ArchivePlugin.hxx"
 #include "archive/ArchiveFile.hxx"
-#include "../InputPlugin.hxx"
 #include "../InputStream.hxx"
+#include "fs/LookupFile.hxx"
 #include "fs/Path.hxx"
+#include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "util/Domain.hxx"
 #include "Log.hxx"
-#include "util/ScopeExit.hxx"
 
-#include <stdexcept>
-
-#include <stdlib.h>
+static constexpr Domain input_domain("input");
 
 InputStreamPtr
-OpenArchiveInputStream(Path path, Mutex &mutex, Cond &cond)
+OpenArchiveInputStream(Path path, Mutex &mutex)
 {
 	const ArchivePlugin *arplug;
 
-	char *pname = strdup(path.c_str());
-	AtScopeExit(pname) {
-		free(pname);
-	};
-
-	// archive_lookup will modify pname when true is returned
-	const char *archive, *filename, *suffix;
-	if (!archive_lookup(pname, &archive, &filename, &suffix)) {
-		FormatDebug(archive_domain,
-			    "not an archive, lookup %s failed", pname);
+	ArchiveLookupResult l;
+	try {
+		l = LookupFile(path);
+		if (l.archive.IsNull()) {
+			return nullptr;
+		}
+	} catch (...) {
+		FmtDebug(input_domain,
+			 "not an archive, lookup '{}' failed: {}",
+			 path, std::current_exception());
 		return nullptr;
 	}
+
+	const char *suffix = l.archive.GetSuffix();
+	if (suffix == nullptr)
+		return nullptr;
 
 	//check which archive plugin to use (by ext)
 	arplug = archive_plugin_from_suffix(suffix);
 	if (!arplug) {
-		FormatWarning(archive_domain,
-			      "can't handle archive %s", archive);
 		return nullptr;
 	}
 
-	auto file = archive_file_open(arplug, Path::FromFS(archive));
-
-	AtScopeExit(file) {
-		file->Close();
-	};
-
-	return InputStreamPtr(file->OpenStream(filename, mutex, cond));
+	return archive_file_open(arplug, l.archive)
+		->OpenStream(l.inside.c_str(), mutex);
 }
-
-static InputStream *
-input_archive_open(gcc_unused const char *filename,
-		   gcc_unused Mutex &mutex, gcc_unused Cond &cond)
-{
-	/* dummy method; use OpenArchiveInputStream() instead */
-
-	return nullptr;
-}
-
-const InputPlugin input_plugin_archive = {
-	"archive",
-	nullptr,
-	nullptr,
-	input_archive_open,
-};

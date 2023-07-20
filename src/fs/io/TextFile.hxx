@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,9 @@
 #ifndef MPD_TEXT_FILE_HXX
 #define MPD_TEXT_FILE_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "config.h"
+
+#include <memory>
 
 class Path;
 class FileReader;
@@ -29,20 +30,20 @@ class AutoGunzipReader;
 class BufferedReader;
 
 class TextFile {
-	FileReader *const file_reader;
+	const std::unique_ptr<FileReader> file_reader;
 
 #ifdef ENABLE_ZLIB
-	AutoGunzipReader *const gunzip_reader;
+	const std::unique_ptr<AutoGunzipReader> gunzip_reader;
 #endif
 
-	BufferedReader *const buffered_reader;
+	const std::unique_ptr<BufferedReader> buffered_reader;
 
 public:
-	TextFile(Path path_fs);
+	explicit TextFile(Path path_fs);
 
 	TextFile(const TextFile &other) = delete;
 
-	~TextFile();
+	~TextFile() noexcept;
 
 	/**
 	 * Reads a line from the input file, and strips trailing

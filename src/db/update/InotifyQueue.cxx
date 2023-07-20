@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,45 +17,61 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "InotifyQueue.hxx"
 #include "InotifyDomain.hxx"
 #include "Service.hxx"
-#include "Log.hxx"
+#include "UpdateDomain.hxx"
+#include "lib/fmt/ExceptionFormatter.hxx"
+#include "protocol/Ack.hxx" // for class ProtocolError
 #include "util/StringCompare.hxx"
+#include "Log.hxx"
 
 /**
  * Wait this long after the last change before calling
- * update_enqueue().  This increases the probability that updates can
- * be bundled.
+ * UpdateService::Enqueue().  This increases the probability that
+ * updates can be bundled.
  */
-static constexpr unsigned INOTIFY_UPDATE_DELAY_S = 5;
+static constexpr Event::Duration INOTIFY_UPDATE_DELAY =
+	std::chrono::seconds(5);
 
 void
-InotifyQueue::OnTimeout()
+InotifyQueue::OnDelay() noexcept
 {
 	unsigned id;
 
 	while (!queue.empty()) {
 		const char *uri_utf8 = queue.front().c_str();
 
-		id = update.Enqueue(uri_utf8, false);
-		if (id == 0) {
-			/* retry later */
-			ScheduleSeconds(INOTIFY_UPDATE_DELAY_S);
-			return;
+		try {
+			try {
+				id = update.Enqueue(uri_utf8, false);
+			} catch (const ProtocolError &e) {
+				if (e.GetCode() == ACK_ERROR_UPDATE_ALREADY) {
+					/* retry later */
+					delay_event.Schedule(INOTIFY_UPDATE_DELAY);
+					return;
+				}
+
+				throw;
+			}
+		} catch (...) {
+			FmtError(update_domain,
+				 "Failed to enqueue '{}': {}",
+				 uri_utf8, std::current_exception());
+			queue.pop_front();
+			continue;
 		}
 
-		FormatDebug(inotify_domain, "updating '%s' job=%u",
-			    uri_utf8, id);
+		FmtDebug(inotify_domain, "updating '{}' job={}",
+			 uri_utf8, id);
 
 		queue.pop_front();
 	}
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
-path_in(const char *path, const char *possible_parent)
+path_in(const char *path, const char *possible_parent) noexcept
 {
 	if (StringIsEmpty(path))
 		return true;
@@ -66,9 +82,9 @@ path_in(const char *path, const char *possible_parent)
 }
 
 void
-InotifyQueue::Enqueue(const char *uri_utf8)
+InotifyQueue::Enqueue(const char *uri_utf8) noexcept
 {
-	ScheduleSeconds(INOTIFY_UPDATE_DELAY_S);
+	delay_event.Schedule(INOTIFY_UPDATE_DELAY);
 
 	for (auto i = queue.begin(), end = queue.end(); i != end;) {
 		const char *current_uri = i->c_str();

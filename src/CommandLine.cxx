@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,10 +19,11 @@
 
 #include "config.h"
 #include "CommandLine.hxx"
+#include "GitVersion.hxx"
 #include "ls.hxx"
 #include "LogInit.hxx"
 #include "Log.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "config/File.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
 #include "output/Registry.hxx"
@@ -32,15 +33,20 @@
 #include "playlist/PlaylistRegistry.hxx"
 #include "playlist/PlaylistPlugin.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Traits.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/StandardDirectory.hxx"
-#include "system/Error.hxx"
-#include "util/Macros.hxx"
-#include "util/RuntimeError.hxx"
+#include "event/Features.h"
+#include "io/uring/Features.h"
 #include "util/Domain.hxx"
 #include "util/OptionDef.hxx"
 #include "util/OptionParser.hxx"
+#include "Version.h"
+
+#ifdef _WIN32
+#include "system/Error.hxx"
+#endif
 
 #ifdef ENABLE_DATABASE
 #include "db/Registry.hxx"
@@ -54,6 +60,7 @@
 #include "neighbor/NeighborPlugin.hxx"
 #endif
 
+#include "encoder/Features.h"
 #ifdef ENABLE_ENCODER
 #include "encoder/EncoderList.hxx"
 #include "encoder/EncoderPlugin.hxx"
@@ -64,55 +71,62 @@
 #include "archive/ArchivePlugin.hxx"
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#ifdef WIN32
-#define CONFIG_FILE_LOCATION PATH_LITERAL("mpd\\mpd.conf")
-#define APP_CONFIG_FILE_LOCATION PATH_LITERAL("conf\\mpd.conf")
+namespace {
+#ifdef _WIN32
+constexpr auto CONFIG_FILE_LOCATION = Path::FromFS(PATH_LITERAL("mpd\\mpd.conf"));
+constexpr auto APP_CONFIG_FILE_LOCATION = Path::FromFS(PATH_LITERAL("conf\\mpd.conf"));
 #else
-#define USER_CONFIG_FILE_LOCATION1 PATH_LITERAL(".mpdconf")
-#define USER_CONFIG_FILE_LOCATION2 PATH_LITERAL(".mpd/mpd.conf")
-#define USER_CONFIG_FILE_LOCATION_XDG PATH_LITERAL("mpd/mpd.conf")
+constexpr auto USER_CONFIG_FILE_LOCATION1 = Path::FromFS(PATH_LITERAL(".mpdconf"));
+constexpr auto USER_CONFIG_FILE_LOCATION2 = Path::FromFS(PATH_LITERAL(".mpd/mpd.conf"));
+constexpr auto USER_CONFIG_FILE_LOCATION_XDG = Path::FromFS(PATH_LITERAL("mpd/mpd.conf"));
 #endif
+} // namespace
 
-static constexpr OptionDef opt_kill(
-	"kill", "kill the currently running mpd session");
-static constexpr OptionDef opt_no_config(
-	"no-config", "don't read from config");
-static constexpr OptionDef opt_no_daemon(
-	"no-daemon", "don't detach from console");
-static constexpr OptionDef opt_stdout(
-	"stdout", nullptr); // hidden, compatibility with old versions
-static constexpr OptionDef opt_stderr(
-	"stderr", "print messages to stderr");
-static constexpr OptionDef opt_verbose(
-	"verbose", 'v', "verbose logging");
-static constexpr OptionDef opt_version(
-	"version", 'V', "print version number");
-static constexpr OptionDef opt_help(
-	"help", 'h', "show help options");
-static constexpr OptionDef opt_help_alt(
-	nullptr, '?', nullptr); // hidden, standard alias for --help
+enum Option {
+	OPTION_KILL,
+	OPTION_NO_CONFIG,
+	OPTION_NO_DAEMON,
+#ifdef __linux__
+	OPTION_SYSTEMD,
+#endif
+	OPTION_STDOUT,
+	OPTION_STDERR,
+	OPTION_VERBOSE,
+	OPTION_VERSION,
+	OPTION_HELP,
+	OPTION_HELP2,
+};
+
+static constexpr OptionDef option_defs[] = {
+	{"kill", "kill the currently running mpd session"},
+	{"no-config", "don't read from config"},
+	{"no-daemon", "don't detach from console"},
+#ifdef __linux__
+	{"systemd", "systemd service mode"},
+#endif
+	{"stdout", nullptr}, // hidden, compatibility with old versions
+	{"stderr", "print messages to stderr"},
+	{"verbose", 'v', "verbose logging"},
+	{"version", 'V', "print version number"},
+	{"help", 'h', "show help options"},
+	{nullptr, '?', nullptr}, // hidden, standard alias for --help
+};
 
 static constexpr Domain cmdline_domain("cmdline");
 
-gcc_noreturn
-static void version(void)
+[[noreturn]]
+static void version()
 {
-	printf("Music Player Daemon " VERSION
-#ifdef GIT_COMMIT
-	       " (" GIT_COMMIT ")"
-#endif
+	printf("Music Player Daemon " VERSION " (%s)"
 	       "\n"
-	       "\n"
-	       "Copyright (C) 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
-	       "Copyright (C) 2008-2015 Max Kellermann <max@duempel.org>\n"
+	       "Copyright 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
+	       "Copyright 2008-2021 Max Kellermann <max.kellermann@gmail.com>\n"
 	       "This is free software; see the source for copying conditions.  There is NO\n"
-	       "warranty; not even MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n"
+	       "warranty; not even MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
+	       GIT_VERSION);
 
 #ifdef ENABLE_DATABASE
-	       "\n"
+	printf("\n"
 	       "Database plugins:\n");
 
 	for (auto i = database_plugins; *i != nullptr; ++i)
@@ -124,31 +138,35 @@ static void version(void)
 	for (auto i = storage_plugins; *i != nullptr; ++i)
 		printf(" %s", (*i)->name);
 
-	printf("\n"
+	printf("\n");
 #endif
 
 #ifdef ENABLE_NEIGHBOR_PLUGINS
-	       "\n"
+	printf("\n"
 	       "Neighbor plugins:\n");
 	for (auto i = neighbor_plugins; *i != nullptr; ++i)
 		printf(" %s", (*i)->name);
 
-	printf("\n"
 #endif
 
+	printf("\n"
 	       "\n"
 	       "Decoders plugins:\n");
 
 	decoder_plugins_for_each([](const DecoderPlugin &plugin){
-			printf(" [%s]", plugin.name);
+		printf(" [%s]", plugin.name);
 
-			const char *const*suffixes = plugin.suffixes;
-			if (suffixes != nullptr)
-				for (; *suffixes != nullptr; ++suffixes)
-					printf(" %s", *suffixes);
+		const char *const*suffixes = plugin.suffixes;
+		if (suffixes != nullptr)
+			for (; *suffixes != nullptr; ++suffixes)
+				printf(" %s", *suffixes);
 
-			printf("\n");
-		});
+		if (plugin.protocols != nullptr)
+			for (const auto &i : plugin.protocols())
+				printf(" %s", i.c_str());
+
+		printf("\n");
+	});
 
 	printf("\n"
 	       "Filters:\n"
@@ -195,7 +213,15 @@ static void version(void)
 #endif
 
 	       "\n"
-	       "Input plugins:\n");
+	       "Input plugins:\n"
+	       " file"
+#ifdef HAVE_URING
+	       " io_uring"
+#endif
+#ifdef ENABLE_ARCHIVE
+	       " archive"
+#endif
+	       );
 	input_plugins_for_each(plugin)
 		printf(" %s", plugin->name);
 
@@ -212,6 +238,12 @@ static void version(void)
 	       "Other features:\n"
 #ifdef HAVE_AVAHI
 	       " avahi"
+#endif
+#ifdef ENABLE_DBUS
+	       " dbus"
+#endif
+#ifdef ENABLE_UDISKS
+	       " udisks"
 #endif
 #ifdef USE_EPOLL
 	       " epoll"
@@ -239,7 +271,7 @@ static void version(void)
 #endif
 	       "\n");
 
-	exit(EXIT_SUCCESS);
+	std::exit(EXIT_SUCCESS);
 }
 
 static void PrintOption(const OptionDef &opt)
@@ -255,8 +287,8 @@ static void PrintOption(const OptionDef &opt)
 		       opt.GetDescription());
 }
 
-gcc_noreturn
-static void help(void)
+[[noreturn]]
+static void help()
 {
 	printf("Usage:\n"
 	       "  mpd [OPTION...] [path/to/mpd.conf]\n"
@@ -265,89 +297,92 @@ static void help(void)
 	       "\n"
 	       "Options:\n");
 
-	PrintOption(opt_help);
-	PrintOption(opt_kill);
-	PrintOption(opt_no_config);
-	PrintOption(opt_no_daemon);
-	PrintOption(opt_stderr);
-	PrintOption(opt_verbose);
-	PrintOption(opt_version);
+	for (const auto &i : option_defs)
+		if(i.HasDescription()) // hide hidden options from help print
+			PrintOption(i);
 
-	exit(EXIT_SUCCESS);
+	std::exit(EXIT_SUCCESS);
 }
 
 class ConfigLoader
 {
+	ConfigData &config;
+
 public:
-	bool TryFile(const Path path);
-	bool TryFile(const AllocatedPath &base_path,
-		     PathTraitsFS::const_pointer_type path);
+	explicit ConfigLoader(ConfigData &_config) noexcept
+		:config(_config) {}
+
+	bool TryFile(Path path);
+	bool TryFile(const AllocatedPath &base_path, Path path);
 };
 
 bool ConfigLoader::TryFile(Path path)
 {
 	if (FileExists(path)) {
-		ReadConfigFile(path);
+		ReadConfigFile(config, path);
 		return true;
 	}
 	return false;
 }
 
-bool ConfigLoader::TryFile(const AllocatedPath &base_path,
-			   PathTraitsFS::const_pointer_type path)
+bool ConfigLoader::TryFile(const AllocatedPath &base_path, Path path)
 {
 	if (base_path.IsNull())
 		return false;
-	auto full_path = AllocatedPath::Build(base_path, path);
+	auto full_path = base_path / path;
 	return TryFile(full_path);
 }
 
 void
-ParseCommandLine(int argc, char **argv, struct options *options)
+ParseCommandLine(int argc, char **argv, CommandLineOptions &options,
+		 ConfigData &config)
 {
 	bool use_config_file = true;
-	options->kill = false;
-	options->daemon = true;
-	options->log_stderr = false;
-	options->verbose = false;
 
 	// First pass: handle command line options
-	OptionParser parser(argc, argv);
-	while (parser.HasEntries()) {
-		if (!parser.ParseNext())
-			continue;
-		if (parser.CheckOption(opt_kill)) {
-			options->kill = true;
-			continue;
-		}
-		if (parser.CheckOption(opt_no_config)) {
-			use_config_file = false;
-			continue;
-		}
-		if (parser.CheckOption(opt_no_daemon)) {
-			options->daemon = false;
-			continue;
-		}
-		if (parser.CheckOption(opt_stderr, opt_stdout)) {
-			options->log_stderr = true;
-			continue;
-		}
-		if (parser.CheckOption(opt_verbose)) {
-			options->verbose = true;
-			continue;
-		}
-		if (parser.CheckOption(opt_version))
-			version();
-		if (parser.CheckOption(opt_help, opt_help_alt))
-			help();
+	OptionParser parser(option_defs, argc, argv);
+	while (auto o = parser.Next()) {
+		switch (Option(o.index)) {
+		case OPTION_KILL:
+			options.kill = true;
+			break;
 
-		throw FormatRuntimeError("invalid option: %s",
-					 parser.GetOption());
+		case OPTION_NO_CONFIG:
+			use_config_file = false;
+			break;
+
+		case OPTION_NO_DAEMON:
+			options.daemon = false;
+			break;
+
+#ifdef __linux__
+		case OPTION_SYSTEMD:
+			options.daemon = false;
+			options.systemd = true;
+			break;
+#endif
+
+		case OPTION_STDOUT:
+		case OPTION_STDERR:
+			options.log_stderr = true;
+			break;
+
+		case OPTION_VERBOSE:
+			options.verbose = true;
+			break;
+
+		case OPTION_VERSION:
+			version();
+
+		case OPTION_HELP:
+		case OPTION_HELP2:
+			help();
+		}
 	}
 
 	/* initialize the logging library, so the configuration file
 	   parser can use it already */
-	log_early_init(options->verbose);
+	log_early_init(options.verbose);
 
 	if (!use_config_file) {
 		LogDebug(cmdline_domain,
@@ -357,11 +392,9 @@ ParseCommandLine(int argc, char **argv, struct options *options)
 
 	// Second pass: find non-option parameters (i.e. config file)
 	const char *config_file = nullptr;
-	for (int i = 1; i < argc; ++i) {
-		if (OptionParser::IsOption(argv[i]))
-			continue;
+	for (const char *i : parser.GetRemaining()) {
 		if (config_file == nullptr) {
-			config_file = argv[i];
+			config_file = i;
 			continue;
 		}
 
@@ -370,26 +403,16 @@ ParseCommandLine(int argc, char **argv, struct options *options)
 
 	if (config_file != nullptr) {
 		/* use specified configuration file */
-#ifdef _UNICODE
-		wchar_t buffer[MAX_PATH];
-		auto result = MultiByteToWideChar(CP_ACP, 0, config_file, -1,
-						  buffer, ARRAY_SIZE(buffer));
-		if (result <= 0)
-			throw MakeLastError("MultiByteToWideChar() failed");
-
-		ReadConfigFile(Path::FromFS(buffer));
-#else
-		ReadConfigFile(Path::FromFS(config_file));
-#endif
+		ReadConfigFile(config, FromNarrowPath(config_file));
 		return;
 	}
 
 	/* use default configuration file path */
 
-	ConfigLoader loader;
+	ConfigLoader loader(config);
 
 	bool found =
-#ifdef WIN32
+#ifdef _WIN32
 		loader.TryFile(GetUserConfigDir(), CONFIG_FILE_LOCATION) ||
 		loader.TryFile(GetSystemConfigDir(), CONFIG_FILE_LOCATION) ||
 		loader.TryFile(GetAppBaseDir(), APP_CONFIG_FILE_LOCATION);

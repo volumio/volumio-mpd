@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "OggSyncState.hxx"
 #include "fs/io/Reader.hxx"
 
@@ -41,8 +40,13 @@ OggSyncState::ExpectPage(ogg_page &page)
 {
 	while (true) {
 		int r = ogg_sync_pageout(&oy, &page);
-		if (r != 0)
+		if (r != 0) {
+			if (r > 0) {
+				start_offset = offset;
+				offset += page.header_len + page.body_len;
+			}
 			return r > 0;
+		}
 
 		if (!Feed(1024))
 			return false;
@@ -67,12 +71,16 @@ OggSyncState::ExpectPageSeek(ogg_page &page)
 
 	while (true) {
 		int r = ogg_sync_pageseek(&oy, &page);
-		if (r > 0)
+		if (r > 0) {
+			start_offset = offset;
+			offset += r;
 			return true;
+		}
 
 		if (r < 0) {
 			/* skipped -r bytes */
 			size_t nbytes = -r;
+			offset += nbytes;
 			if (nbytes > remaining_skipped)
 				/* still no ogg page - we lost our
 				   patience, abort */

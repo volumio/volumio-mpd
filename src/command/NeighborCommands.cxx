@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,38 +17,38 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "NeighborCommands.hxx"
 #include "Request.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "Instance.hxx"
-#include "Partition.hxx"
 #include "neighbor/Glue.hxx"
 #include "neighbor/Info.hxx"
+
+#include <fmt/format.h>
 
 #include <string>
 
 bool
-neighbor_commands_available(const Instance &instance)
+neighbor_commands_available(const Instance &instance) noexcept
 {
 	return instance.neighbors != nullptr;
 }
 
 CommandResult
-handle_listneighbors(Client &client, gcc_unused Request args, Response &r)
+handle_listneighbors(Client &client, [[maybe_unused]] Request args, Response &r)
 {
 	const NeighborGlue *const neighbors =
-		client.partition.instance.neighbors;
+		client.GetInstance().neighbors.get();
 	if (neighbors == nullptr) {
 		r.Error(ACK_ERROR_UNKNOWN, "No neighbor plugin configured");
 		return CommandResult::ERROR;
 	}
 
 	for (const auto &i : neighbors->GetList())
-		r.Format("neighbor: %s\n"
-			 "name: %s\n",
-			 i.uri.c_str(),
-			 i.display_name.c_str());
+		r.Fmt(FMT_STRING("neighbor: {}\n"
+				 "name: {}\n"),
+		      i.uri,
+		      i.display_name);
 	return CommandResult::OK;
 }

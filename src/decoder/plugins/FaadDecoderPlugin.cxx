@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FaadDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "../DecoderBuffer.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "tag/Handler.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/Domain.hxx"
+#include "util/Math.hxx"
 #include "Log.hxx"
 
+#include <cassert>
+#include <cstring>
+
 #include <neaacdec.h>
-
-#include <stdexcept>
-
-#include <assert.h>
-#include <string.h>
 
 static const unsigned adts_sample_rates[] =
     { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
@@ -73,8 +71,7 @@ adts_find_frame(DecoderBuffer &buffer)
 			return 0;
 
 		/* find the 0xff marker */
-		const uint8_t *p = (const uint8_t *)
-			memchr(data.data, 0xff, data.size);
+		auto p = (const uint8_t *)std::memchr(data.data, 0xff, data.size);
 		if (p == nullptr) {
 			/* no marker - discard the buffer */
 			buffer.Clear();
@@ -127,7 +124,7 @@ adts_song_duration(DecoderBuffer &buffer)
 
 		if (frames == 0) {
 			auto data = ConstBuffer<uint8_t>::FromVoid(buffer.Read());
-			assert(!data.IsEmpty());
+			assert(!data.empty());
 			assert(frame_length <= data.size);
 
 			sample_rate = adts_sample_rates[(data.data[2] & 0x3c) >> 2];
@@ -196,7 +193,7 @@ faad_song_duration(DecoderBuffer &buffer, InputStream &is)
 
 		try {
 			is.LockSeek(tagsize);
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 		}
 
 		buffer.Clear();
@@ -232,7 +229,7 @@ faad_song_duration(DecoderBuffer &buffer, InputStream &is)
 static NeAACDecHandle
 faad_decoder_new()
 {
-	const NeAACDecHandle decoder = NeAACDecOpen();
+	auto decoder = NeAACDecOpen();
 
 	NeAACDecConfigurationPtr config =
 		NeAACDecGetCurrentConfiguration(decoder);
@@ -255,7 +252,7 @@ faad_decoder_init(NeAACDecHandle decoder, DecoderBuffer &buffer,
 		  AudioFormat &audio_format)
 {
 	auto data = ConstBuffer<uint8_t>::FromVoid(buffer.Read());
-	if (data.IsEmpty())
+	if (data.empty())
 		throw std::runtime_error("Empty file");
 
 	uint8_t channels;
@@ -283,7 +280,7 @@ faad_decoder_decode(NeAACDecHandle decoder, DecoderBuffer &buffer,
 		    NeAACDecFrameInfo *frame_info)
 {
 	auto data = ConstBuffer<uint8_t>::FromVoid(buffer.Read());
-	if (data.IsEmpty())
+	if (data.empty())
 		return nullptr;
 
 	return NeAACDecDecode(decoder, frame_info,
@@ -316,16 +313,16 @@ faad_get_file_time(InputStream &is)
 		try {
 			faad_decoder_init(decoder, buffer, audio_format);
 			recognized = true;
-		} catch (const std::runtime_error &e) {
+		} catch (...) {
 		}
 	}
 
-	return std::make_pair(recognized, duration);
+	return {recognized, duration};
 }
 
 static void
 faad_stream_decode(DecoderClient &client, InputStream &is,
-		   DecoderBuffer &buffer, const NeAACDecHandle decoder)
+		   DecoderBuffer &buffer, NeAACDecHandle decoder)
 {
 	const auto total_time = faad_song_duration(buffer, is);
 
@@ -360,24 +357,24 @@ faad_stream_decode(DecoderClient &client, InputStream &is,
 			faad_decoder_decode(decoder, buffer, &frame_info);
 
 		if (frame_info.error > 0) {
-			FormatWarning(faad_decoder_domain,
-				      "error decoding AAC stream: %s",
-				      NeAACDecGetErrorMessage(frame_info.error));
+			FmtWarning(faad_decoder_domain,
+				   "error decoding AAC stream: {}",
+				   NeAACDecGetErrorMessage(frame_info.error));
 			break;
 		}
 
 		if (frame_info.channels != audio_format.channels) {
-			FormatDefault(faad_decoder_domain,
-				      "channel count changed from %u to %u",
-				      audio_format.channels, frame_info.channels);
+			FmtNotice(faad_decoder_domain,
+				  "channel count changed from {} to {}",
+				  audio_format.channels, frame_info.channels);
 			break;
 		}
 
 		if (frame_info.samplerate != audio_format.sample_rate) {
-			FormatDefault(faad_decoder_domain,
-				      "sample rate changed from %u to %lu",
-				      audio_format.sample_rate,
-				      (unsigned long)frame_info.samplerate);
+			FmtNotice(faad_decoder_domain,
+				  "sample rate changed from {} to {}",
+				  audio_format.sample_rate,
+				  frame_info.samplerate);
 			break;
 		}
 
@@ -386,9 +383,9 @@ faad_stream_decode(DecoderClient &client, InputStream &is,
 		/* update bit rate and position */
 
 		if (frame_info.samples > 0) {
-			bit_rate = frame_info.bytesconsumed * 8.0 *
-			    frame_info.channels * audio_format.sample_rate /
-			    frame_info.samples / 1000 + 0.5;
+			bit_rate = lround(frame_info.bytesconsumed * 8.0 *
+					  frame_info.channels * audio_format.sample_rate /
+					  frame_info.samples / 1000);
 		}
 
 		/* send PCM samples to MPD */
@@ -407,23 +404,21 @@ faad_stream_decode(DecoderClient &client, InputStream &is)
 
 	/* create the libfaad decoder */
 
-	const NeAACDecHandle decoder = faad_decoder_new();
+	auto decoder = faad_decoder_new();
 	AtScopeExit(decoder) { NeAACDecClose(decoder); };
 
 	faad_stream_decode(client, is, buffer, decoder);
 }
 
 static bool
-faad_scan_stream(InputStream &is,
-		 const TagHandler &handler, void *handler_ctx)
+faad_scan_stream(InputStream &is, TagHandler &handler)
 {
 	auto result = faad_get_file_time(is);
 	if (!result.first)
 		return false;
 
 	if (!result.second.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx,
-					    SongTime(result.second));
+		handler.OnDuration(SongTime(result.second));
 	return true;
 }
 
@@ -432,15 +427,7 @@ static const char *const faad_mime_types[] = {
 	"audio/aac", "audio/aacp", nullptr
 };
 
-const DecoderPlugin faad_decoder_plugin = {
-	"faad",
-	nullptr,
-	nullptr,
-	faad_stream_decode,
-	nullptr,
-	nullptr,
-	faad_scan_stream,
-	nullptr,
-	faad_suffixes,
-	faad_mime_types,
-};
+constexpr DecoderPlugin faad_decoder_plugin =
+	DecoderPlugin("faad", faad_stream_decode, faad_scan_stream)
+	.WithSuffixes(faad_suffixes)
+	.WithMimeTypes(faad_mime_types);

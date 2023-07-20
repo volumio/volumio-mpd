@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlsPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../MemorySongEnumerator.hxx"
 #include "input/TextInputStream.hxx"
 #include "input/InputStream.hxx"
-#include "DetachedSong.hxx"
-#include "tag/TagBuilder.hxx"
+#include "song/DetachedSong.hxx"
+#include "tag/Builder.hxx"
 #include "util/ASCII.hxx"
-#include "util/StringUtil.hxx"
+#include "util/StringStrip.hxx"
 #include "util/DivideString.hxx"
 
 #include <string>
@@ -58,9 +57,9 @@ ParsePls(TextInputStream &is, std::forward_list<DetachedSong> &songs)
 
 	struct Entry {
 		std::string file, title;
-		int length;
+		int length{-1};
 
-		Entry():length(-1) {}
+		Entry() = default;
 	};
 
 	static constexpr unsigned MAX_ENTRIES = 65536;
@@ -153,35 +152,27 @@ ParsePls(InputStreamPtr &&is, std::forward_list<DetachedSong> &songs)
 	return true;
 }
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 pls_open_stream(InputStreamPtr &&is)
 {
 	std::forward_list<DetachedSong> songs;
 	if (!ParsePls(std::move(is), songs))
 		return nullptr;
 
-	return new MemorySongEnumerator(std::move(songs));
+	return std::make_unique<MemorySongEnumerator>(std::move(songs));
 }
 
-static const char *const pls_suffixes[] = {
+static constexpr const char *pls_suffixes[] = {
 	"pls",
 	nullptr
 };
 
-static const char *const pls_mime_types[] = {
+static constexpr const char *pls_mime_types[] = {
 	"audio/x-scpls",
 	nullptr
 };
 
-const struct playlist_plugin pls_playlist_plugin = {
-	"pls",
-
-	nullptr,
-	nullptr,
-	nullptr,
-	pls_open_stream,
-
-	nullptr,
-	pls_suffixes,
-	pls_mime_types,
-};
+const PlaylistPlugin pls_playlist_plugin =
+	PlaylistPlugin("pls", pls_open_stream)
+	.WithSuffixes(pls_suffixes)
+	.WithMimeTypes(pls_mime_types);

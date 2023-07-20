@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Manager.hxx"
+#include "lib/fmt/ExceptionFormatter.hxx"
 #include "event/Loop.hxx"
-#include "Log.hxx"
 #include "util/DeleteDisposer.hxx"
+#include "util/Domain.hxx"
+#include "Log.hxx"
 
 #include <string.h>
 
+static constexpr Domain nfs_domain("nfs");
+
 void
-NfsManager::ManagedConnection::OnNfsConnectionError(std::exception_ptr &&e)
+NfsManager::ManagedConnection::OnNfsConnectionError(std::exception_ptr &&e) noexcept
 {
-	FormatError(e, "NFS error on %s:%s", GetServer(), GetExportName());
+	FmtError(nfs_domain, "NFS error on '{}:{}': {}",
+		 GetServer(), GetExportName(), e);
 
 	/* defer deletion so the caller
 	   (i.e. NfsConnection::OnSocketReady()) can still use this
@@ -38,7 +42,7 @@ NfsManager::ManagedConnection::OnNfsConnectionError(std::exception_ptr &&e)
 
 inline bool
 NfsManager::Compare::operator()(const LookupKey a,
-				const ManagedConnection &b) const
+				const ManagedConnection &b) const noexcept
 {
 	int result = strcmp(a.server, b.GetServer());
 	if (result != 0)
@@ -50,7 +54,7 @@ NfsManager::Compare::operator()(const LookupKey a,
 
 inline bool
 NfsManager::Compare::operator()(const ManagedConnection &a,
-				const LookupKey b) const
+				const LookupKey b) const noexcept
 {
 	int result = strcmp(a.GetServer(), b.server);
 	if (result != 0)
@@ -62,7 +66,7 @@ NfsManager::Compare::operator()(const ManagedConnection &a,
 
 inline bool
 NfsManager::Compare::operator()(const ManagedConnection &a,
-				const ManagedConnection &b) const
+				const ManagedConnection &b) const noexcept
 {
 	int result = strcmp(a.GetServer(), b.GetServer());
 	if (result != 0)
@@ -72,9 +76,9 @@ NfsManager::Compare::operator()(const ManagedConnection &a,
 	return result < 0;
 }
 
-NfsManager::~NfsManager()
+NfsManager::~NfsManager() noexcept
 {
-	assert(GetEventLoop().IsInside());
+	assert(!GetEventLoop().IsAlive() || GetEventLoop().IsInside());
 
 	CollectGarbage();
 
@@ -82,7 +86,7 @@ NfsManager::~NfsManager()
 }
 
 NfsConnection &
-NfsManager::GetConnection(const char *server, const char *export_name)
+NfsManager::GetConnection(const char *server, const char *export_name) noexcept
 {
 	assert(server != nullptr);
 	assert(export_name != nullptr);
@@ -102,15 +106,15 @@ NfsManager::GetConnection(const char *server, const char *export_name)
 }
 
 void
-NfsManager::CollectGarbage()
+NfsManager::CollectGarbage() noexcept
 {
-	assert(GetEventLoop().IsInside());
+	assert(!GetEventLoop().IsAlive() || GetEventLoop().IsInside());
 
 	garbage.clear_and_dispose(DeleteDisposer());
 }
 
 void
-NfsManager::OnIdle()
+NfsManager::OnIdle() noexcept
 {
 	CollectGarbage();
 }

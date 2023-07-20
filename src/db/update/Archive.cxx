@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Walk.hxx"
 #include "UpdateDomain.hxx"
 #include "db/DatabaseLock.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "db/plugins/simple/Song.hxx"
 #include "storage/StorageInterface.hxx"
+#include "lib/fmt/PathFormatter.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "storage/FileInfo.hxx"
 #include "archive/ArchiveList.hxx"
@@ -33,27 +33,19 @@
 #include "util/StringCompare.hxx"
 #include "Log.hxx"
 
-#include <string>
-#include <stdexcept>
+#include <exception>
 
 #include <string.h>
 
 static Directory *
-LockFindChild(Directory &directory, const char *name)
-{
-	const ScopeDatabaseLock protect;
-	return directory.FindChild(name);
-}
-
-static Directory *
-LockMakeChild(Directory &directory, const char *name)
+LockMakeChild(Directory &directory, std::string_view name) noexcept
 {
 	const ScopeDatabaseLock protect;
 	return directory.MakeChild(name);
 }
 
 static Song *
-LockFindSong(Directory &directory, const char *name)
+LockFindSong(Directory &directory, std::string_view name) noexcept
 {
 	const ScopeDatabaseLock protect;
 	return directory.FindSong(name);
@@ -61,14 +53,13 @@ LockFindSong(Directory &directory, const char *name)
 
 void
 UpdateWalk::UpdateArchiveTree(ArchiveFile &archive, Directory &directory,
-			      const char *name)
+			      const char *name) noexcept
 {
-	const char *tmp = strchr(name, '/');
+	const char *tmp = std::strchr(name, '/');
 	if (tmp) {
-		const std::string child_name(name, tmp);
+		const std::string_view child_name(name, tmp - name);
 		//add dir is not there already
-		Directory *subdir = LockMakeChild(directory,
-						  child_name.c_str());
+		Directory *subdir = LockMakeChild(directory, child_name);
 		subdir->device = DEVICE_INARCHIVE;
 
 		//create directories first
@@ -83,22 +74,22 @@ UpdateWalk::UpdateArchiveTree(ArchiveFile &archive, Directory &directory,
 		//add file
 		Song *song = LockFindSong(directory, name);
 		if (song == nullptr) {
-			song = Song::LoadFromArchive(archive, name, directory);
-			if (song != nullptr) {
+			auto new_song = Song::LoadFromArchive(archive, name, directory);
+			if (new_song) {
 				{
 					const ScopeDatabaseLock protect;
-					directory.AddSong(song);
+					directory.AddSong(std::move(new_song));
 				}
 
 				modified = true;
-				FormatDefault(update_domain, "added %s/%s",
-					      directory.GetPath(), name);
+				FmtNotice(update_domain, "added {}/{}",
+					  directory.GetPath(), name);
 			}
 		} else {
 			if (!song->UpdateFileInArchive(archive)) {
-				FormatDebug(update_domain,
-					    "deleting unrecognized file %s/%s",
-					    directory.GetPath(), name);
+				FmtDebug(update_domain,
+					 "deleting unrecognized file {}/{}",
+					 directory.GetPath(), name);
 				editor.LockDeleteSong(directory, song);
 			}
 		}
@@ -108,17 +99,17 @@ UpdateWalk::UpdateArchiveTree(ArchiveFile &archive, Directory &directory,
 class UpdateArchiveVisitor final : public ArchiveVisitor {
 	UpdateWalk &walk;
 	ArchiveFile &archive;
-	Directory *directory;
+	Directory &directory;
 
  public:
 	UpdateArchiveVisitor(UpdateWalk &_walk, ArchiveFile &_archive,
-			     Directory *_directory)
+			     Directory &_directory) noexcept
 		:walk(_walk), archive(_archive), directory(_directory) {}
 
-	virtual void VisitArchiveEntry(const char *path_utf8) override {
-		FormatDebug(update_domain,
-			    "adding archive file: %s", path_utf8);
-		walk.UpdateArchiveTree(archive, *directory, path_utf8);
+	void VisitArchiveEntry(const char *path_utf8) override {
+		FmtDebug(update_domain,
+			 "adding archive file: {}", path_utf8);
+		walk.UpdateArchiveTree(archive, directory, path_utf8);
 	}
 };
 
@@ -131,59 +122,43 @@ class UpdateArchiveVisitor final : public ArchiveVisitor {
  * @param plugin the archive plugin which fits this archive type
  */
 void
-UpdateWalk::UpdateArchiveFile(Directory &parent, const char *name,
+UpdateWalk::UpdateArchiveFile(Directory &parent, std::string_view name,
 			      const StorageFileInfo &info,
-			      const ArchivePlugin &plugin)
+			      const ArchivePlugin &plugin) noexcept
 {
-	Directory *directory = LockFindChild(parent, name);
-
-	if (directory != nullptr && directory->mtime == info.mtime &&
-	    !walk_discard)
-		/* MPD has already scanned the archive, and it hasn't
-		   changed since - don't consider updating it */
-		return;
-
 	const auto path_fs = storage.MapChildFS(parent.GetPath(), name);
 	if (path_fs.IsNull())
 		/* not a local file: skip, because the archive API
 		   supports only local files */
 		return;
 
+	Directory *directory =
+		LockMakeVirtualDirectoryIfModified(parent, name, info,
+						   DEVICE_INARCHIVE);
+	if (directory == nullptr)
+		/* not modified */
+		return;
+
 	/* open archive */
-	ArchiveFile *file;
+	std::unique_ptr<ArchiveFile> file;
 	try {
 		file = archive_file_open(&plugin, path_fs);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
-		if (directory != nullptr)
-			editor.LockDeleteDirectory(directory);
+	} catch (...) {
+		LogError(std::current_exception());
+		editor.LockDeleteDirectory(directory);
 		return;
 	}
 
-	FormatDebug(update_domain, "archive %s opened", path_fs.c_str());
+	FmtDebug(update_domain, "archive {} opened", path_fs);
 
-	if (directory == nullptr) {
-		FormatDebug(update_domain,
-			    "creating archive directory: %s", name);
-
-		const ScopeDatabaseLock protect;
-		directory = parent.CreateChild(name);
-		/* mark this directory as archive (we use device for
-		   this) */
-		directory->device = DEVICE_INARCHIVE;
-	}
-
-	directory->mtime = info.mtime;
-
-	UpdateArchiveVisitor visitor(*this, *file, directory);
+	UpdateArchiveVisitor visitor(*this, *file, *directory);
 	file->Visit(visitor);
-	file->Close();
 }
 
 bool
 UpdateWalk::UpdateArchiveFile(Directory &directory,
-			      const char *name, const char *suffix,
-			      const StorageFileInfo &info)
+			      std::string_view name, std::string_view suffix,
+			      const StorageFileInfo &info) noexcept
 {
 	const ArchivePlugin *plugin = archive_plugin_from_suffix(suffix);
 	if (plugin == nullptr)

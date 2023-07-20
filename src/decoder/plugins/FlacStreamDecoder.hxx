@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,14 +20,11 @@
 #ifndef MPD_FLAC_STREAM_DECODER
 #define MPD_FLAC_STREAM_DECODER
 
-#include "check.h"
-
 #include <FLAC/stream_decoder.h>
 
-#include <utility>
+#include <cassert>
 #include <stdexcept>
-
-#include <assert.h>
+#include <utility>
 
 /**
  * OO wrapper for a FLAC__StreamDecoder.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_NEIGHBOR_REGISTRY_HXX
 #define MPD_NEIGHBOR_REGISTRY_HXX
 
-#include "Compiler.h"
-
 struct NeighborPlugin;
 
 /**
@@ -30,8 +28,8 @@ struct NeighborPlugin;
  */
 extern const NeighborPlugin *const neighbor_plugins[];
 
-gcc_pure
+[[gnu::pure]]
 const NeighborPlugin *
-GetNeighborPluginByName(const char *name);
+GetNeighborPluginByName(const char *name) noexcept;
 
 #endif

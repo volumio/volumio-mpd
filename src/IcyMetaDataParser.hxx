@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,29 +20,42 @@
 #ifndef MPD_ICY_META_DATA_PARSER_HXX
 #define MPD_ICY_META_DATA_PARSER_HXX
 
-#include <stddef.h>
+#include "lib/icu/Converter.hxx"
+#include "tag/Tag.hxx"
+#include "config.h"
 
-struct Tag;
+#include <cstddef>
+#include <memory>
 
 class IcyMetaDataParser {
-	size_t data_size, data_rest;
+	size_t data_size = 0, data_rest;
 
 	size_t meta_size, meta_position;
 	char *meta_data;
 
-	Tag *tag;
+#ifdef HAVE_ICU_CONVERTER
+	std::unique_ptr<IcuConverter> icu_converter;
+#endif
+
+	std::unique_ptr<Tag> tag;
 
 public:
-	IcyMetaDataParser():data_size(0) {}
-	~IcyMetaDataParser() {
+	~IcyMetaDataParser() noexcept {
 		Reset();
 	}
+
+#ifdef HAVE_ICU_CONVERTER
+	/**
+	 * Throws on error.
+	 */
+	void SetCharset(const char *charset);
+#endif
 
 	/**
 	 * Initialize an enabled icy_metadata object with the specified
 	 * data_size (from the icy-metaint HTTP response header).
 	 */
-	void Start(size_t _data_size) {
+	void Start(size_t _data_size) noexcept {
 		data_size = data_rest = _data_size;
 		meta_size = 0;
 		tag = nullptr;
@@ -51,12 +64,12 @@ public:
 	/**
 	 * Resets the icy_metadata.  Call this after rewinding the stream.
 	 */
-	void Reset();
+	void Reset() noexcept;
 
 	/**
 	 * Checks whether the icy_metadata object is enabled.
 	 */
-	bool IsDefined() const {
+	bool IsDefined() const noexcept {
 		return data_size > 0;
 	}
 
@@ -66,26 +79,24 @@ public:
 	 * return value is smaller than "length", the caller should invoke
 	 * icy_meta().
 	 */
-	size_t Data(size_t length);
+	size_t Data(size_t length) noexcept;
 
 	/**
 	 * Reads metadata from the stream.  Returns the number of bytes
 	 * consumed.  If the return value is smaller than "length", the caller
 	 * should invoke icy_data().
 	 */
-	size_t Meta(const void *data, size_t length);
+	size_t Meta(const void *data, size_t length) noexcept;
 
 	/**
 	 * Parse data and eliminate metadata.
 	 *
 	 * @return the number of data bytes remaining in the buffer
 	 */
-	size_t ParseInPlace(void *data, size_t length);
+	size_t ParseInPlace(void *data, size_t length) noexcept;
 
-	Tag *ReadTag() {
-		Tag *result = tag;
-		tag = nullptr;
-		return result;
+	std::unique_ptr<Tag> ReadTag() noexcept {
+		return std::exchange(tag, nullptr);
 	}
 };
 

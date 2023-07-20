@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,12 +30,12 @@
 #include "DsdiffDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
-#include "util/bit_reverse.h"
-#include "system/ByteOrder.hxx"
-#include "tag/TagHandler.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "util/BitReverse.hxx"
+#include "util/ByteOrder.hxx"
+#include "util/StringView.hxx"
+#include "tag/Handler.hxx"
 #include "DsdLib.hxx"
-#include "Log.hxx"
 
 struct DsdiffHeader {
 	DsdId id;
@@ -51,9 +51,20 @@ struct DsdiffChunkHeader {
 	 * Read the "size" attribute from the specified header, converting it
 	 * to the host byte order if needed.
 	 */
-	constexpr
+	[[nodiscard]] constexpr
 	uint64_t GetSize() const {
 		return size.Read();
+	}
+
+	/**
+	 * Applies padding to GetSize(), according to the DSDIFF
+	 * specification
+	 * (http://www.sonicstudio.com/pdf/dsd/DSDIFF_1.5_Spec.pdf)
+	 * section 2.3.
+	 */
+	[[nodiscard]] constexpr
+	uint64_t GetPaddedSize() const noexcept {
+		return (GetSize() + 1) & ~uint64_t(1);
 	}
 };
 
@@ -117,7 +128,7 @@ dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 			return false;
 
 		offset_type chunk_end_offset = is.GetOffset()
-			+ header.GetSize();
+			+ header.GetPaddedSize();
 		if (chunk_end_offset > end_offset)
 			return false;
 
@@ -185,35 +196,34 @@ dsdiff_read_prop(DecoderClient *client, InputStream &is,
 }
 
 static void
-dsdiff_handle_native_tag(InputStream &is,
-			 const TagHandler &handler,
-			 void *handler_ctx, offset_type tagoffset,
+dsdiff_handle_native_tag(DecoderClient *client, InputStream &is,
+			 TagHandler &handler,
+			 offset_type tagoffset,
 			 TagType type)
 {
-	if (!dsdlib_skip_to(nullptr, is, tagoffset))
+	if (!dsdlib_skip_to(client, is, tagoffset))
 		return;
 
 	struct dsdiff_native_tag metatag;
 
-	if (!decoder_read_full(nullptr, is, &metatag, sizeof(metatag)))
+	if (!decoder_read_full(client, is, &metatag, sizeof(metatag)))
 		return;
 
 	uint32_t length = FromBE32(metatag.size);
 
 	/* Check and limit size of the tag to prevent a stack overflow */
-	if (length == 0 || length > 60)
+	constexpr size_t MAX_LENGTH = 1024;
+	if (length == 0 || length > MAX_LENGTH)
 		return;
 
-	char string[length + 1];
+	char string[MAX_LENGTH];
 	char *label;
 	label = string;
 
-	if (!decoder_read_full(nullptr, is, label, (size_t)length))
+	if (!decoder_read_full(client, is, label, (size_t)length))
 		return;
 
-	string[length] = '\0';
-	tag_handler_invoke_tag(handler, handler_ctx, type, label);
-	return;
+	handler.OnTag(type, {label, length});
 }
 
 /**
@@ -228,8 +238,7 @@ static bool
 dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 			   DsdiffMetaData *metadata,
 			   DsdiffChunkHeader *chunk_header,
-			   const TagHandler &handler,
-			   void *handler_ctx)
+			   TagHandler &handler)
 {
 
 	/* skip from DSD data to next chunk header */
@@ -286,17 +295,17 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 	if (id3_offset != 0) {
 		/* a ID3 tag has preference over the other tags, do not process
 		   other tags if we have one */
-		dsdlib_tag_id3(is, handler, handler_ctx, id3_offset);
+		dsdlib_tag_id3(is, handler, id3_offset);
 		return true;
 	}
 #endif
 
 	if (artist_offset != 0)
-		dsdiff_handle_native_tag(is, handler, handler_ctx,
+		dsdiff_handle_native_tag(client, is, handler,
 					 artist_offset, TAG_ARTIST);
 
 	if (title_offset != 0)
-		dsdiff_handle_native_tag(is, handler, handler_ctx,
+		dsdiff_handle_native_tag(client, is, handler,
 					 title_offset, TAG_TITLE);
 	return true;
 }
@@ -363,6 +372,7 @@ dsdiff_decode_chunk(DecoderClient &client, InputStream &is,
 		    unsigned channels, unsigned sample_rate,
 		    const offset_type total_bytes)
 {
+	const unsigned kbit_rate = channels * sample_rate / 1000;
 	const offset_type start_offset = is.GetOffset();
 
 	uint8_t buffer[8192];
@@ -409,7 +419,7 @@ dsdiff_decode_chunk(DecoderClient &client, InputStream &is,
 			bit_reverse_buffer(buffer, buffer + nbytes);
 
 		cmd = client.SubmitData(is, buffer, nbytes,
-					sample_rate / 1000);
+					kbit_rate);
 	}
 
 	return true;
@@ -449,9 +459,7 @@ dsdiff_stream_decode(DecoderClient &client, InputStream &is)
 }
 
 static bool
-dsdiff_scan_stream(InputStream &is,
-		   gcc_unused const TagHandler &handler,
-		   gcc_unused void *handler_ctx)
+dsdiff_scan_stream(InputStream &is, TagHandler &handler)
 {
 	DsdiffMetaData metadata;
 	DsdiffChunkHeader chunk_header;
@@ -460,19 +468,20 @@ dsdiff_scan_stream(InputStream &is,
 	if (!dsdiff_read_metadata(nullptr, is, &metadata, &chunk_header))
 		return false;
 
-	auto audio_format = CheckAudioFormat(metadata.sample_rate / 8,
-					     SampleFormat::DSD,
-					     metadata.channels);
+	const auto sample_rate = metadata.sample_rate / 8;
+	if (!audio_valid_sample_rate(sample_rate) ||
+	    !audio_valid_channel_count(metadata.channels))
+		return false;
 
 	/* calculate song time and add as tag */
-	uint64_t n_frames = metadata.chunk_size / audio_format.channels;
+	uint64_t n_frames = metadata.chunk_size / metadata.channels;
 	auto songtime = SongTime::FromScale<uint64_t>(n_frames,
-						      audio_format.sample_rate);
-	tag_handler_invoke_duration(handler, handler_ctx, songtime);
+						      sample_rate);
+	handler.OnDuration(songtime);
 
 	/* Read additional metadata and created tags if available */
 	dsdiff_read_metadata_extra(nullptr, is, &metadata, &chunk_header,
-				   handler, handler_ctx);
+				   handler);
 
 	return true;
 }
@@ -484,18 +493,13 @@ static const char *const dsdiff_suffixes[] = {
 
 static const char *const dsdiff_mime_types[] = {
 	"application/x-dff",
+	"audio/x-dff",
+	"audio/x-dsd",
 	nullptr
 };
 
-const struct DecoderPlugin dsdiff_decoder_plugin = {
-	"dsdiff",
-	dsdiff_init,
-	nullptr,
-	dsdiff_stream_decode,
-	nullptr,
-	nullptr,
-	dsdiff_scan_stream,
-	nullptr,
-	dsdiff_suffixes,
-	dsdiff_mime_types,
-};
+constexpr DecoderPlugin dsdiff_decoder_plugin =
+	DecoderPlugin("dsdiff", dsdiff_stream_decode, dsdiff_scan_stream)
+	.WithInit(dsdiff_init)
+	.WithSuffixes(dsdiff_suffixes)
+	.WithMimeTypes(dsdiff_mime_types);

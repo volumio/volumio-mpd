@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,41 +20,27 @@
 #ifndef MPD_CONFIG_PARAM_HXX
 #define MPD_CONFIG_PARAM_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <string>
 
 class AllocatedPath;
 
 struct ConfigParam {
-	/**
-	 * The next ConfigParam with the same name.  The destructor
-	 * deletes the whole chain.
-	 */
-	ConfigParam *next;
-
 	std::string value;
 
 	int line;
 
-	/**
-	 * This flag is false when nobody has queried the value of
-	 * this option yet.
-	 */
-	bool used;
-
 	explicit ConfigParam(int _line=-1)
-		:next(nullptr), line(_line), used(false) {}
+		:line(_line) {}
 
-	gcc_nonnull_all
-	ConfigParam(const char *_value, int _line=-1);
+	template<typename V>
+	[[gnu::nonnull]]
+	explicit ConfigParam(V &&_value, int _line=-1) noexcept
+		:value(std::forward<V>(_value)), line(_line) {}
 
-	ConfigParam(const ConfigParam &) = delete;
-
-	~ConfigParam();
-
-	ConfigParam &operator=(const ConfigParam &) = delete;
+	ConfigParam(ConfigParam &&) = default;
+	ConfigParam &operator=(ConfigParam &&) = default;
 
 	/**
 	 * Determine if this is a "null" instance, i.e. an empty
@@ -71,8 +57,28 @@ struct ConfigParam {
 	 *
 	 * Throws #std::runtime_error on error.
 	 */
-	gcc_pure
 	AllocatedPath GetPath() const;
+
+	/**
+	 * Call this method in a "catch" block to throw a nested
+	 * exception showing the location of this setting in the
+	 * configuration file.
+	 */
+	[[noreturn]]
+	void ThrowWithNested() const;
+
+	/**
+	 * Invoke a function with the configured value; if the
+	 * function throws, call ThrowWithNested().
+	 */
+	template<typename F>
+	auto With(F &&f) const {
+		try {
+			return f(value.c_str());
+		} catch (...) {
+			ThrowWithNested();
+		}
+	}
 };
 
 #endif

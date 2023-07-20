@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Max Kellermann <max@duempel.org>
+ * Copyright 2015-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,114 +32,163 @@
 
 #include "StringPointer.hxx"
 
-#include <utility>
 #include <algorithm>
+#include <cstddef>
+#include <string_view>
+#include <utility>
 
 /**
  * A string pointer whose memory is managed by this class.
  *
  * Unlike std::string, this object can hold a "nullptr" special value.
  */
-template<typename T=char>
-class AllocatedString {
+template<typename T>
+class BasicAllocatedString {
 public:
-	typedef typename StringPointer<T>::value_type value_type;
-	typedef typename StringPointer<T>::reference_type reference_type;
-	typedef typename StringPointer<T>::const_reference_type const_reference_type;
-	typedef typename StringPointer<T>::pointer_type pointer_type;
-	typedef typename StringPointer<T>::const_pointer_type const_pointer_type;
-	typedef size_t size_type;
+	using value_type = typename StringPointer<T>::value_type;
+	using reference = typename StringPointer<T>::reference;
+	using const_reference = typename StringPointer<T>::const_reference;
+	using pointer = typename StringPointer<T>::pointer;
+	using const_pointer = typename StringPointer<T>::const_pointer;
+	using string_view = std::basic_string_view<T>;
+	using size_type = std::size_t;
 
 	static constexpr value_type SENTINEL = '\0';
 
 private:
-	pointer_type value;
+	pointer value = nullptr;
 
-	explicit AllocatedString(pointer_type _value)
+	explicit BasicAllocatedString(pointer _value) noexcept
 		:value(_value) {}
 
 public:
-	AllocatedString(std::nullptr_t n):value(n) {}
+	BasicAllocatedString() noexcept = default;
+	BasicAllocatedString(std::nullptr_t n) noexcept
+		:value(n) {}
 
-	AllocatedString(AllocatedString &&src)
+	explicit BasicAllocatedString(string_view src)
+		:value(Duplicate(src)) {}
+
+	explicit BasicAllocatedString(const_pointer src)
+		:value(Duplicate(src)) {}
+
+	/**
+	 * Concatenate several strings.
+	 */
+	BasicAllocatedString(std::initializer_list<string_view> src)
+		:value(new value_type[TotalSize(src) + 1])
+	{
+		auto *p = value;
+		for (const auto i : src)
+			p = std::copy(i.begin(), i.end(), p);
+		*p = SENTINEL;
+	}
+
+	BasicAllocatedString(const BasicAllocatedString &src) noexcept
+		:BasicAllocatedString(Duplicate(src.value)) {}
+
+	BasicAllocatedString(BasicAllocatedString &&src) noexcept
 		:value(src.Steal()) {}
 
-	~AllocatedString() {
+	~BasicAllocatedString() noexcept {
 		delete[] value;
 	}
 
-	static AllocatedString Donate(pointer_type value) {
-		return AllocatedString(value);
+	static BasicAllocatedString Donate(pointer value) noexcept {
+		return BasicAllocatedString(value);
 	}
 
-	static AllocatedString Null() {
-		return nullptr;
-	}
-
-	static AllocatedString Empty() {
+	static BasicAllocatedString Empty() {
 		auto p = new value_type[1];
 		p[0] = SENTINEL;
 		return Donate(p);
 	}
 
-	static AllocatedString Duplicate(const_pointer_type src);
-
-	static AllocatedString Duplicate(const_pointer_type begin,
-					 const_pointer_type end) {
-		auto p = new value_type[end - begin + 1];
-		*std::copy(begin, end, p) = SENTINEL;
-		return Donate(p);
-	}
-
-	static AllocatedString Duplicate(const_pointer_type begin,
-					 size_type length) {
-		auto p = new value_type[length + 1];
-		*std::copy_n(begin, length, p) = SENTINEL;
-		return Donate(p);
-	}
-
-	AllocatedString &operator=(AllocatedString &&src) {
+	BasicAllocatedString &operator=(BasicAllocatedString &&src) noexcept {
 		std::swap(value, src.value);
 		return *this;
 	}
 
-	constexpr bool operator==(std::nullptr_t) const {
+	BasicAllocatedString &operator=(string_view src) noexcept {
+		delete[] std::exchange(value, nullptr);
+		value = Duplicate(src);
+		return *this;
+	}
+
+	BasicAllocatedString &operator=(const_pointer src) noexcept {
+		delete[] std::exchange(value, nullptr);
+		value = src != nullptr ? Duplicate(src) : nullptr;
+		return *this;
+	}
+
+	constexpr bool operator==(std::nullptr_t) const noexcept {
 		return value == nullptr;
 	}
 
-	constexpr bool operator!=(std::nullptr_t) const {
+	constexpr bool operator!=(std::nullptr_t) const noexcept {
 		return value != nullptr;
 	}
 
-	constexpr bool IsNull() const {
-		return value == nullptr;
+	operator string_view() const noexcept {
+		return value != nullptr
+			? string_view(value)
+			: string_view();
 	}
 
-	constexpr const_pointer_type c_str() const {
+	constexpr const_pointer c_str() const noexcept {
 		return value;
 	}
 
-	bool empty() const {
+	bool empty() const noexcept {
 		return *value == SENTINEL;
 	}
 
-	reference_type operator[](size_type i) {
+	constexpr pointer data() const noexcept {
+		return value;
+	}
+
+	reference operator[](size_type i) noexcept {
 		return value[i];
 	}
 
-	const reference_type operator[](size_type i) const {
+	const reference operator[](size_type i) const noexcept {
 		return value[i];
 	}
 
-	pointer_type Steal() {
-		pointer_type result = value;
-		value = nullptr;
-		return result;
+	pointer Steal() noexcept {
+		return std::exchange(value, nullptr);
 	}
 
-	AllocatedString Clone() const {
-		return Duplicate(c_str());
+private:
+	static pointer Duplicate(string_view src) {
+		auto p = new value_type[src.size() + 1];
+		*std::copy_n(src.data(), src.size(), p) = SENTINEL;
+		return p;
 	}
+
+	static pointer Duplicate(const_pointer src) {
+		return src != nullptr
+			? Duplicate(string_view(src))
+			: nullptr;
+	}
+
+	static constexpr std::size_t TotalSize(std::initializer_list<string_view> src) noexcept {
+		std::size_t size = 0;
+		for (std::string_view i : src)
+			size += i.size();
+		return size;
+	}
+};
+
+class AllocatedString : public BasicAllocatedString<char> {
+public:
+	using BasicAllocatedString::BasicAllocatedString;
+
+	AllocatedString() noexcept = default;
+	AllocatedString(BasicAllocatedString<value_type> &&src) noexcept
+		:BasicAllocatedString(std::move(src)) {}
+
+	using BasicAllocatedString::operator=;
 };
 
 #endif

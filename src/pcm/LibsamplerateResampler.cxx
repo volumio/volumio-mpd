@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "LibsamplerateResampler.hxx"
 #include "config/Block.hxx"
 #include "util/ASCII.hxx"
@@ -25,7 +24,8 @@
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
-#include <assert.h>
+#include <cassert>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -71,9 +71,9 @@ pcm_resample_lsr_global_init(const ConfigBlock &block)
 		throw FormatRuntimeError("unknown samplerate converter '%s'",
 					 converter);
 
-	FormatDebug(libsamplerate_domain,
-		    "libsamplerate converter '%s'",
-		    src_get_name(lsr_converter));
+	FmtDebug(libsamplerate_domain,
+		 "libsamplerate converter '{}'",
+		 src_get_name(lsr_converter));
 }
 
 AudioFormat
@@ -98,9 +98,9 @@ LibsampleratePcmResampler::Open(AudioFormat &af, unsigned new_sample_rate)
 	memset(&data, 0, sizeof(data));
 
 	data.src_ratio = double(new_sample_rate) / double(af.sample_rate);
-	FormatDebug(libsamplerate_domain,
-		    "setting samplerate conversion ratio to %.2lf",
-		    data.src_ratio);
+	FmtDebug(libsamplerate_domain,
+		 "setting samplerate conversion ratio to {:.2}",
+		 data.src_ratio);
 	src_set_ratio(state, data.src_ratio);
 
 	AudioFormat result = af;
@@ -109,9 +109,15 @@ LibsampleratePcmResampler::Open(AudioFormat &af, unsigned new_sample_rate)
 }
 
 void
-LibsampleratePcmResampler::Close()
+LibsampleratePcmResampler::Close() noexcept
 {
 	state = src_delete(state);
+}
+
+void
+LibsampleratePcmResampler::Reset() noexcept
+{
+	src_reset(state);
 }
 
 inline ConstBuffer<float>

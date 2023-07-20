@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AutoGunzipReader.hxx"
 #include "GunzipReader.hxx"
 
-AutoGunzipReader::~AutoGunzipReader()
-{
-	delete gunzip;
-}
+AutoGunzipReader::AutoGunzipReader(Reader &_next) noexcept
+	:peek(_next) {}
 
-gcc_pure
+AutoGunzipReader::~AutoGunzipReader() noexcept = default;
+
+[[gnu::pure]]
 static bool
-IsGzip(const uint8_t data[4])
+IsGzip(const uint8_t data[4]) noexcept
 {
 	return data[0] == 0x1f && data[1] == 0x8b && data[2] == 0x08 &&
 		(data[3] & 0xe0) == 0;
@@ -37,14 +36,14 @@ IsGzip(const uint8_t data[4])
 inline void
 AutoGunzipReader::Detect()
 {
-	const uint8_t *data = (const uint8_t *)peek.Peek(4);
+	const auto *data = (const uint8_t *)peek.Peek(4);
 	if (data == nullptr) {
 		next = &peek;
 		return;
 	}
 
 	if (IsGzip(data))
-		next = gunzip = new GunzipReader(peek);
+		next = (gunzip = std::make_unique<GunzipReader>(peek)).get();
 	else
 		next = &peek;
 }

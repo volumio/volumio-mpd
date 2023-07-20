@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,8 @@
 #include "config.h"
 #include "PlaylistRegistry.hxx"
 #include "PlaylistPlugin.hxx"
+#include "SongEnumerator.hxx"
+#include "playlist/Features.h"
 #include "plugins/ExtM3uPlaylistPlugin.hxx"
 #include "plugins/M3uPlaylistPlugin.hxx"
 #include "plugins/XspfPlaylistPlugin.hxx"
@@ -30,20 +32,18 @@
 #include "plugins/FlacPlaylistPlugin.hxx"
 #include "plugins/CuePlaylistPlugin.hxx"
 #include "plugins/EmbeddedCuePlaylistPlugin.hxx"
+#include "decoder/Features.h"
 #include "input/InputStream.hxx"
 #include "util/MimeType.hxx"
-#include "util/UriUtil.hxx"
-#include "util/StringUtil.hxx"
-#include "util/Macros.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "util/StringView.hxx"
+#include "util/UriExtract.hxx"
+#include "config/Data.hxx"
 #include "config/Block.hxx"
 
-#include <stdexcept>
+#include <cassert>
+#include <iterator>
 
-#include <assert.h>
-#include <string.h>
-
-const struct playlist_plugin *const playlist_plugins[] = {
+constexpr const PlaylistPlugin *playlist_plugins[] = {
 	&extm3u_playlist_plugin,
 	&m3u_playlist_plugin,
 	&pls_playlist_plugin,
@@ -66,49 +66,67 @@ const struct playlist_plugin *const playlist_plugins[] = {
 };
 
 static constexpr unsigned n_playlist_plugins =
-	ARRAY_SIZE(playlist_plugins) - 1;
+	std::size(playlist_plugins) - 1;
 
 /** which plugins have been initialized successfully? */
 static bool playlist_plugins_enabled[n_playlist_plugins];
+
+/** which plugins have the "as_folder" option enabled? */
+static bool playlist_plugins_as_folder[n_playlist_plugins];
 
 #define playlist_plugins_for_each_enabled(plugin) \
 	playlist_plugins_for_each(plugin) \
 		if (playlist_plugins_enabled[playlist_plugin_iterator - playlist_plugins])
 
 void
-playlist_list_global_init(void)
+playlist_list_global_init(const ConfigData &config)
 {
 	const ConfigBlock empty;
 
 	for (unsigned i = 0; playlist_plugins[i] != nullptr; ++i) {
-		const struct playlist_plugin *plugin = playlist_plugins[i];
+		const auto *plugin = playlist_plugins[i];
 		const auto *param =
-			config_find_block(ConfigBlockOption::PLAYLIST_PLUGIN,
-					  "name", plugin->name);
+			config.FindBlock(ConfigBlockOption::PLAYLIST_PLUGIN,
+					 "name", plugin->name);
 		if (param == nullptr)
 			param = &empty;
 		else if (!param->GetBlockValue("enabled", true))
 			/* the plugin is disabled in mpd.conf */
 			continue;
 
+		if (param != nullptr)
+			param->SetUsed();
+
 		playlist_plugins_enabled[i] =
 			playlist_plugin_init(playlist_plugins[i], *param);
+
+		playlist_plugins_as_folder[i] =
+			param->GetBlockValue("as_directory",
+					     playlist_plugins[i]->as_folder);
 	}
 }
 
 void
-playlist_list_global_finish(void)
+playlist_list_global_finish() noexcept
 {
 	playlist_plugins_for_each_enabled(plugin)
 		playlist_plugin_finish(plugin);
 }
 
-static SongEnumerator *
-playlist_list_open_uri_scheme(const char *uri, Mutex &mutex, Cond &cond,
+bool
+GetPlaylistPluginAsFolder(const PlaylistPlugin &plugin) noexcept
+{
+	/* this loop has no end condition because it must finish when
+	   the plugin was found */
+	for (std::size_t i = 0;; ++i)
+		if (playlist_plugins[i] == &plugin)
+			return playlist_plugins_as_folder[i];
+}
+
+static std::unique_ptr<SongEnumerator>
+playlist_list_open_uri_scheme(const char *uri, Mutex &mutex,
 			      bool *tried)
 {
-	SongEnumerator *playlist = nullptr;
-
 	assert(uri != nullptr);
 
 	const auto scheme = uri_get_scheme(uri);
@@ -116,91 +134,79 @@ playlist_list_open_uri_scheme(const char *uri, Mutex &mutex, Cond &cond,
 		return nullptr;
 
 	for (unsigned i = 0; playlist_plugins[i] != nullptr; ++i) {
-		const struct playlist_plugin *plugin = playlist_plugins[i];
+		const auto *plugin = playlist_plugins[i];
 
 		assert(!tried[i]);
 
 		if (playlist_plugins_enabled[i] && plugin->open_uri != nullptr &&
-		    plugin->schemes != nullptr &&
-		    StringArrayContainsCase(plugin->schemes, scheme.c_str())) {
-			playlist = playlist_plugin_open_uri(plugin, uri,
-							    mutex, cond);
-			if (playlist != nullptr)
-				break;
+		    plugin->SupportsScheme(scheme)) {
+			auto playlist = plugin->open_uri(uri, mutex);
+			if (playlist)
+				return playlist;
 
 			tried[i] = true;
 		}
 	}
 
-	return playlist;
+	return nullptr;
 }
 
-static SongEnumerator *
-playlist_list_open_uri_suffix(const char *uri, Mutex &mutex, Cond &cond,
+static std::unique_ptr<SongEnumerator>
+playlist_list_open_uri_suffix(const char *uri, Mutex &mutex,
 			      const bool *tried)
 {
-	SongEnumerator *playlist = nullptr;
-
 	assert(uri != nullptr);
 
-	UriSuffixBuffer suffix_buffer;
-	const char *const suffix = uri_get_suffix(uri, suffix_buffer);
-	if (suffix == nullptr)
+	const auto suffix = uri_get_suffix(uri);
+	if (suffix.empty())
 		return nullptr;
 
 	for (unsigned i = 0; playlist_plugins[i] != nullptr; ++i) {
-		const struct playlist_plugin *plugin = playlist_plugins[i];
+		const auto *plugin = playlist_plugins[i];
 
 		if (playlist_plugins_enabled[i] && !tried[i] &&
-		    plugin->open_uri != nullptr && plugin->suffixes != nullptr &&
-		    StringArrayContainsCase(plugin->suffixes, suffix)) {
-			playlist = playlist_plugin_open_uri(plugin, uri,
-							    mutex, cond);
+		    plugin->open_uri != nullptr &&
+		    plugin->SupportsSuffix(suffix)) {
+			auto playlist = plugin->open_uri(uri, mutex);
 			if (playlist != nullptr)
-				break;
+				return playlist;
 		}
 	}
 
-	return playlist;
+	return nullptr;
 }
 
-SongEnumerator *
-playlist_list_open_uri(const char *uri, Mutex &mutex, Cond &cond)
+std::unique_ptr<SongEnumerator>
+playlist_list_open_uri(const char *uri, Mutex &mutex)
 {
 	/** this array tracks which plugins have already been tried by
 	    playlist_list_open_uri_scheme() */
-	bool tried[n_playlist_plugins];
+	bool tried[n_playlist_plugins]{};
 
 	assert(uri != nullptr);
 
-	memset(tried, false, sizeof(tried));
-
-	auto playlist = playlist_list_open_uri_scheme(uri, mutex, cond, tried);
+	auto playlist = playlist_list_open_uri_scheme(uri, mutex, tried);
 	if (playlist == nullptr)
-		playlist = playlist_list_open_uri_suffix(uri, mutex, cond,
+		playlist = playlist_list_open_uri_suffix(uri, mutex,
 							 tried);
 
 	return playlist;
 }
 
-static SongEnumerator *
-playlist_list_open_stream_mime2(InputStreamPtr &&is, const char *mime)
+static std::unique_ptr<SongEnumerator>
+playlist_list_open_stream_mime2(InputStreamPtr &&is, StringView mime)
 {
-	assert(mime != nullptr);
-
 	playlist_plugins_for_each_enabled(plugin) {
 		if (plugin->open_stream != nullptr &&
-		    plugin->mime_types != nullptr &&
-		    StringArrayContainsCase(plugin->mime_types, mime)) {
+		    plugin->SupportsMimeType(mime)) {
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
-				is->Rewind();
-			} catch (const std::runtime_error &) {
+				is->LockRewind();
+			} catch (...) {
 			}
 
-			auto playlist = playlist_plugin_open_stream(plugin,
-								    std::move(is));
+			auto playlist = plugin->open_stream(std::move(is));
 			if (playlist != nullptr)
 				return playlist;
 		}
@@ -209,42 +215,28 @@ playlist_list_open_stream_mime2(InputStreamPtr &&is, const char *mime)
 	return nullptr;
 }
 
-static SongEnumerator *
-playlist_list_open_stream_mime(InputStreamPtr &&is, const char *full_mime)
+static std::unique_ptr<SongEnumerator>
+playlist_list_open_stream_mime(InputStreamPtr &&is, std::string_view mime)
 {
-	assert(full_mime != nullptr);
-
-	const char *semicolon = strchr(full_mime, ';');
-	if (semicolon == nullptr)
-		return playlist_list_open_stream_mime2(std::move(is),
-						       full_mime);
-
-	if (semicolon == full_mime)
-		return nullptr;
-
 	/* probe only the portion before the semicolon*/
-	const std::string mime(full_mime, semicolon);
-	return playlist_list_open_stream_mime2(std::move(is), mime.c_str());
+	return playlist_list_open_stream_mime2(std::move(is),
+					       mime);
 }
 
-SongEnumerator *
-playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix)
+std::unique_ptr<SongEnumerator>
+playlist_list_open_stream_suffix(InputStreamPtr &&is, std::string_view suffix)
 {
-	assert(suffix != nullptr);
-
 	playlist_plugins_for_each_enabled(plugin) {
 		if (plugin->open_stream != nullptr &&
-		    plugin->suffixes != nullptr &&
-		    StringArrayContainsCase(plugin->suffixes, suffix)) {
+		    plugin->SupportsSuffix(suffix)) {
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
-				is->Rewind();
-			} catch (const std::runtime_error &) {
+				is->LockRewind();
+			} catch (...) {
 			}
 
-			auto playlist = playlist_plugin_open_stream(plugin,
-								    std::move(is));
+			auto playlist = plugin->open_stream(std::move(is));
 			if (playlist != nullptr)
 				return playlist;
 		}
@@ -253,7 +245,7 @@ playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix)
 	return nullptr;
 }
 
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_list_open_stream(InputStreamPtr &&is, const char *uri)
 {
 	assert(is->IsReady());
@@ -261,35 +253,31 @@ playlist_list_open_stream(InputStreamPtr &&is, const char *uri)
 	const char *const mime = is->GetMimeType();
 	if (mime != nullptr) {
 		auto playlist = playlist_list_open_stream_mime(std::move(is),
-							       GetMimeTypeBase(mime).c_str());
+							       GetMimeTypeBase(mime));
 		if (playlist != nullptr)
 			return playlist;
 	}
 
-	UriSuffixBuffer suffix_buffer;
-	const char *suffix = uri != nullptr
-		? uri_get_suffix(uri, suffix_buffer)
-		: nullptr;
-	if (suffix != nullptr) {
-		auto playlist = playlist_list_open_stream_suffix(std::move(is),
-								 suffix);
-		if (playlist != nullptr)
-			return playlist;
+	if (uri != nullptr) {
+		const auto suffix = uri_get_suffix(uri);
+		if (!suffix.empty()) {
+			auto playlist = playlist_list_open_stream_suffix(std::move(is),
+									 suffix);
+			if (playlist != nullptr)
+				return playlist;
+		}
 	}
 
 	return nullptr;
 }
 
-bool
-playlist_suffix_supported(const char *suffix)
+const PlaylistPlugin *
+FindPlaylistPluginBySuffix(std::string_view suffix) noexcept
 {
-	assert(suffix != nullptr);
-
 	playlist_plugins_for_each_enabled(plugin) {
-		if (plugin->suffixes != nullptr &&
-		    StringArrayContainsCase(plugin->suffixes, suffix))
-			return true;
+		if (plugin->SupportsSuffix(suffix))
+			return plugin;
 	}
 
-	return false;
+	return nullptr;
 }

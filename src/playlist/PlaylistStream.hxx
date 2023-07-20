@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,11 @@
 #ifndef MPD_PLAYLIST_STREAM_HXX
 #define MPD_PLAYLIST_STREAM_HXX
 
-#include "Compiler.h"
+#include "thread/Mutex.hxx"
+#include "util/Compiler.h"
 
-class Mutex;
-class Cond;
+#include <memory>
+
 class SongEnumerator;
 class Path;
 
@@ -34,11 +35,11 @@ class Path;
  * @return a playlist, or nullptr on error
  */
 gcc_nonnull_all
-SongEnumerator *
-playlist_open_path(Path path, Mutex &mutex, Cond &cond);
+std::unique_ptr<SongEnumerator>
+playlist_open_path(Path path, Mutex &mutex);
 
 gcc_nonnull_all
-SongEnumerator *
-playlist_open_remote(const char *uri, Mutex &mutex, Cond &cond);
+std::unique_ptr<SongEnumerator>
+playlist_open_remote(const char *uri, Mutex &mutex);
 
 #endif

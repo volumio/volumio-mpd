@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_LS_HXX
 #define MPD_LS_HXX
 
-#include "Compiler.h"
-
 #include <stdio.h>
 
 class Response;
@@ -31,8 +29,9 @@ class Response;
  * It is not allowed to pass an URI without a scheme, check with
  * uri_has_scheme() first.
  */
-gcc_pure
-bool uri_supported_scheme(const char *url);
+[[gnu::pure]]
+bool
+uri_supported_scheme(const char *url) noexcept;
 
 /**
  * Send a list of supported URI schemes to the client.  This is the

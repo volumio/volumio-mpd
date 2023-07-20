@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2020 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,31 +29,26 @@
 
 #include "SplitString.hxx"
 #include "IterableSplitString.hxx"
-#include "StringUtil.hxx"
+#include "StringStrip.hxx"
 
-#include <string.h>
-
-std::forward_list<std::string>
-SplitString(const char *s, char separator, bool strip)
+std::forward_list<std::string_view>
+SplitString(std::string_view _s, char separator, bool strip) noexcept
 {
+	StringView s(_s);
 	if (strip)
-		s = StripLeft(s);
+		s.StripLeft();
 
-	std::forward_list<std::string> list;
-	if (*s == 0)
+	std::forward_list<std::string_view> list;
+	if (s.empty())
 		return list;
 
 	auto i = list.before_begin();
 
 	for (auto value : IterableSplitString(s, separator)) {
-		const char *begin = value.begin(), *end = value.end();
+		if (strip)
+			value.Strip();
 
-		if (strip) {
-			begin = StripLeft(begin, end);
-			end = StripRight(begin, end);
-		}
-
-		i = list.emplace_after(i, begin, end);
+		i = list.emplace_after(i, value);
 	}
 
 	return list;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,26 +17,34 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SolarisOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "system/fd_util.h"
+#include "io/FileDescriptor.hxx"
 #include "system/Error.hxx"
 
-#include <sys/stropts.h>
+#include <cerrno>
+
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <errno.h>
 
-#ifdef __sun
+#if defined(__sun)
 #include <sys/audio.h>
+#include <sys/stropts.h>
+#elif defined(__NetBSD__)
+#include <sys/audioio.h>
 #else
 
 /* some fake declarations that allow build this plugin on systems
    other than Solaris, just to see if it compiles */
 
+#ifndef I_FLUSH
+#define I_FLUSH 0
+#endif
+
+#define AUDIO_INITINFO(v)
 #define AUDIO_GETINFO 0
 #define AUDIO_SETINFO 0
 #define AUDIO_ENCODING_LINEAR 0
@@ -49,17 +57,27 @@ struct audio_info {
 
 #endif
 
-struct SolarisOutput {
-	AudioOutput base;
-
+class SolarisOutput final : AudioOutput {
 	/* configuration */
 	const char *const device;
 
-	int fd;
+	FileDescriptor fd;
 
 	explicit SolarisOutput(const ConfigBlock &block)
-		:base(solaris_output_plugin, block),
+		:AudioOutput(0),
 		 device(block.GetBlockValue("device", "/dev/audio")) {}
+
+public:
+	static AudioOutput *Create(EventLoop &, const ConfigBlock &block) {
+		return new SolarisOutput(block);
+	}
+
+private:
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
+
+	size_t Play(const void *chunk, size_t size) override;
+	void Cancel() noexcept override;
 };
 
 static bool
@@ -71,110 +89,79 @@ solaris_output_test_default_device(void)
 		access("/dev/audio", W_OK) == 0;
 }
 
-static AudioOutput *
-solaris_output_init(const ConfigBlock &block)
+void
+SolarisOutput::Open(AudioFormat &audio_format)
 {
-	SolarisOutput *so = new SolarisOutput(block);
-	return &so->base;
-}
-
-static void
-solaris_output_finish(AudioOutput *ao)
-{
-	SolarisOutput *so = (SolarisOutput *)ao;
-
-	delete so;
-}
-
-static void
-solaris_output_open(AudioOutput *ao, AudioFormat &audio_format)
-{
-	SolarisOutput *so = (SolarisOutput *)ao;
 	struct audio_info info;
-	int ret, flags;
+	int ret;
 
-	/* support only 16 bit mono/stereo for now; nothing else has
-	   been tested */
-	audio_format.format = SampleFormat::S16;
+	AUDIO_INITINFO(&info);
 
 	/* open the device in non-blocking mode */
 
-	so->fd = open_cloexec(so->device, O_WRONLY|O_NONBLOCK, 0);
-	if (so->fd < 0)
+	if (!fd.Open(device, O_WRONLY|O_NONBLOCK))
 		throw FormatErrno("Failed to open %s",
-				  so->device);
+				  device);
 
 	/* restore blocking mode */
 
-	flags = fcntl(so->fd, F_GETFL);
-	if (flags > 0 && (flags & O_NONBLOCK) != 0)
-		fcntl(so->fd, F_SETFL, flags & ~O_NONBLOCK);
+	fd.SetBlocking();
 
 	/* configure the audio device */
 
-	ret = ioctl(so->fd, AUDIO_GETINFO, &info);
-	if (ret < 0) {
-		const int e = errno;
-		close(so->fd);
-		throw MakeErrno(e, "AUDIO_GETINFO failed");
-	}
-
 	info.play.sample_rate = audio_format.sample_rate;
 	info.play.channels = audio_format.channels;
-	info.play.precision = 16;
 	info.play.encoding = AUDIO_ENCODING_LINEAR;
+	switch (audio_format.format) {
+	case SampleFormat::S8:
+		info.play.precision = 8;
+		break;
+	case SampleFormat::S16:
+		info.play.precision = 16;
+		break;
+	default:
+		info.play.precision = 32;
+		audio_format.format = SampleFormat::S32;
+		break;
+	}
 
-	ret = ioctl(so->fd, AUDIO_SETINFO, &info);
+	ret = ioctl(fd.Get(), AUDIO_SETINFO, &info);
 	if (ret < 0) {
 		const int e = errno;
-		close(so->fd);
+		fd.Close();
 		throw MakeErrno(e, "AUDIO_SETINFO failed");
 	}
 }
 
-static void
-solaris_output_close(AudioOutput *ao)
+void
+SolarisOutput::Close() noexcept
 {
-	SolarisOutput *so = (SolarisOutput *)ao;
-
-	close(so->fd);
+	fd.Close();
 }
 
-static size_t
-solaris_output_play(AudioOutput *ao, const void *chunk, size_t size)
+size_t
+SolarisOutput::Play(const void *chunk, size_t size)
 {
-	SolarisOutput *so = (SolarisOutput *)ao;
-	ssize_t nbytes;
-
-	nbytes = write(so->fd, chunk, size);
+	ssize_t nbytes = fd.Write(chunk, size);
 	if (nbytes <= 0)
 		throw MakeErrno("Write failed");
 
 	return nbytes;
 }
 
-static void
-solaris_output_cancel(AudioOutput *ao)
+void
+SolarisOutput::Cancel() noexcept
 {
-	SolarisOutput *so = (SolarisOutput *)ao;
-
-	ioctl(so->fd, I_FLUSH);
+#if defined(AUDIO_FLUSH)
+	ioctl(fd.Get(), AUDIO_FLUSH);
+#elif defined(I_FLUSH)
+	ioctl(fd.Get(), I_FLUSH);
+#endif
 }
 
 const struct AudioOutputPlugin solaris_output_plugin = {
 	"solaris",
 	solaris_output_test_default_device,
-	solaris_output_init,
-	solaris_output_finish,
-	nullptr,
-	nullptr,
-	solaris_output_open,
-	solaris_output_close,
-	nullptr,
-	nullptr,
-	solaris_output_play,
-	nullptr,
-	solaris_output_cancel,
-	nullptr,
+	&SolarisOutput::Create,
 	nullptr,
 };

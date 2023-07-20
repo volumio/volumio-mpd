@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "FileInputPlugin.hxx"
 #include "../InputStream.hxx"
-#include "../InputPlugin.hxx"
 #include "fs/Path.hxx"
 #include "fs/FileInfo.hxx"
 #include "fs/io/FileReader.hxx"
-#include "system/FileDescriptor.hxx"
+#include "io/FileDescriptor.hxx"
 #include "util/RuntimeError.hxx"
+
+#include <cinttypes> // for PRIu64 (PRIoffset)
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -35,8 +35,8 @@ class FileInputStream final : public InputStream {
 
 public:
 	FileInputStream(const char *path, FileReader &&_reader, off_t _size,
-			Mutex &_mutex, Cond &_cond)
-		:InputStream(path, _mutex, _cond),
+			Mutex &_mutex)
+		:InputStream(path, _mutex),
 		 reader(std::move(_reader)) {
 		size = _size;
 		seekable = true;
@@ -45,17 +45,18 @@ public:
 
 	/* virtual methods from InputStream */
 
-	bool IsEOF() override {
+	[[nodiscard]] bool IsEOF() const noexcept override {
 		return GetOffset() >= GetSize();
 	}
 
-	size_t Read(void *ptr, size_t size) override;
-	void Seek(offset_type offset) override;
+	size_t Read(std::unique_lock<Mutex> &lock,
+		    void *ptr, size_t size) override;
+	void Seek(std::unique_lock<Mutex> &lock,
+		  offset_type offset) override;
 };
 
 InputStreamPtr
-OpenFileInputStream(Path path,
-		    Mutex &mutex, Cond &cond)
+OpenFileInputStream(Path path, Mutex &mutex)
 {
 	FileReader reader(path);
 
@@ -70,38 +71,39 @@ OpenFileInputStream(Path path,
 		      POSIX_FADV_SEQUENTIAL);
 #endif
 
-	return InputStreamPtr(new FileInputStream(path.ToUTF8().c_str(),
-						  std::move(reader), info.GetSize(),
-						  mutex, cond));
-}
-
-static InputStream *
-input_file_open(gcc_unused const char *filename,
-		gcc_unused Mutex &mutex, gcc_unused Cond &cond)
-{
-	/* dummy method; use OpenFileInputStream() instead */
-
-	return nullptr;
+	return std::make_unique<FileInputStream>(path.ToUTF8Throw().c_str(),
+						 std::move(reader), info.GetSize(),
+						 mutex);
 }
 
 void
-FileInputStream::Seek(offset_type new_offset)
+FileInputStream::Seek(std::unique_lock<Mutex> &,
+		      offset_type new_offset)
 {
-	reader.Seek((off_t)new_offset);
+	{
+		const ScopeUnlock unlock(mutex);
+		reader.Seek((off_t)new_offset);
+	}
+
 	offset = new_offset;
 }
 
 size_t
-FileInputStream::Read(void *ptr, size_t read_size)
+FileInputStream::Read(std::unique_lock<Mutex> &,
+		      void *ptr, size_t read_size)
 {
-	size_t nbytes = reader.Read(ptr, read_size);
+	size_t nbytes;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		nbytes = reader.Read(ptr, read_size);
+	}
+
+	if (nbytes == 0 && !IsEOF())
+		throw FormatRuntimeError("Unexpected end of file %s"
+					 " at %" PRIoffset " of %" PRIoffset,
+					 GetURI(), GetOffset(), GetSize());
+
 	offset += nbytes;
 	return nbytes;
 }
-
-const InputPlugin input_plugin_file = {
-	"file",
-	nullptr,
-	nullptr,
-	input_file_open,
-};

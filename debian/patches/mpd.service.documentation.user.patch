@@ -1,0 +1,24 @@
+Description: add user documentation to systemd status
+Author: Florian Schlichting <fsfs@debian.org>
+Forwarded: not-needed
+
+--- a/systemd/system/mpd.service.in
++++ b/systemd/system/mpd.service.in
+@@ -1,6 +1,7 @@
+ [Unit]
+ Description=Music Player Daemon
+ Documentation=man:mpd(1) man:mpd.conf(5)
++Documentation=file:///usr/share/doc/mpd/html/user.html
+ After=network.target sound.target
+ 
+ [Service]
+--- a/systemd/user/mpd.service.in
++++ b/systemd/user/mpd.service.in
+@@ -1,6 +1,7 @@
+ [Unit]
+ Description=Music Player Daemon
+ Documentation=man:mpd(1) man:mpd.conf(5)
++Documentation=file:///usr/share/doc/mpd/html/user.html
+ After=network.target sound.target
+ 
+ [Service]

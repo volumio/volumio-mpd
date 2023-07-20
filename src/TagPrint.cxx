@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,41 +17,52 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagPrint.hxx"
 #include "tag/Tag.hxx"
 #include "tag/Settings.hxx"
 #include "client/Response.hxx"
+#include "util/StringView.hxx"
+
+#include <fmt/format.h>
 
 void
-tag_print_types(Response &r)
+tag_print_types(Response &r) noexcept
 {
+	const auto tag_mask = global_tag_mask & r.GetTagMask();
 	for (unsigned i = 0; i < TAG_NUM_OF_ITEM_TYPES; i++)
-		if (IsTagEnabled(i))
-			r.Format("tagtype: %s\n", tag_item_names[i]);
+		if (tag_mask.Test(TagType(i)))
+			r.Fmt(FMT_STRING("tagtype: {}\n"), tag_item_names[i]);
 }
 
 void
-tag_print(Response &r, TagType type, const char *value)
+tag_print(Response &r, TagType type, StringView value) noexcept
 {
-	r.Format("%s: %s\n", tag_item_names[type], value);
+	r.Fmt(FMT_STRING("{}: {}\n"), tag_item_names[type], value);
 }
 
 void
-tag_print_values(Response &r, const Tag &tag)
+tag_print(Response &r, TagType type, const char *value) noexcept
 {
+	r.Fmt(FMT_STRING("{}: {}\n"), tag_item_names[type], value);
+}
+
+void
+tag_print_values(Response &r, const Tag &tag) noexcept
+{
+	const auto tag_mask = r.GetTagMask();
 	for (const auto &i : tag)
-		r.Format("%s: %s\n", tag_item_names[i.type], i.value);
+		if (tag_mask.Test(i.type))
+			tag_print(r, i.type, i.value);
 }
 
 void
-tag_print(Response &r, const Tag &tag)
+tag_print(Response &r, const Tag &tag) noexcept
 {
 	if (!tag.duration.IsNegative())
-		r.Format("Time: %i\n"
-			 "duration: %1.3f\n",
-			 tag.duration.RoundS(),
-			 tag.duration.ToDoubleS());
+		r.Fmt(FMT_STRING("Time: {}\n"
+				 "duration: {:1.3f}\n"),
+		      tag.duration.RoundS(),
+		      tag.duration.ToDoubleS());
 
 	tag_print_values(r, tag);
 }

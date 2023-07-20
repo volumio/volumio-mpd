@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,16 @@
 #ifndef MPD_DIRECTORY_HXX
 #define MPD_DIRECTORY_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "Ptr.hxx"
 #include "db/Visitor.hxx"
 #include "db/PlaylistVector.hxx"
+#include "db/Ptr.hxx"
 #include "Song.hxx"
 
 #include <boost/intrusive/list.hpp>
 
 #include <string>
+#include <string_view>
 
 /**
  * Virtual directory that is really an archive file or a folder inside
@@ -43,8 +44,13 @@ static constexpr unsigned DEVICE_INARCHIVE = -1;
  */
 static constexpr unsigned DEVICE_CONTAINER = -2;
 
+/**
+ * Virtual directory that is really a playlist file (special value for
+ * Directory::device).
+ */
+static constexpr unsigned DEVICE_PLAYLIST = -3;
+
 class SongFilter;
-class Database;
 
 struct Directory {
 	static constexpr auto link_mode = boost::intrusive::normal_link;
@@ -84,33 +90,58 @@ struct Directory {
 
 	PlaylistVector playlists;
 
-	Directory *parent;
-	time_t mtime;
-	unsigned inode, device;
+	Directory *const parent;
 
-	std::string path;
+	std::chrono::system_clock::time_point mtime =
+		std::chrono::system_clock::time_point::min();
+
+	uint64_t inode = 0, device = 0;
+
+	const std::string path;
 
 	/**
 	 * If this is not nullptr, then this directory does not really
 	 * exist, but is a mount point for another #Database.
 	 */
-	Database *mounted_database;
+	DatabasePtr mounted_database;
 
 public:
-	Directory(std::string &&_path_utf8, Directory *_parent);
-	~Directory();
+	Directory(std::string &&_path_utf8, Directory *_parent) noexcept;
+	~Directory() noexcept;
 
 	/**
 	 * Create a new root #Directory object.
 	 */
-	gcc_malloc
-	static Directory *NewRoot() {
+	[[gnu::malloc]] [[gnu::returns_nonnull]]
+	static Directory *NewRoot() noexcept {
 		return new Directory(std::string(), nullptr);
 	}
 
-	bool IsMount() const {
+	bool IsPlaylist() const noexcept {
+		return device == DEVICE_PLAYLIST;
+	}
+
+	/**
+	 * Is this really a regular file which is being treated like a
+	 * directory?
+	 */
+	bool IsReallyAFile() const noexcept {
+		return device == DEVICE_INARCHIVE ||
+			IsPlaylist() ||
+			device == DEVICE_CONTAINER;
+	}
+
+	bool IsMount() const noexcept {
 		return mounted_database != nullptr;
 	}
+
+	/**
+	 * Checks whether this is a "special" directory
+	 * (e.g. #DEVICE_PLAYLIST) and whether the underlying plugin
+	 * is available.
+	 */
+	[[gnu::pure]]
+	bool IsPluginAvailable() const noexcept;
 
 	/**
 	 * Remove this #Directory object from its parent and free it.  This
@@ -118,7 +149,7 @@ public:
 	 *
 	 * Caller must lock the #db_mutex.
 	 */
-	void Delete();
+	void Delete() noexcept;
 
 	/**
 	 * Create a new #Directory object as a child of the given one.
@@ -127,17 +158,16 @@ public:
 	 *
 	 * @param name_utf8 the UTF-8 encoded name of the new sub directory
 	 */
-	gcc_malloc
-	Directory *CreateChild(const char *name_utf8);
+	Directory *CreateChild(std::string_view name_utf8) noexcept;
 
 	/**
 	 * Caller must lock the #db_mutex.
 	 */
-	gcc_pure
-	const Directory *FindChild(const char *name) const;
+	[[gnu::pure]]
+	const Directory *FindChild(std::string_view name) const noexcept;
 
-	gcc_pure
-	Directory *FindChild(const char *name) {
+	[[gnu::pure]]
+	Directory *FindChild(std::string_view name) noexcept {
 		const Directory *cthis = this;
 		return const_cast<Directory *>(cthis->FindChild(name));
 	}
@@ -148,7 +178,7 @@ public:
 	 *
 	 * Caller must lock the #db_mutex.
 	 */
-	Directory *MakeChild(const char *name_utf8) {
+	Directory *MakeChild(std::string_view name_utf8) noexcept {
 		Directory *child = FindChild(name_utf8);
 		if (child == nullptr)
 			child = CreateChild(name_utf8);
@@ -164,44 +194,51 @@ public:
 		Directory *directory;
 
 		/**
-		 * The remaining URI part (without leading slash) or
-		 * nullptr if the given URI was consumed completely.
+		 * The URI part which resolved to the #directory.
 		 */
-		const char *uri;
+		std::string_view uri;
+
+		/**
+		 * The remaining URI part (without leading slash) or
+		 * empty if the given URI was consumed completely.
+		 */
+		std::string_view rest;
 	};
 
 	/**
 	 * Looks up a directory by its relative URI.
 	 *
 	 * @param uri the relative URI
-	 * @return the Directory, or nullptr if none was found
 	 */
-	gcc_pure
-	LookupResult LookupDirectory(const char *uri);
+	[[gnu::pure]]
+	LookupResult LookupDirectory(std::string_view uri) noexcept;
 
-	gcc_pure
-	bool IsEmpty() const {
+	[[gnu::pure]]
+	Song *LookupTargetSong(std::string_view target) noexcept;
+
+	[[gnu::pure]]
+	bool IsEmpty() const noexcept {
 		return children.empty() &&
 			songs.empty() &&
 			playlists.empty();
 	}
 
-	gcc_pure
-	const char *GetPath() const {
+	[[gnu::pure]]
+	const char *GetPath() const noexcept {
 		return path.c_str();
 	}
 
 	/**
 	 * Returns the base name of the directory.
 	 */
-	gcc_pure
-	const char *GetName() const;
+	[[gnu::pure]]
+	const char *GetName() const noexcept;
 
 	/**
 	 * Is this the root directory of the music database?
 	 */
-	gcc_pure
-	bool IsRoot() const {
+	[[gnu::pure]]
+	bool IsRoot() const noexcept {
 		return parent == nullptr;
 	}
 
@@ -228,11 +265,11 @@ public:
 	 *
 	 * Caller must lock the #db_mutex.
 	 */
-	gcc_pure
-	const Song *FindSong(const char *name_utf8) const;
+	[[gnu::pure]]
+	const Song *FindSong(std::string_view name_utf8) const noexcept;
 
-	gcc_pure
-	Song *FindSong(const char *name_utf8) {
+	[[gnu::pure]]
+	Song *FindSong(std::string_view name_utf8) noexcept {
 		const Directory *cthis = this;
 		return const_cast<Song *>(cthis->FindSong(name_utf8));
 	}
@@ -241,36 +278,37 @@ public:
 	 * Add a song object to this directory.  Its "parent" attribute must
 	 * be set already.
 	 */
-	void AddSong(Song *song);
+	void AddSong(SongPtr song) noexcept;
 
 	/**
 	 * Remove a song object from this directory (which effectively
 	 * invalidates the song object, because the "parent" attribute becomes
-	 * stale), but does not free it.
+	 * stale), and return ownership to the caller.
 	 */
-	void RemoveSong(Song *song);
+	SongPtr RemoveSong(Song *song) noexcept;
 
 	/**
 	 * Caller must lock the #db_mutex.
 	 */
-	void PruneEmpty();
+	void PruneEmpty() noexcept;
 
 	/**
 	 * Sort all directory entries recursively.
 	 *
 	 * Caller must lock the #db_mutex.
 	 */
-	void Sort();
+	void Sort() noexcept;
 
 	/**
 	 * Caller must lock #db_mutex.
 	 */
 	void Walk(bool recursive, const SongFilter *match,
-		  VisitDirectory visit_directory, VisitSong visit_song,
-		  VisitPlaylist visit_playlist) const;
+		  bool hide_playlist_targets,
+		  const VisitDirectory& visit_directory, const VisitSong& visit_song,
+		  const VisitPlaylist& visit_playlist) const;
 
-	gcc_pure
-	LightDirectory Export() const;
+	[[gnu::pure]]
+	LightDirectory Export() const noexcept;
 };
 
 #endif

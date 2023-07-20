@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,38 +17,30 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TextFile.hxx"
 #include "FileReader.hxx"
 #include "AutoGunzipReader.hxx"
 #include "BufferedReader.hxx"
 #include "fs/Path.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 TextFile::TextFile(Path path_fs)
-	:file_reader(new FileReader(path_fs)),
+	:file_reader(std::make_unique<FileReader>(path_fs)),
 #ifdef ENABLE_ZLIB
-	 gunzip_reader(new AutoGunzipReader(*file_reader)),
+	 gunzip_reader(std::make_unique<AutoGunzipReader>(*file_reader)),
 #endif
-	 buffered_reader(new BufferedReader(*
+	 buffered_reader(std::make_unique<BufferedReader>(*
 #ifdef ENABLE_ZLIB
-					    gunzip_reader
+							  gunzip_reader
 #else
-					    file_reader
+							  file_reader
 #endif
-					    ))
+							  ))
 {
 }
 
-TextFile::~TextFile()
-{
-	delete buffered_reader;
-#ifdef ENABLE_ZLIB
-	delete gunzip_reader;
-#endif
-	delete file_reader;
-}
+TextFile::~TextFile() noexcept = default;
 
 char *
 TextFile::ReadLine()

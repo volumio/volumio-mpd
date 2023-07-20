@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,20 @@
 #ifndef MPD_DB_UNIQUE_TAGS_HXX
 #define MPD_DB_UNIQUE_TAGS_HXX
 
-#include "Visitor.hxx"
-#include "tag/TagType.h"
-#include "tag/Mask.hxx"
+#include "tag/Type.h"
+
+#include <string>
 
 class Database;
 struct DatabaseSelection;
+template<typename Key> class RecursiveMap;
+template<typename T> struct ConstBuffer;
 
-void
-VisitUniqueTags(const Database &db, const DatabaseSelection &selection,
-		TagType tag_type, tag_mask_t group_mask,
-		VisitTag visit_tag);
+/**
+ * Walk the database and collect unique tag values.
+ */
+RecursiveMap<std::string>
+CollectUniqueTags(const Database &db, const DatabaseSelection &selection,
+		  ConstBuffer<TagType> tag_types);
 
 #endif

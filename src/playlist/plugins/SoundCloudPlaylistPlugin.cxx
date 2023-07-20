@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,25 +17,27 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SoundCloudPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../MemorySongEnumerator.hxx"
+#include "lib/yajl/Handle.hxx"
+#include "lib/yajl/Callbacks.hxx"
+#include "lib/yajl/ParseInputStream.hxx"
 #include "config/Block.hxx"
 #include "input/InputStream.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
+#include "util/AllocatedString.hxx"
+#include "util/ASCII.hxx"
 #include "util/StringCompare.hxx"
-#include "util/Alloc.hxx"
 #include "util/Domain.hxx"
-#include "util/ScopeExit.hxx"
 #include "Log.hxx"
-
-#include <yajl/yajl_parse.h>
 
 #include <string>
 
 #include <string.h>
 #include <stdlib.h>
+
+using std::string_view_literals::operator""sv;
 
 static struct {
 	std::string apikey;
@@ -63,36 +65,62 @@ soundcloud_init(const ConfigBlock &block)
  * @param uri uri of a soundcloud page (or just the path)
  * @return Constructed URL. Must be freed with free().
  */
-static char *
-soundcloud_resolve(const char* uri)
+static AllocatedString
+soundcloud_resolve(StringView uri) noexcept
 {
-	char *u, *ru;
-
-	if (StringStartsWith(uri, "https://")) {
-		u = xstrdup(uri);
-	} else if (StringStartsWith(uri, "soundcloud.com")) {
-		u = xstrcatdup("https://", uri);
-	} else {
-		/* assume it's just a path on soundcloud.com */
-		u = xstrcatdup("https://soundcloud.com/", uri);
+	if (uri.StartsWithIgnoreCase("https://")) {
+		return AllocatedString{uri};
+	} else if (uri.StartsWith("soundcloud.com")) {
+		return AllocatedString{"https://"sv, uri};
 	}
 
-	ru = xstrcatdup("https://api.soundcloud.com/resolve.json?url=",
-			u, "&client_id=",
-			soundcloud_config.apikey.c_str());
-	free(u);
 
-	return ru;
+	/* assume it's just a path on soundcloud.com */
+	AllocatedString u{"https://soundcloud.com/"sv, uri};
+
+	return AllocatedString{
+		"https://api.soundcloud.com/resolve.json?url="sv,
+		u, "&client_id="sv,
+		soundcloud_config.apikey,
+	};
+}
+
+static AllocatedString
+TranslateSoundCloudUri(StringView uri) noexcept
+{
+	if (uri.SkipPrefix("track/"sv)) {
+		return AllocatedString{
+			"https://api.soundcloud.com/tracks/"sv,
+			uri, ".json?client_id="sv,
+			soundcloud_config.apikey,
+		};
+	} else if (uri.SkipPrefix("playlist/"sv)) {
+		return AllocatedString{
+			"https://api.soundcloud.com/playlists/"sv,
+			uri, ".json?client_id="sv,
+			soundcloud_config.apikey,
+		};
+	} else if (uri.SkipPrefix("user/"sv)) {
+		return AllocatedString{
+			"https://api.soundcloud.com/users/"sv,
+			uri, "/tracks.json?client_id="sv,
+			soundcloud_config.apikey,
+		};
+	} else if (uri.SkipPrefix("search/"sv)) {
+		return AllocatedString{
+			"https://api.soundcloud.com/tracks.json?q="sv,
+			uri, "&client_id="sv,
+			soundcloud_config.apikey,
+		};
+	} else if (uri.SkipPrefix("url/"sv)) {
+		/* Translate to soundcloud resolver call. libcurl will automatically
+		   follow the redirect to the right resource. */
+		return soundcloud_resolve(uri);
+	} else
+		return nullptr;
 }
 
 /* YAJL parser for track data from both /tracks/ and /playlists/ JSON */
-
-enum key {
-	Duration,
-	Title,
-	Stream_URL,
-	Other,
-};
 
 static const char *const key_str[] = {
 	"duration",
@@ -102,120 +130,120 @@ static const char *const key_str[] = {
 };
 
 struct SoundCloudJsonData {
-	int key;
+	enum class Key {
+		DURATION,
+		TITLE,
+		STREAM_URL,
+		OTHER,
+	};
+
+	Key key;
 	std::string stream_url;
 	long duration;
 	std::string title;
 	int got_url = 0; /* nesting level of last stream_url */
 
 	std::forward_list<DetachedSong> songs;
+
+	bool Integer(long long value) noexcept;
+	bool String(StringView value) noexcept;
+	bool StartMap() noexcept;
+	bool MapKey(StringView value) noexcept;
+	bool EndMap() noexcept;
 };
 
-static int
-handle_integer(void *ctx, long long intval)
+inline bool
+SoundCloudJsonData::Integer(long long intval) noexcept
 {
-	auto *data = (SoundCloudJsonData *) ctx;
-
-	switch (data->key) {
-	case Duration:
-		data->duration = intval;
+	switch (key) {
+	case SoundCloudJsonData::Key::DURATION:
+		duration = intval;
 		break;
 	default:
 		break;
 	}
 
-	return 1;
+	return true;
 }
 
-static int
-handle_string(void *ctx, const unsigned char *stringval, size_t stringlen)
+inline bool
+SoundCloudJsonData::String(StringView value) noexcept
 {
-	auto *data = (SoundCloudJsonData *) ctx;
-	const char *s = (const char *) stringval;
+	switch (key) {
+	case SoundCloudJsonData::Key::TITLE:
+		title.assign(value.data, value.size);
+		break;
 
-	switch (data->key) {
-	case Title:
-		data->title.assign(s, stringlen);
+	case SoundCloudJsonData::Key::STREAM_URL:
+		stream_url.assign(value.data, value.size);
+		got_url = 1;
 		break;
-	case Stream_URL:
-		data->stream_url.assign(s, stringlen);
-		data->got_url = 1;
-		break;
+
 	default:
 		break;
 	}
 
-	return 1;
+	return true;
 }
 
-static int
-handle_mapkey(void *ctx, const unsigned char *stringval, size_t stringlen)
+inline bool
+SoundCloudJsonData::MapKey(StringView value) noexcept
 {
-	auto *data = (SoundCloudJsonData *) ctx;
+	const auto *i = key_str;
+	while (*i != nullptr && !StringStartsWith(*i, value))
+		++i;
 
-	int i;
-	data->key = Other;
+	key = SoundCloudJsonData::Key(i - key_str);
+	return true;
+}
 
-	for (i = 0; i < Other; ++i) {
-		if (memcmp((const char *)stringval, key_str[i], stringlen) == 0) {
-			data->key = i;
-			break;
-		}
+inline bool
+SoundCloudJsonData::StartMap() noexcept
+{
+	if (got_url > 0)
+		got_url++;
+
+	return true;
+}
+
+inline bool
+SoundCloudJsonData::EndMap() noexcept
+{
+	if (got_url > 1) {
+		got_url--;
+		return true;
 	}
 
-	return 1;
-}
-
-static int
-handle_start_map(void *ctx)
-{
-	auto *data = (SoundCloudJsonData *) ctx;
-
-	if (data->got_url > 0)
-		data->got_url++;
-
-	return 1;
-}
-
-static int
-handle_end_map(void *ctx)
-{
-	auto *data = (SoundCloudJsonData *) ctx;
-
-	if (data->got_url > 1) {
-		data->got_url--;
-		return 1;
-	}
-
-	if (data->got_url == 0)
-		return 1;
+	if (got_url == 0)
+		return true;
 
 	/* got_url == 1, track finished, make it into a song */
-	data->got_url = 0;
+	got_url = 0;
 
-	const std::string u = data->stream_url + "?client_id=" +
+	const std::string u = stream_url + "?client_id=" +
 		soundcloud_config.apikey;
 
 	TagBuilder tag;
-	tag.SetDuration(SignedSongTime::FromMS(data->duration));
-	if (!data->title.empty())
-		tag.AddItem(TAG_NAME, data->title.c_str());
+	tag.SetDuration(SignedSongTime::FromMS(duration));
+	if (!title.empty())
+		tag.AddItem(TAG_NAME, title.c_str());
 
-	data->songs.emplace_front(u.c_str(), tag.Commit());
+	songs.emplace_front(u.c_str(), tag.Commit());
 
-	return 1;
+	return true;
 }
 
+using Wrapper = Yajl::CallbacksWrapper<SoundCloudJsonData>;
 static constexpr yajl_callbacks parse_callbacks = {
 	nullptr,
 	nullptr,
-	handle_integer,
+	Wrapper::Integer,
 	nullptr,
 	nullptr,
-	handle_string,
-	handle_start_map,
-	handle_mapkey,
-	handle_end_map,
+	Wrapper::String,
+	Wrapper::StartMap,
+	Wrapper::MapKey,
+	Wrapper::EndMap,
 	nullptr,
 	nullptr,
 };
@@ -223,45 +251,14 @@ static constexpr yajl_callbacks parse_callbacks = {
 /**
  * Read JSON data and parse it using the given YAJL parser.
  * @param url URL of the JSON data.
- * @param hand YAJL parser handle.
- * @return -1 on error, 0 on success.
+ * @param handle YAJL parser handle.
  */
-static int
-soundcloud_parse_json(const char *url, yajl_handle hand,
-		      Mutex &mutex, Cond &cond)
-try {
-	auto input_stream = InputStream::OpenReady(url, mutex, cond);
-
-	const ScopeLock protect(mutex);
-
-	yajl_status stat;
-	bool done = false;
-
-	while (!done) {
-		char buffer[4096];
-		unsigned char *ubuffer = (unsigned char *)buffer;
-		const size_t nbytes =
-			input_stream->Read(buffer, sizeof(buffer));
-		if (nbytes == 0)
-			done = true;
-
-		if (done) {
-			stat = yajl_complete_parse(hand);
-		} else
-			stat = yajl_parse(hand, ubuffer, nbytes);
-
-		if (stat != yajl_status_ok) {
-			unsigned char *str = yajl_get_error(hand, 1, ubuffer, nbytes);
-			LogError(soundcloud_domain, (const char *)str);
-			yajl_free_error(hand, str);
-			break;
-		}
-	}
-
-	return 0;
-} catch (const std::exception &e) {
-	LogError(e);
-	return -1;
+static void
+soundcloud_parse_json(const char *url, Yajl::Handle &handle,
+		      Mutex &mutex)
+{
+	auto input_stream = InputStream::OpenReady(url, mutex);
+	Yajl::ParseInputStream(handle, *input_stream);
 }
 
 /**
@@ -271,58 +268,24 @@ try {
  *	soundcloud://playlist/<playlist-id>
  *	soundcloud://url/<url or path of soundcloud page>
  */
-static SongEnumerator *
-soundcloud_open_uri(const char *uri, Mutex &mutex, Cond &cond)
+static std::unique_ptr<SongEnumerator>
+soundcloud_open_uri(const char *uri, Mutex &mutex)
 {
-	assert(memcmp(uri, "soundcloud://", 13) == 0);
+	assert(StringEqualsCaseASCII(uri, "soundcloud://", 13));
 	uri += 13;
 
-	char *u = nullptr;
-	if (memcmp(uri, "track/", 6) == 0) {
-		const char *rest = uri + 6;
-		u = xstrcatdup("https://api.soundcloud.com/tracks/",
-			       rest, ".json?client_id=",
-			       soundcloud_config.apikey.c_str());
-	} else if (memcmp(uri, "playlist/", 9) == 0) {
-		const char *rest = uri + 9;
-		u = xstrcatdup("https://api.soundcloud.com/playlists/",
-			       rest, ".json?client_id=",
-			       soundcloud_config.apikey.c_str());
-	} else if (memcmp(uri, "user/", 5) == 0) {
-		const char *rest = uri + 5;
-		u = xstrcatdup("https://api.soundcloud.com/users/",
-			       rest, "/tracks.json?client_id=",
-			       soundcloud_config.apikey.c_str());
-	} else if (memcmp(uri, "search/", 7) == 0) {
-		const char *rest = uri + 7;
-		u = xstrcatdup("https://api.soundcloud.com/tracks.json?q=",
-			       rest, "&client_id=",
-			       soundcloud_config.apikey.c_str());
-	} else if (memcmp(uri, "url/", 4) == 0) {
-		const char *rest = uri + 4;
-		/* Translate to soundcloud resolver call. libcurl will automatically
-		   follow the redirect to the right resource. */
-		u = soundcloud_resolve(rest);
-	}
-
-	AtScopeExit(u) { free(u); };
-
+	auto u = TranslateSoundCloudUri(uri);
 	if (u == nullptr) {
 		LogWarning(soundcloud_domain, "unknown soundcloud URI");
 		return nullptr;
 	}
 
 	SoundCloudJsonData data;
-	yajl_handle hand = yajl_alloc(&parse_callbacks, nullptr, &data);
-	AtScopeExit(hand, &data) { yajl_free(hand); };
-
-	int ret = soundcloud_parse_json(u, hand, mutex, cond);
-
-	if (ret == -1)
-		return nullptr;
+	Yajl::Handle handle(&parse_callbacks, nullptr, &data);
+	soundcloud_parse_json(u.c_str(), handle, mutex);
 
 	data.songs.reverse();
-	return new MemorySongEnumerator(std::move(data.songs));
+	return std::make_unique<MemorySongEnumerator>(std::move(data.songs));
 }
 
 static const char *const soundcloud_schemes[] = {
@@ -330,17 +293,7 @@ static const char *const soundcloud_schemes[] = {
 	nullptr
 };
 
-const struct playlist_plugin soundcloud_playlist_plugin = {
-	"soundcloud",
-
-	soundcloud_init,
-	nullptr,
-	soundcloud_open_uri,
-	nullptr,
-
-	soundcloud_schemes,
-	nullptr,
-	nullptr,
-};
-
-
+const PlaylistPlugin soundcloud_playlist_plugin =
+	PlaylistPlugin("soundcloud", soundcloud_open_uri)
+	.WithInit(soundcloud_init)
+	.WithSchemes(soundcloud_schemes);

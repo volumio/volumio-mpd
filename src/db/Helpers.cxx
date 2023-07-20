@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #include "Helpers.hxx"
 #include "Stats.hxx"
 #include "Interface.hxx"
-#include "LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "tag/Tag.hxx"
 
 #include <set>
@@ -29,16 +29,16 @@
 
 struct StringLess {
 	gcc_pure
-	bool operator()(const char *a, const char *b) const {
+	bool operator()(const char *a, const char *b) const noexcept {
 		return strcmp(a, b) < 0;
 	}
 };
 
-typedef std::set<const char *, StringLess> StringSet;
+using StringSet = std::set<const char *, StringLess>;
 
 static void
 StatsVisitTag(DatabaseStats &stats, StringSet &artists, StringSet &albums,
-	      const Tag &tag)
+	      const Tag &tag) noexcept
 {
 	if (!tag.duration.IsNegative())
 		stats.total_duration += tag.duration;
@@ -46,19 +46,11 @@ StatsVisitTag(DatabaseStats &stats, StringSet &artists, StringSet &albums,
 	for (const auto &item : tag) {
 		switch (item.type) {
 		case TAG_ARTIST:
-#if CLANG_OR_GCC_VERSION(4,8)
 			artists.emplace(item.value);
-#else
-			artists.insert(item.value);
-#endif
 			break;
 
 		case TAG_ALBUM:
-#if CLANG_OR_GCC_VERSION(4,8)
 			albums.emplace(item.value);
-#else
-			albums.insert(item.value);
-#endif
 			break;
 
 		default:
@@ -67,15 +59,13 @@ StatsVisitTag(DatabaseStats &stats, StringSet &artists, StringSet &albums,
 	}
 }
 
-static bool
+static void
 StatsVisitSong(DatabaseStats &stats, StringSet &artists, StringSet &albums,
-	       const LightSong &song)
+	       const LightSong &song) noexcept
 {
 	++stats.song_count;
 
-	StatsVisitTag(stats, artists, albums, *song.tag);
-
-	return true;
+	StatsVisitTag(stats, artists, albums, song.tag);
 }
 
 DatabaseStats
@@ -85,10 +75,9 @@ GetStats(const Database &db, const DatabaseSelection &selection)
 	stats.Clear();
 
 	StringSet artists, albums;
-	using namespace std::placeholders;
-	const auto f = std::bind(StatsVisitSong,
-				 std::ref(stats), std::ref(artists),
-				 std::ref(albums), _1);
+	const auto f = [&](const auto &song)
+		{ return StatsVisitSong(stats, artists, albums, song); };
+
 	db.Visit(selection, f);
 
 	stats.artist_count = artists.size();

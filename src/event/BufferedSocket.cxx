@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "BufferedSocket.hxx"
 #include "net/SocketError.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#include <algorithm>
+#include <stdexcept>
 
 BufferedSocket::ssize_t
-BufferedSocket::DirectRead(void *data, size_t length)
+BufferedSocket::DirectRead(void *data, size_t length) noexcept
 {
-	const auto nbytes = SocketMonitor::Read((char *)data, length);
+	const auto nbytes = GetSocket().Read((char *)data, length);
 	if (gcc_likely(nbytes > 0))
 		return nbytes;
 
@@ -37,7 +36,7 @@ BufferedSocket::DirectRead(void *data, size_t length)
 	}
 
 	const auto code = GetSocketError();
-	if (IsSocketErrorAgain(code))
+	if (IsSocketErrorReceiveWouldBlock(code))
 		return 0;
 
 	if (IsSocketErrorClosed(code))
@@ -48,12 +47,12 @@ BufferedSocket::DirectRead(void *data, size_t length)
 }
 
 bool
-BufferedSocket::ReadToBuffer()
+BufferedSocket::ReadToBuffer() noexcept
 {
 	assert(IsDefined());
 
 	const auto buffer = input.Write();
-	assert(!buffer.IsEmpty());
+	assert(!buffer.empty());
 
 	const auto nbytes = DirectRead(buffer.data, buffer.size);
 	if (nbytes > 0)
@@ -63,14 +62,14 @@ BufferedSocket::ReadToBuffer()
 }
 
 bool
-BufferedSocket::ResumeInput()
+BufferedSocket::ResumeInput() noexcept
 {
 	assert(IsDefined());
 
 	while (true) {
 		const auto buffer = input.Read();
-		if (buffer.IsEmpty()) {
-			ScheduleRead();
+		if (buffer.empty()) {
+			event.ScheduleRead();
 			return true;
 		}
 
@@ -82,11 +81,11 @@ BufferedSocket::ResumeInput()
 				return false;
 			}
 
-			ScheduleRead();
+			event.ScheduleRead();
 			return true;
 
 		case InputResult::PAUSE:
-			CancelRead();
+			event.CancelRead();
 			return true;
 
 		case InputResult::AGAIN:
@@ -98,31 +97,23 @@ BufferedSocket::ResumeInput()
 	}
 }
 
-bool
-BufferedSocket::OnSocketReady(unsigned flags)
+void
+BufferedSocket::OnSocketReady(unsigned flags) noexcept
 {
 	assert(IsDefined());
 
-	if (gcc_unlikely(flags & (ERROR|HANGUP))) {
+	if (gcc_unlikely(flags & (SocketEvent::ERROR|SocketEvent::HANGUP))) {
 		OnSocketClosed();
-		return false;
+		return;
 	}
 
-	if (flags & READ) {
+	if (flags & SocketEvent::READ) {
 		assert(!input.IsFull());
 
-		if (!ReadToBuffer())
-			return false;
-
-		if (!ResumeInput())
-			/* we must return "true" here or
-			   SocketMonitor::Dispatch() will call
-			   Cancel() on a freed object */
-			return true;
+		if (!ReadToBuffer() || !ResumeInput())
+			return;
 
 		if (!input.IsFull())
-			ScheduleRead();
+			event.ScheduleRead();
 	}
-
-	return true;
 }

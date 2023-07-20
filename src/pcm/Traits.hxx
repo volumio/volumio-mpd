@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,10 @@
 #ifndef MPD_PCM_TRAITS_HXX
 #define MPD_PCM_TRAITS_HXX
 
-#include "check.h"
-#include "AudioFormat.hxx"
+#include "SampleFormat.hxx"
 
-#include <stdint.h>
-#include <stddef.h>
+#include <cstddef>
+#include <cstdint>
 
 /**
  * This template describes the specified #SampleFormat.  This is an
@@ -44,12 +43,12 @@ struct SampleTraits<SampleFormat::S8> {
 	/**
 	 * A writable pointer.
 	 */
-	typedef value_type *pointer_type;
+	typedef value_type *pointer;
 
 	/**
 	 * A read-only pointer.
 	 */
-	typedef const value_type *const_pointer_type;
+	typedef const value_type *const_pointer;
 
 	/**
 	 * A "long" type that is large and accurate enough for adding
@@ -85,13 +84,18 @@ struct SampleTraits<SampleFormat::S8> {
 	 * The maximum sample value.
 	 */
 	static constexpr value_type MAX = (sum_type(1) << (BITS - 1)) - 1;
+
+	/**
+	 * A value which represents "silence".
+	 */
+	static constexpr value_type SILENCE = 0;
 };
 
 template<>
 struct SampleTraits<SampleFormat::S16> {
 	typedef int16_t value_type;
-	typedef value_type *pointer_type;
-	typedef const value_type *const_pointer_type;
+	typedef value_type *pointer;
+	typedef const value_type *const_pointer;
 
 	typedef int_least32_t sum_type;
 	typedef int_least32_t long_type;
@@ -101,13 +105,14 @@ struct SampleTraits<SampleFormat::S16> {
 
 	static constexpr value_type MIN = -(sum_type(1) << (BITS - 1));
 	static constexpr value_type MAX = (sum_type(1) << (BITS - 1)) - 1;
+	static constexpr value_type SILENCE = 0;
 };
 
 template<>
 struct SampleTraits<SampleFormat::S32> {
 	typedef int32_t value_type;
-	typedef value_type *pointer_type;
-	typedef const value_type *const_pointer_type;
+	typedef value_type *pointer;
+	typedef const value_type *const_pointer;
 
 	typedef int_least64_t sum_type;
 	typedef int_least64_t long_type;
@@ -117,13 +122,14 @@ struct SampleTraits<SampleFormat::S32> {
 
 	static constexpr value_type MIN = -(sum_type(1) << (BITS - 1));
 	static constexpr value_type MAX = (sum_type(1) << (BITS - 1)) - 1;
+	static constexpr value_type SILENCE = 0;
 };
 
 template<>
 struct SampleTraits<SampleFormat::S24_P32> {
 	typedef int32_t value_type;
-	typedef value_type *pointer_type;
-	typedef const value_type *const_pointer_type;
+	typedef value_type *pointer;
+	typedef const value_type *const_pointer;
 
 	typedef int_least32_t sum_type;
 	typedef int_least64_t long_type;
@@ -133,13 +139,14 @@ struct SampleTraits<SampleFormat::S24_P32> {
 
 	static constexpr value_type MIN = -(sum_type(1) << (BITS - 1));
 	static constexpr value_type MAX = (sum_type(1) << (BITS - 1)) - 1;
+	static constexpr value_type SILENCE = 0;
 };
 
 template<>
 struct SampleTraits<SampleFormat::FLOAT> {
 	typedef float value_type;
-	typedef value_type *pointer_type;
-	typedef const value_type *const_pointer_type;
+	typedef value_type *pointer;
+	typedef const value_type *const_pointer;
 
 	typedef float sum_type;
 	typedef float long_type;
@@ -148,6 +155,18 @@ struct SampleTraits<SampleFormat::FLOAT> {
 
 	static constexpr value_type MIN = -1;
 	static constexpr value_type MAX = 1;
+	static constexpr value_type SILENCE = 0;
+};
+
+template<>
+struct SampleTraits<SampleFormat::DSD> {
+	typedef uint8_t value_type;
+	typedef value_type *pointer;
+	typedef const value_type *const_pointer;
+
+	static constexpr size_t SAMPLE_SIZE = sizeof(value_type);
+
+	static constexpr value_type SILENCE = 0x69;
 };
 
 #endif

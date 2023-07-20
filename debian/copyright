@@ -1,0 +1,181 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: MPD
+Source: https://www.musicpd.org/
+Upstream-Contact: Max Kellermann <max.kellermann@gmail.com>
+
+Files: *
+Copyright: 2003-2021, The Music Player Daemon Project (see AUTHORS for details)
+License: GPL-2+
+
+Files: src/AudioCompress/*
+Copyright: 2007, fluffy <fluffy@beesbuzz.biz> (https://beesbuzz.biz)
+License: LGPL-2.1+
+
+Files: src/mixer/plugins/HaikuMixerPlugin.cxx src/output/plugins/HaikuOutputPlugin.*
+Copyright: 2003-2021, The Music Player Daemon Project
+  2010-2011, Philipp 'ph3-der-loewe' Schafft
+  2010-2011, Hans-Kristian 'maister' Arntzen
+  2014-2015, François 'mmu_man' Revol
+License: GPL-2+
+
+Files: src/mixer/plugins/SndioMixerPlugin.cxx
+Copyright: 2017, Christopher Zimmermann <christopher@gmerlin.de>
+License: GPL-2+
+
+Files: src/mixer/plugins/volume_mapping.*
+Copyright: 2010, Clemens Ladisch <clemens@ladisch.de>
+License: ISC
+
+Files: src/apple/* src/fs/io/* src/io/*  src/java/* src/lib/alsa/Error.* src/lib/cdio/*
+ src/lib/chromaprint/Context.hxx src/lib/crypto/* src/lib/curl/*
+ src/lib/fmt/AudioFormatFormatter.hxx src/lib/fmt/ExceptionFormatter.hxx
+ src/lib/gcrypt/* src/lib/systemd/* src/lib/yajl/* src/lib/zlib/* src/net/*
+ src/output/plugins/sles/* src/system/* src/thread/* src/util/* test/net/*
+ test/time/* test/util/*
+Copyright: 2003-2021, Max Kellermann <max.kellermann@gmail.com>
+License: BSD-2-clause
+
+Files: src/event/CoarseTimerEvent.* src/event/FarTimerEvent.hxx
+ src/event/FineTimerEvent.* src/event/PipeEvent.hxx src/event/TimerEvent.hxx
+ src/event/TimerList.* src/event/TimerWheel.*
+ src/io/uring/* src/lib/dbus/* src/lib/nfs/Error.* src/lib/pcre/*
+ src/net/HostParser.* src/net/Resolver.* src/system/KernelVersion.* src/time/*
+ src/util/PrintException.* test/time/TestISO8601.cxx
+ src/zeroconf/avahi/Client.* src/zeroconf/avahi/ConnectionListener.hxx
+ src/zeroconf/avahi/EntryGroup.hxx src/zeroconf/avahi/Error.*
+ src/zeroconf/avahi/ErrorHandler.hxx src/zeroconf/avahi/Publisher.*
+ src/zeroconf/avahi/Service.hxx test/util/TestException.cxx
+Copyright: 2007-2021, CM4all GmbH (formerly: Content Management AG)
+License: BSD-2-clause
+
+Files: src/io/uring/ReadOperation.* src/lib/dbus/AsyncRequest.hxx
+ src/lib/dbus/FilterHelper.* src/lib/dbus/Glue.* src/lib/dbus/Init.hxx
+ src/time/Calendar.hxx src/time/ChronoUtil.hxx src/time/FileTime.hxx
+ src/time/Parser.* src/time/SystemClock.hxx
+Copyright: 2003-2021, Max Kellermann <max.kellermann@gmail.com>
+License: BSD-2-clause
+
+Files: src/fs/io/AutoGunzipReader.* src/fs/io/PeekReader.* src/fs/io/TextFile.*
+ src/lib/curl/Error.hxx src/lib/dbus/ObjectManager.hxx
+ src/lib/dbus/UDisks2.* src/lib/yajl/ParseInputStream.* src/net/Features.hxx
+ src/net/Init.hxx src/net/SocketUtil.*
+ src/output/plugins/sles/SlesOutputPlugin.* src/system/Clock.*
+ src/system/EventPipe.* src/system/PeriodClock.hxx
+ src/thread/Future.hxx src/thread/Name.hxx src/thread/SafeSingleton.hxx
+ src/thread/Slack.hxx src/thread/Thread.* src/thread/WindowsFuture.hxx
+ src/util/BitReverse.*
+ src/util/ByteReverse.* src/util/Compiler.h src/util/DivideString.*
+ src/util/FormatString.* src/util/LazyRandomEngine.*
+ src/util/OptionDef.hxx src/util/OptionParser.* src/util/PeakBuffer.*
+ src/util/Serial.* src/util/SliceBuffer.hxx src/util/StringUtil.* src/util/format.*
+ test/util/test_byte_reverse.cxx
+Copyright: 2003-2021, The Music Player Daemon Project
+License: GPL-2+
+
+Files: src/lib/upnp/ixmlwrap.*
+Copyright: 2013, J.F.Dockes
+License: GPL-2+
+
+Files: src/pcm/Dsd2Pcm.*
+Copyright: 2009-2011, Sebastian Gesemann
+ 2020, Max Kellermann <max.kellermann@gmail.com>
+License: BSD-2-clause
+
+Files: debian/*
+Copyright: 2003-2004, Warren Dukes (aka shank) <shank@mercury.chem.pitt.edu>
+ 2004-2005, Eric Wong <eric@petta-tech.com>
+ 2006-2011, Decklin Foster <decklin@red-bean.com>
+ 2011-2012, Alexander Wirt <formorer@debian.org>
+ 2013-2021, Florian Schlichting <fsfs@debian.org>
+ 2018-2021, Geoffroy Youri Berret <efrim@azylum.org>
+License: GPL-2+
+
+Files: debian/source_mpd.py
+Copyright: 2012, Ronny Cardona <rcart19@gmail.com>
+License: GPL-2+
+
+Files: debian/tests/*.t
+Copyright: 2007, Jerome Quelin <jquelin@cpan.org>
+License: Artistic or GPL-1+
+Comment: Perl tests copied from the libaudio-mpd-perl package
+
+License: Artistic
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the Artistic License, which comes with Perl.
+ .
+ On Debian systems, the complete text of the Artistic License can be
+ found in `/usr/share/common-licenses/Artistic'.
+
+License: BSD-2-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions
+ are met:
+ .
+ - Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+ .
+ - Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+ CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: GPL-1+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 1, or (at your option)
+ any later version.
+ .
+ On Debian systems, the complete text of version 1 of the General Public
+ License can be found in `/usr/share/common-licenses/GPL-1'.
+
+License: GPL-2+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2, or (at your option)
+ any later version.
+ .
+ On Debian systems, the complete text of version 2 of the GNU General
+ Public License can be found in `/usr/share/common-licenses/GPL-2'.
+
+License: ISC
+ Permission to use, copy, modify, and/or distribute this software for any
+ purpose with or without fee is hereby granted, provided that the above
+ copyright notice and this permission notice appear in all copies.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+ REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+ AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+ INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ PERFORMANCE OF THIS SOFTWARE.
+
+License: LGPL-2.1+
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Library General Public
+ License as published by the Free Software Foundation; either
+ version 2 of the License, or (at your option) any later version.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Library General Public License for more details.
+ .
+ You should have received a copy of the GNU Library General Public
+ License along with this library; if not, write to the
+ Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ Boston, MA  02110-1301, USA.
+ .
+ On Debian systems, the complete text of version 2 of the GNU Library General
+ Public License can be found in `/usr/share/common-licenses/LGPL-2.1'.

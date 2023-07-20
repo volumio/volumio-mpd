@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,14 @@
 #ifndef MPD_TAG_VORBIS_COMMENT_HXX
 #define MPD_TAG_VORBIS_COMMENT_HXX
 
-#include "check.h"
-#include "Compiler.h"
+struct StringView;
 
 /**
  * Checks if the specified name matches the entry's name, and if yes,
  * returns the comment value.
  */
-gcc_pure
-const char *
-vorbis_comment_value(const char *entry, const char *name);
+[[gnu::pure]]
+StringView
+GetVorbisCommentValue(StringView entry, StringView name) noexcept;
 
 #endif

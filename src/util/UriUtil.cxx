@@ -1,79 +1,44 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
- * http://www.musicpd.org
+ * Copyright 2008-2019 Max Kellermann <max.kellermann@gmail.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * - Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * - Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the
+ * distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
+ * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "UriUtil.hxx"
-#include "StringCompare.hxx"
+#include "ASCII.hxx"
+#include "SplitString.hxx"
 
-#include <assert.h>
-#include <string.h>
+#include <array>
+#include <cassert>
+#include <cstring>
 
-bool uri_has_scheme(const char *uri)
-{
-	return strstr(uri, "://") != nullptr;
-}
-
-std::string
-uri_get_scheme(const char *uri)
-{
-	const char *end = strstr(uri, "://");
-	if (end == nullptr)
-		end = uri;
-
-	return std::string(uri, end);
-}
-
-/* suffixes should be ascii only characters */
-const char *
-uri_get_suffix(const char *uri)
-{
-	const char *suffix = strrchr(uri, '.');
-	if (suffix == nullptr || suffix == uri ||
-	    suffix[-1] == '/' || suffix[-1] == '\\')
-		return nullptr;
-
-	++suffix;
-
-	if (strpbrk(suffix, "/\\") != nullptr)
-		return nullptr;
-
-	return suffix;
-}
-
-const char *
-uri_get_suffix(const char *uri, UriSuffixBuffer &buffer)
-{
-	const char *suffix = uri_get_suffix(uri);
-	if (suffix == nullptr)
-		return nullptr;
-
-	const char *q = strchr(suffix, '?');
-	if (q != nullptr && size_t(q - suffix) < sizeof(buffer.data)) {
-		memcpy(buffer.data, suffix, q - suffix);
-		buffer.data[q - suffix] = 0;
-		suffix = buffer.data;
-	}
-
-	return suffix;
-}
+#include <string_view>
 
 static const char *
-verify_uri_segment(const char *p)
+verify_uri_segment(const char *p) noexcept
 {
 	unsigned dots = 0;
 	while (*p == '.') {
@@ -84,12 +49,12 @@ verify_uri_segment(const char *p)
 	if (dots <= 2 && (*p == 0 || *p == '/'))
 		return nullptr;
 
-	const char *q = strchr(p + 1, '/');
+	const char *q = std::strchr(p + 1, '/');
 	return q != nullptr ? q : "";
 }
 
 bool
-uri_safe_local(const char *uri)
+uri_safe_local(const char *uri) noexcept
 {
 	while (true) {
 		uri = verify_uri_segment(uri);
@@ -107,11 +72,16 @@ uri_safe_local(const char *uri)
 
 gcc_pure
 static const char *
-SkipUriScheme(const char *uri)
+SkipUriScheme(const char *uri) noexcept
 {
-	const char *const schemes[] = { "http://", "https://", "ftp://" };
+	static constexpr auto schemes = std::array {
+		"http://", "https://",
+		"ftp://",
+		"smb://",
+	};
+
 	for (auto scheme : schemes) {
-		auto result = StringAfterPrefix(uri, scheme);
+		auto result = StringAfterPrefixCaseASCII(uri, scheme);
 		if (result != nullptr)
 			return result;
 	}
@@ -120,21 +90,21 @@ SkipUriScheme(const char *uri)
 }
 
 std::string
-uri_remove_auth(const char *uri)
+uri_remove_auth(const char *uri) noexcept
 {
 	const char *auth = SkipUriScheme(uri);
 	if (auth == nullptr)
 		/* unrecognized URI */
-		return std::string();
+		return {};
 
-	const char *slash = strchr(auth, '/');
+	const char *slash = std::strchr(auth, '/');
 	if (slash == nullptr)
 		slash = auth + strlen(auth);
 
-	const char *at = (const char *)memchr(auth, '@', slash - auth);
+	auto at = (const char *)std::memchr(auth, '@', slash - auth);
 	if (at == nullptr)
 		/* no auth info present, do nothing */
-		return std::string();
+		return {};
 
 	/* duplicate the full URI and then delete the auth
 	   information */
@@ -143,51 +113,36 @@ uri_remove_auth(const char *uri)
 	return result;
 }
 
-bool
-uri_is_child(const char *parent, const char *child)
-{
-#if !CLANG_CHECK_VERSION(3,6)
-	/* disabled on clang due to -Wtautological-pointer-compare */
-	assert(parent != nullptr);
-	assert(child != nullptr);
-#endif
-
-	const size_t parent_length = strlen(parent);
-	return memcmp(parent, child, parent_length) == 0 &&
-		child[parent_length] == '/';
-}
-
-
-bool
-uri_is_child_or_same(const char *parent, const char *child)
-{
-	return strcmp(parent, child) == 0 || uri_is_child(parent, child);
-}
-
 std::string
-uri_apply_base(const std::string &uri, const std::string &base)
+uri_squash_dot_segments(const char *uri) noexcept
 {
-	if (uri.front() == '/') {
-		/* absolute path: replace the whole URI path in base */
+	std::forward_list<std::string_view> path = SplitString(std::string_view(uri), '/');
+	path.remove_if([](const std::string_view &seg) { return seg == "."; });
+	path.reverse();
 
-		auto i = base.find("://");
-		if (i == base.npos)
-			/* no scheme: override base completely */
-			return uri;
+	std::string result;
 
-		/* find the first slash after the host part */
-		i = base.find('/', i + 3);
-		if (i == base.npos)
-			/* there's no URI path - simply append uri */
-			i = base.length();
+	int segskips = 0;
+	auto it = path.begin();
+	while (it != path.end()) {
+		if (*it == "..") {
+			segskips++;
+			it++;
+			continue;
+		} else if (segskips != 0) {
+			segskips--;
+			it++;
+			continue;
+		}
 
-		return base.substr(0, i) + uri;
+		result.insert(0, *it);
+
+		if (it != path.begin()) {
+			result.insert(it->length(), "/");
+		}
+
+		it++;
 	}
 
-	std::string out(base);
-	if (out.back() != '/')
-		out.push_back('/');
-
-	out += uri;
-	return out;
+	return result;
 }

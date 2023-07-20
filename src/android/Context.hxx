@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,13 +23,22 @@
 #include "java/Object.hxx"
 
 class AllocatedPath;
+class AudioManager;
 
-class Context : public Java::Object {
+class Context : public Java::GlobalObject {
 public:
-	Context(JNIEnv *env, jobject obj):Java::Object(env, obj) {}
+	Context(JNIEnv *env, jobject obj) noexcept
+		:Java::GlobalObject(env, obj) {}
 
-	gcc_pure
-	AllocatedPath GetCacheDir(JNIEnv *env) const;
+	[[gnu::pure]]
+	AllocatedPath GetExternalFilesDir(JNIEnv *env,
+					  const char *type) noexcept;
+
+	[[gnu::pure]]
+	AllocatedPath GetCacheDir(JNIEnv *env) const noexcept;
+
+	[[gnu::pure]]
+	AudioManager *GetAudioManager(JNIEnv *env) noexcept;
 };
 
 #endif

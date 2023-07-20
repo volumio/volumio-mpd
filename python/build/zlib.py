@@ -7,7 +7,7 @@ class ZlibProject(Project):
                  **kwargs):
         Project.__init__(self, url, md5, installed, **kwargs)
 
-    def build(self, toolchain):
+    def _build(self, toolchain):
         src = self.unpack(toolchain, out_of_tree=False)
 
         subprocess.check_call(['/usr/bin/make', '--quiet',
@@ -18,5 +18,5 @@ class ZlibProject(Project):
             'INCLUDE_PATH='+ os.path.join(toolchain.install_prefix, 'include'),
             'LIBRARY_PATH=' + os.path.join(toolchain.install_prefix, 'lib'),
             'BINARY_PATH=' + os.path.join(toolchain.install_prefix, 'bin'),
-            'SHARED_MODE=1'],
+            ],
             cwd=src, env=toolchain.env)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,38 +17,41 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlaylistDatabase.hxx"
 #include "db/PlaylistVector.hxx"
 #include "fs/io/TextFile.hxx"
 #include "fs/io/BufferedOutputStream.hxx"
-#include "util/StringUtil.hxx"
+#include "time/ChronoUtil.hxx"
+#include "util/StringStrip.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <string.h>
+#include <cstring>
+
 #include <stdlib.h>
 
 void
 playlist_vector_save(BufferedOutputStream &os, const PlaylistVector &pv)
 {
-	for (const PlaylistInfo &pi : pv)
-		os.Format(PLAYLIST_META_BEGIN "%s\n"
-			  "mtime: %li\n"
-			  "playlist_end\n",
-			  pi.name.c_str(), (long)pi.mtime);
+	for (const PlaylistInfo &pi : pv) {
+		os.Format(PLAYLIST_META_BEGIN "%s\n", pi.name.c_str());
+		if (!IsNegative(pi.mtime))
+			os.Format("mtime: %li\n",
+				  (long)std::chrono::system_clock::to_time_t(pi.mtime));
+		os.Write("playlist_end\n");
+	}
 }
 
 void
 playlist_metadata_load(TextFile &file, PlaylistVector &pv, const char *name)
 {
-	PlaylistInfo pm(name, 0);
+	PlaylistInfo pm(name);
 
 	char *line, *colon;
 	const char *value;
 
 	while ((line = file.ReadLine()) != nullptr &&
-	       strcmp(line, "playlist_end") != 0) {
-		colon = strchr(line, ':');
+	       std::strcmp(line, "playlist_end") != 0) {
+		colon = std::strchr(line, ':');
 		if (colon == nullptr || colon == line)
 			throw FormatRuntimeError("unknown line in db: %s",
 						 line);
@@ -56,8 +59,8 @@ playlist_metadata_load(TextFile &file, PlaylistVector &pv, const char *name)
 		*colon++ = 0;
 		value = StripLeft(colon);
 
-		if (strcmp(line, "mtime") == 0)
-			pm.mtime = strtol(value, nullptr, 10);
+		if (std::strcmp(line, "mtime") == 0)
+			pm.mtime = std::chrono::system_clock::from_time_t(strtol(value, nullptr, 10));
 		else
 			throw FormatRuntimeError("unknown line in db: %s",
 						 line);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ApeLoader.hxx"
-#include "system/ByteOrder.hxx"
+#include "util/ByteOrder.hxx"
 #include "input/InputStream.hxx"
 #include "util/StringView.hxx"
 
+#include <cassert>
+#include <cstdint>
+#include <cstring>
 #include <memory>
-#include <stdexcept>
-
-#include <stdint.h>
-#include <assert.h>
-#include <string.h>
 
 struct ApeFooter {
 	unsigned char id[8];
@@ -40,17 +37,17 @@ struct ApeFooter {
 };
 
 bool
-tag_ape_scan(InputStream &is, ApeTagCallback callback)
+tag_ape_scan(InputStream &is, const ApeTagCallback& callback)
 try {
-	const ScopeLock protect(is.mutex);
+	std::unique_lock<Mutex> lock(is.mutex);
 
 	if (!is.KnownSize() || !is.CheapSeeking())
 		return false;
 
 	/* determine if file has an apeV2 tag */
 	ApeFooter footer;
-	is.Seek(is.GetSize() - sizeof(footer));
-	is.ReadFull(&footer, sizeof(footer));
+	is.Seek(lock, is.GetSize() - sizeof(footer));
+	is.ReadFull(lock, &footer, sizeof(footer));
 
 	if (memcmp(footer.id, "APETAGEX", sizeof(footer.id)) != 0 ||
 	    FromLE32(footer.version) != 2000)
@@ -63,14 +60,14 @@ try {
 	    remaining > 1024 * 1024)
 		return false;
 
-	is.Seek(is.GetSize() - remaining);
+	is.Seek(lock, is.GetSize() - remaining);
 
 	/* read tag into buffer */
 	remaining -= sizeof(footer);
 	assert(remaining > 10);
 
-	std::unique_ptr<char[]> buffer(new char[remaining]);
-	is.ReadFull(buffer.get(), remaining);
+	auto buffer = std::make_unique<char[]>(remaining);
+	is.ReadFull(lock, buffer.get(), remaining);
 
 	/* read tags */
 	unsigned n = FromLE32(footer.count);
@@ -85,7 +82,7 @@ try {
 
 		/* get the key */
 		const char *key = p;
-		const char *key_end = (const char *)memchr(p, '\0', remaining);
+		const char *key_end = (const char *)std::memchr(p, '\0', remaining);
 		if (key_end == nullptr)
 			break;
 
@@ -104,6 +101,6 @@ try {
 	}
 
 	return true;
-} catch (const std::runtime_error &) {
-		return false;
+} catch (...) {
+	return false;
 }

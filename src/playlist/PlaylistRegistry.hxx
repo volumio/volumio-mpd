@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,15 +21,18 @@
 #define MPD_PLAYLIST_REGISTRY_HXX
 
 #include "input/Ptr.hxx"
+#include "thread/Mutex.hxx"
 
-class Mutex;
-class Cond;
+#include <string_view>
+
+struct ConfigData;
+struct PlaylistPlugin;
 class SongEnumerator;
 
-extern const struct playlist_plugin *const playlist_plugins[];
+extern const PlaylistPlugin *const playlist_plugins[];
 
 #define playlist_plugins_for_each(plugin) \
-	for (const struct playlist_plugin *plugin, \
+	for (const PlaylistPlugin *plugin, \
 		*const*playlist_plugin_iterator = &playlist_plugins[0]; \
 		(plugin = *playlist_plugin_iterator) != nullptr; \
 		++playlist_plugin_iterator)
@@ -38,22 +41,41 @@ extern const struct playlist_plugin *const playlist_plugins[];
  * Initializes all playlist plugins.
  */
 void
-playlist_list_global_init();
+playlist_list_global_init(const ConfigData &config);
 
 /**
  * Deinitializes all playlist plugins.
  */
 void
-playlist_list_global_finish();
+playlist_list_global_finish() noexcept;
+
+class ScopePlaylistPluginsInit {
+public:
+	explicit ScopePlaylistPluginsInit(const ConfigData &config) {
+		playlist_list_global_init(config);
+	}
+
+	~ScopePlaylistPluginsInit() noexcept {
+		playlist_list_global_finish();
+	}
+};
+
+/**
+ * Shall this playlists supported by this plugin be represented as
+ * directories in the database?
+ */
+[[gnu::const]]
+bool
+GetPlaylistPluginAsFolder(const PlaylistPlugin &plugin) noexcept;
 
 /**
  * Opens a playlist by its URI.
  */
-SongEnumerator *
-playlist_list_open_uri(const char *uri, Mutex &mutex, Cond &cond);
+std::unique_ptr<SongEnumerator>
+playlist_list_open_uri(const char *uri, Mutex &mutex);
 
-SongEnumerator *
-playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix);
+std::unique_ptr<SongEnumerator>
+playlist_list_open_stream_suffix(InputStreamPtr &&is, std::string_view suffix);
 
 /**
  * Opens a playlist from an input stream.
@@ -62,14 +84,22 @@ playlist_list_open_stream_suffix(InputStreamPtr &&is, const char *suffix);
  * @param uri optional URI which was used to open the stream; may be
  * used to select the appropriate playlist plugin
  */
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_list_open_stream(InputStreamPtr &&is, const char *uri);
+
+[[gnu::pure]]
+const PlaylistPlugin *
+FindPlaylistPluginBySuffix(std::string_view suffix) noexcept;
 
 /**
  * Determines if there is a playlist plugin which can handle the
  * specified file name suffix.
  */
-bool
-playlist_suffix_supported(const char *suffix);
+[[gnu::pure]]
+inline bool
+playlist_suffix_supported(std::string_view suffix) noexcept
+{
+	return FindPlaylistPluginBySuffix(suffix) != nullptr;
+}
 
 #endif

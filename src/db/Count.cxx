@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,94 +17,80 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Count.hxx"
 #include "Selection.hxx"
 #include "Interface.hxx"
 #include "Partition.hxx"
 #include "client/Response.hxx"
-#include "LightSong.hxx"
+#include "song/LightSong.hxx"
 #include "tag/Tag.hxx"
+#include "tag/VisitFallback.hxx"
+#include "TagPrint.hxx"
+
+#include <fmt/format.h>
 
 #include <functional>
 #include <map>
 
 struct SearchStats {
-	unsigned n_songs;
+	unsigned n_songs{0};
 	std::chrono::duration<std::uint64_t, SongTime::period> total_duration;
 
 	constexpr SearchStats()
-		:n_songs(0), total_duration(0) {}
+		: total_duration(0) {}
 };
 
 class TagCountMap : public std::map<std::string, SearchStats> {
 };
 
 static void
-PrintSearchStats(Response &r, const SearchStats &stats)
+PrintSearchStats(Response &r, const SearchStats &stats) noexcept
 {
 	unsigned total_duration_s =
 		std::chrono::duration_cast<std::chrono::seconds>(stats.total_duration).count();
 
-	r.Format("songs: %u\n"
-		 "playtime: %u\n",
-		 stats.n_songs, total_duration_s);
+	r.Fmt(FMT_STRING("songs: {}\n"
+			 "playtime: {}\n"),
+	      stats.n_songs, total_duration_s);
 }
 
 static void
-Print(Response &r, TagType group, const TagCountMap &m)
+Print(Response &r, TagType group, const TagCountMap &m) noexcept
 {
 	assert(unsigned(group) < TAG_NUM_OF_ITEM_TYPES);
 
-	for (const auto &i : m) {
-		r.Format("%s: %s\n", tag_item_names[group], i.first.c_str());
-		PrintSearchStats(r, i.second);
+	for (const auto &[tag, stats] : m) {
+		tag_print(r, group, tag.c_str());
+		PrintSearchStats(r, stats);
 	}
 }
 
-static bool
-stats_visitor_song(SearchStats &stats, const LightSong &song)
+static void
+stats_visitor_song(SearchStats &stats, const LightSong &song) noexcept
 {
 	stats.n_songs++;
 
-	const auto duration = song.GetDuration();
-	if (!duration.IsNegative())
+	if (const auto duration = song.GetDuration(); !duration.IsNegative())
 		stats.total_duration += duration;
-
-	return true;
 }
 
-static bool
-CollectGroupCounts(TagCountMap &map, TagType group, const Tag &tag)
+static void
+CollectGroupCounts(TagCountMap &map, const Tag &tag,
+		   const char *value) noexcept
 {
-	bool found = false;
-	for (const auto &item : tag) {
-		if (item.type == group) {
-			auto r = map.insert(std::make_pair(item.value,
-							   SearchStats()));
-			SearchStats &s = r.first->second;
-			++s.n_songs;
-			if (!tag.duration.IsNegative())
-				s.total_duration += tag.duration;
-
-			found = true;
-		}
-	}
-
-	return found;
+	auto &s = map.emplace(value, SearchStats()).first->second;
+	++s.n_songs;
+	if (!tag.duration.IsNegative())
+		s.total_duration += tag.duration;
 }
 
-static bool
-GroupCountVisitor(TagCountMap &map, TagType group, const LightSong &song)
+static void
+GroupCountVisitor(TagCountMap &map, TagType group,
+		  const LightSong &song) noexcept
 {
-	assert(song.tag != nullptr);
-
-	const Tag &tag = *song.tag;
-	if (!CollectGroupCounts(map, group, tag) && group == TAG_ALBUM_ARTIST)
-		/* fall back to "Artist" if no "AlbumArtist" was found */
-		CollectGroupCounts(map, TAG_ARTIST, tag);
-
-	return true;
+	const Tag &tag = song.tag;
+	VisitTagWithFallbackOrEmpty(tag, group, [&](const auto &val)
+		{ return CollectGroupCounts(map, tag, val);  });
 }
 
 void
@@ -121,9 +107,9 @@ PrintSongCount(Response &r, const Partition &partition, const char *name,
 
 		SearchStats stats;
 
-		using namespace std::placeholders;
-		const auto f = std::bind(stats_visitor_song, std::ref(stats),
-					 _1);
+		const auto f = [&](const auto &song)
+			{ return stats_visitor_song(stats, song); };
+
 		db.Visit(selection, f);
 
 		PrintSearchStats(r, stats);
@@ -133,9 +119,9 @@ PrintSongCount(Response &r, const Partition &partition, const char *name,
 
 		TagCountMap map;
 
-		using namespace std::placeholders;
-		const auto f = std::bind(GroupCountVisitor, std::ref(map),
-					 group, _1);
+		const auto f = [&map,group](const auto &song)
+			{ return GroupCountVisitor(map, group, song); };
+
 		db.Visit(selection, f);
 
 		Print(r, group, map);

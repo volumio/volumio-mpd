@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,19 +27,17 @@
 #include "DsdLib.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "tag/TagId3.hxx"
+#include "tag/Id3Scan.hxx"
 
 #ifdef ENABLE_ID3TAG
 #include <id3tag.h>
 #endif
 
-#include <stdexcept>
-
 #include <string.h>
 #include <stdlib.h>
 
 bool
-DsdId::Equals(const char *s) const
+DsdId::Equals(const char *s) const noexcept
 {
 	assert(s != nullptr);
 	assert(strlen(s) == sizeof(value));
@@ -57,7 +55,7 @@ dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	if (is.IsSeekable()) {
 		try {
 			is.LockSeek(offset);
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 			return false;
 		}
 	}
@@ -81,7 +79,7 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 	if (is.IsSeekable()) {
 		try {
 			is.LockSeek(is.GetOffset() + delta);
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 			return false;
 		}
 	}
@@ -95,7 +93,7 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 }
 
 bool
-dsdlib_valid_freq(uint32_t samplefreq)
+dsdlib_valid_freq(uint32_t samplefreq) noexcept
 {
 	switch (samplefreq) {
 	case 2822400: /* DSD64, 64xFs, Fs = 44.100kHz */
@@ -115,9 +113,8 @@ dsdlib_valid_freq(uint32_t samplefreq)
 
 #ifdef ENABLE_ID3TAG
 void
-dsdlib_tag_id3(InputStream &is,
-	       const TagHandler &handler,
-	       void *handler_ctx, offset_type tagoffset)
+dsdlib_tag_id3(InputStream &is, TagHandler &handler,
+	       offset_type tagoffset)
 {
 	if (tagoffset == 0 || !is.KnownSize())
 		return;
@@ -128,7 +125,7 @@ dsdlib_tag_id3(InputStream &is,
 		return;
 
 	const auto count64 = size - tagoffset;
-	if (count64 < 10 || count64 > 1024 * 1024)
+	if (count64 < 10 || count64 > 4 * 1024 * 1024)
 		return;
 
 	if (!dsdlib_skip_to(nullptr, is, tagoffset))
@@ -136,7 +133,7 @@ dsdlib_tag_id3(InputStream &is,
 
 	const id3_length_t count = count64;
 
-	id3_byte_t *const id3_buf = new id3_byte_t[count];
+	auto *const id3_buf = new id3_byte_t[count];
 	if (id3_buf == nullptr)
 		return;
 
@@ -150,9 +147,8 @@ dsdlib_tag_id3(InputStream &is,
 	if (id3_tag == nullptr)
 		return;
 
-	scan_id3_tag(id3_tag, handler, handler_ctx);
+	scan_id3_tag(id3_tag, handler);
 
 	id3_tag_delete(id3_tag);
-	return;
 }
 #endif

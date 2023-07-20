@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,24 +20,24 @@
 #ifndef MPD_ANDROID_ENVIRONMENT_HXX
 #define MPD_ANDROID_ENVIRONMENT_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <jni.h>
 
 class AllocatedPath;
 
 namespace Environment {
-	void Initialise(JNIEnv *env);
-	void Deinitialise(JNIEnv *env);
+	void Initialise(JNIEnv *env) noexcept;
+	void Deinitialise(JNIEnv *env) noexcept;
 
 	/**
 	 * Determine the mount point of the external SD card.
 	 */
-	gcc_pure
-	AllocatedPath getExternalStorageDirectory();
+	[[gnu::pure]]
+	AllocatedPath getExternalStorageDirectory() noexcept;
 
-	gcc_pure
-	AllocatedPath getExternalStoragePublicDirectory(const char *type);
-};
+	[[gnu::pure]]
+	AllocatedPath getExternalStoragePublicDirectory(const char *type) noexcept;
+}
 
 #endif

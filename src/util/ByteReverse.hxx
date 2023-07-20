@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,29 +20,32 @@
 #ifndef MPD_BYTE_REVERSE_HXX
 #define MPD_BYTE_REVERSE_HXX
 
-#include <stdint.h>
-#include <stddef.h>
+#include <cstddef>
+#include <cstdint>
 
 /**
  * Reverse the bytes in each 16 bit "frame".  This function can be
  * used for in-place operation.
  */
 void
-reverse_bytes_16(uint16_t *dest, const uint16_t *src, const uint16_t *src_end);
+reverse_bytes_16(uint16_t *dest,
+		 const uint16_t *src, const uint16_t *src_end) noexcept;
 
 /**
  * Reverse the bytes in each 32 bit "frame".  This function can be
  * used for in-place operation.
  */
 void
-reverse_bytes_32(uint32_t *dest, const uint32_t *src, const uint32_t *src_end);
+reverse_bytes_32(uint32_t *dest,
+		 const uint32_t *src, const uint32_t *src_end) noexcept;
 
 /**
  * Reverse the bytes in each 64 bit "frame".  This function can be
  * used for in-place operation.
  */
 void
-reverse_bytes_64(uint64_t *dest, const uint64_t *src, const uint64_t *src_end);
+reverse_bytes_64(uint64_t *dest,
+		 const uint64_t *src, const uint64_t *src_end) noexcept;
 
 /**
  * Reverse the bytes in each "frame".  This function cannot be used
@@ -50,6 +53,6 @@ reverse_bytes_64(uint64_t *dest, const uint64_t *src, const uint64_t *src_end);
  */
 void
 reverse_bytes(uint8_t *dest, const uint8_t *src, const uint8_t *src_end,
-	      size_t frame_size);
+	      size_t frame_size) noexcept;
 
 #endif

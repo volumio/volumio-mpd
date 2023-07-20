@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 #include "MixerPlugin.hxx"
 #include "MixerList.hxx"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 class MixerListener;
 
@@ -42,25 +42,24 @@ public:
 	/**
 	 * Is the mixer device currently open?
 	 */
-	bool open;
+	bool open = false;
 
 	/**
 	 * Has this mixer failed, and should not be reopened
 	 * automatically?
 	 */
-	bool failed;
+	bool failed = false;
 
 public:
-	explicit Mixer(const MixerPlugin &_plugin, MixerListener &_listener)
-		:plugin(_plugin), listener(_listener),
-		 open(false),
-		 failed(false) {}
+	explicit Mixer(const MixerPlugin &_plugin,
+		       MixerListener &_listener) noexcept
+		:plugin(_plugin), listener(_listener) {}
 
 	Mixer(const Mixer &) = delete;
 
-	virtual ~Mixer() {}
+	virtual ~Mixer() = default;
 
-	bool IsPlugin(const MixerPlugin &other) const {
+	bool IsPlugin(const MixerPlugin &other) const noexcept {
 		return &plugin == &other;
 	}
 
@@ -74,7 +73,7 @@ public:
 	/**
 	 * Close mixer device
 	 */
-	virtual void Close() = 0;
+	virtual void Close() noexcept = 0;
 
 	/**
 	 * Reads the current volume.
@@ -84,7 +83,6 @@ public:
 	 * @return the current volume (0..100 including) or -1 if
 	 * unavailable
 	 */
-	gcc_pure
 	virtual int GetVolume() = 0;
 
 	/**

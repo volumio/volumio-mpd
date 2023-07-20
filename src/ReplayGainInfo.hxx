@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_REPLAY_GAIN_INFO_HXX
 #define MPD_REPLAY_GAIN_INFO_HXX
 
-#include "check.h"
-#include "Compiler.h"
 #include "ReplayGainMode.hxx"
 
 struct ReplayGainConfig;
@@ -39,24 +37,35 @@ struct ReplayGainTuple {
 		return gain > -100;
 	}
 
-	gcc_pure
-	float CalculateScale(const ReplayGainConfig &config) const;
+	static constexpr ReplayGainTuple Undefined() noexcept {
+		return {-200.0f, 0.0f};
+	}
+
+	[[gnu::pure]]
+	float CalculateScale(const ReplayGainConfig &config) const noexcept;
 };
 
 struct ReplayGainInfo {
 	ReplayGainTuple track, album;
 
-	constexpr bool IsDefined() const {
+	constexpr bool IsDefined() const noexcept {
 		return track.IsDefined() || album.IsDefined();
 	}
 
-	const ReplayGainTuple &Get(ReplayGainMode mode) const {
+	static constexpr ReplayGainInfo Undefined() noexcept {
+		return {
+			ReplayGainTuple::Undefined(),
+			ReplayGainTuple::Undefined(),
+		};
+	}
+
+	const ReplayGainTuple &Get(ReplayGainMode mode) const noexcept {
 		return mode == ReplayGainMode::ALBUM
 			? (album.IsDefined() ? album : track)
 			: (track.IsDefined() ? track : album);
 	}
 
-	void Clear() {
+	void Clear() noexcept {
 		track.Clear();
 		album.Clear();
 	}

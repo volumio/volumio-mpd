@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef NET_FEATURES_HXX
 #define NET_FEATURES_HXX
 
-/* feature macros are defined in config.h, and this header verifies
-   that it has been included earlier */
-#include "check.h"
+/* feature macros are defined in config.h */
+#include "config.h"
 
 #endif

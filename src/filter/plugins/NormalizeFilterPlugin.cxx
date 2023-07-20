@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
+#include "NormalizeFilterPlugin.hxx"
 #include "filter/FilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
-#include "filter/FilterRegistry.hxx"
-#include "pcm/PcmBuffer.hxx"
-#include "AudioFormat.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
+#include "pcm/Buffer.hxx"
+#include "pcm/AudioFormat.hxx"
 #include "AudioCompress/compress.h"
 #include "util/ConstBuffer.hxx"
 
@@ -34,13 +34,17 @@ class NormalizeFilter final : public Filter {
 	PcmBuffer buffer;
 
 public:
-	NormalizeFilter(const AudioFormat &audio_format)
+	explicit NormalizeFilter(const AudioFormat &audio_format)
 		:Filter(audio_format), compressor(Compressor_new(0)) {
 	}
 
-	~NormalizeFilter() {
+	~NormalizeFilter() override {
 		Compressor_delete(compressor);
 	}
+
+
+	NormalizeFilter(const NormalizeFilter &) = delete;
+	NormalizeFilter &operator=(const NormalizeFilter &) = delete;
 
 	/* virtual methods from class Filter */
 	ConstBuffer<void> FilterPCM(ConstBuffer<void> src) override;
@@ -49,27 +53,27 @@ public:
 class PreparedNormalizeFilter final : public PreparedFilter {
 public:
 	/* virtual methods from class PreparedFilter */
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
-static PreparedFilter *
-normalize_filter_init(gcc_unused const ConfigBlock &block)
+static std::unique_ptr<PreparedFilter>
+normalize_filter_init([[maybe_unused]] const ConfigBlock &block)
 {
-	return new PreparedNormalizeFilter();
+	return std::make_unique<PreparedNormalizeFilter>();
 }
 
-Filter *
+std::unique_ptr<Filter>
 PreparedNormalizeFilter::Open(AudioFormat &audio_format)
 {
 	audio_format.format = SampleFormat::S16;
 
-	return new NormalizeFilter(audio_format);
+	return std::make_unique<NormalizeFilter>(audio_format);
 }
 
 ConstBuffer<void>
 NormalizeFilter::FilterPCM(ConstBuffer<void> src)
 {
-	int16_t *dest = (int16_t *)buffer.Get(src.size);
+	auto *dest = (int16_t *)buffer.Get(src.size);
 	memcpy(dest, src.data, src.size);
 
 	Compressor_Process_int16(compressor, dest, src.size / 2);
@@ -80,3 +84,9 @@ const FilterPlugin normalize_filter_plugin = {
 	"normalize",
 	normalize_filter_init,
 };
+
+std::unique_ptr<PreparedFilter>
+normalize_filter_prepare() noexcept
+{
+	return std::make_unique<PreparedNormalizeFilter>();
+}

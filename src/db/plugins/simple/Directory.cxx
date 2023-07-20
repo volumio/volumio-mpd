@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,45 +17,47 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Directory.hxx"
+#include "ExportedSong.hxx"
 #include "SongSort.hxx"
 #include "Song.hxx"
 #include "Mount.hxx"
 #include "db/LightDirectory.hxx"
-#include "db/LightSong.hxx"
 #include "db/Uri.hxx"
 #include "db/DatabaseLock.hxx"
 #include "db/Interface.hxx"
-#include "SongFilter.hxx"
+#include "db/Selection.hxx"
+#include "song/Filter.hxx"
 #include "lib/icu/Collate.hxx"
 #include "fs/Traits.hxx"
-#include "util/Alloc.hxx"
 #include "util/DeleteDisposer.hxx"
+#include "util/StringCompare.hxx"
+#include "util/StringView.hxx"
 
-#include <assert.h>
+#include <cassert>
+
 #include <string.h>
 #include <stdlib.h>
 
-Directory::Directory(std::string &&_path_utf8, Directory *_parent)
+Directory::Directory(std::string &&_path_utf8, Directory *_parent) noexcept
 	:parent(_parent),
-	 mtime(0),
-	 inode(0), device(0),
-	 path(std::move(_path_utf8)),
-	 mounted_database(nullptr)
+	 path(std::move(_path_utf8))
 {
 }
 
-Directory::~Directory()
+Directory::~Directory() noexcept
 {
-	delete mounted_database;
+	if (mounted_database != nullptr) {
+		mounted_database->Close();
+		mounted_database.reset();
+	}
 
-	songs.clear_and_dispose(Song::Disposer());
+	songs.clear_and_dispose(DeleteDisposer());
 	children.clear_and_dispose(DeleteDisposer());
 }
 
 void
-Directory::Delete()
+Directory::Delete() noexcept
 {
 	assert(holding_db_lock());
 	assert(parent != nullptr);
@@ -65,43 +67,67 @@ Directory::Delete()
 }
 
 const char *
-Directory::GetName() const
+Directory::GetName() const noexcept
 {
 	assert(!IsRoot());
 
-	return PathTraitsUTF8::GetBase(path.c_str());
+	if (parent->IsRoot())
+		return path.c_str();
+
+	assert(StringAfterPrefix(path.c_str(), parent->path.c_str()) != nullptr);
+	assert(*StringAfterPrefix(path.c_str(), parent->path.c_str()) == PathTraitsUTF8::SEPARATOR);
+
+	/* strip the parent directory path and the slash separator
+	   from this directory's path, and the base name remains */
+	return path.c_str() + parent->path.length() + 1;
 }
 
 Directory *
-Directory::CreateChild(const char *name_utf8)
+Directory::CreateChild(std::string_view name_utf8) noexcept
 {
 	assert(holding_db_lock());
-	assert(name_utf8 != nullptr);
-	assert(*name_utf8 != 0);
+	assert(!name_utf8.empty());
 
 	std::string path_utf8 = IsRoot()
 		? std::string(name_utf8)
 		: PathTraitsUTF8::Build(GetPath(), name_utf8);
 
-	Directory *child = new Directory(std::move(path_utf8), this);
+	auto *child = new Directory(std::move(path_utf8), this);
 	children.push_back(*child);
 	return child;
 }
 
 const Directory *
-Directory::FindChild(const char *name) const
+Directory::FindChild(std::string_view name) const noexcept
 {
 	assert(holding_db_lock());
 
 	for (const auto &child : children)
-		if (strcmp(child.GetName(), name) == 0)
+		if (name.compare(child.GetName()) == 0)
 			return &child;
 
 	return nullptr;
 }
 
+Song *
+Directory::LookupTargetSong(std::string_view _target) noexcept
+{
+	StringView target{_target};
+
+	if (target.SkipPrefix("../")) {
+		if (parent == nullptr)
+			return nullptr;
+
+		return parent->LookupTargetSong(target);
+	}
+
+	/* sorry for the const_cast ... */
+	const auto lr = LookupDirectory(target);
+	return lr.directory->FindSong(lr.rest);
+}
+
 void
-Directory::PruneEmpty()
+Directory::PruneEmpty() noexcept
 {
 	assert(holding_db_lock());
 
@@ -109,7 +135,7 @@ Directory::PruneEmpty()
 	     child != end;) {
 		child->PruneEmpty();
 
-		if (child->IsEmpty())
+		if (child->IsEmpty() && !child->IsMount())
 			child = children.erase_and_dispose(child,
 							   DeleteDisposer());
 		else
@@ -118,24 +144,20 @@ Directory::PruneEmpty()
 }
 
 Directory::LookupResult
-Directory::LookupDirectory(const char *uri)
+Directory::LookupDirectory(std::string_view _uri) noexcept
 {
 	assert(holding_db_lock());
-	assert(uri != nullptr);
 
-	if (isRootDirectory(uri))
-		return { this, nullptr };
+	if (isRootDirectory(_uri))
+		return { this, _uri, {} };
 
-	char *duplicated = xstrdup(uri), *name = duplicated;
+	StringView uri(_uri);
 
 	Directory *d = this;
-	while (true) {
-		char *slash = strchr(name, '/');
-		if (slash == name)
+	do {
+		auto [name, rest] = uri.Split(PathTraitsUTF8::SEPARATOR);
+		if (name.empty())
 			break;
-
-		if (slash != nullptr)
-			*slash = '\0';
 
 		Directory *tmp = d->FindChild(name);
 		if (tmp == nullptr)
@@ -144,54 +166,42 @@ Directory::LookupDirectory(const char *uri)
 
 		d = tmp;
 
-		if (slash == nullptr) {
-			/* found everything */
-			name = nullptr;
-			break;
-		}
+		uri = rest;
+	} while (uri != nullptr);
 
-		name = slash + 1;
-	}
-
-	free(duplicated);
-
-	const char *rest = name == nullptr
-		? nullptr
-		: uri + (name - duplicated);
-
-	return { d, rest };
+	return { d, _uri.substr(0, uri.data - _uri.data()), uri };
 }
 
 void
-Directory::AddSong(Song *song)
+Directory::AddSong(SongPtr song) noexcept
 {
 	assert(holding_db_lock());
 	assert(song != nullptr);
-	assert(song->parent == this);
+	assert(&song->parent == this);
 
-	songs.push_back(*song);
+	songs.push_back(*song.release());
 }
 
-void
-Directory::RemoveSong(Song *song)
+SongPtr
+Directory::RemoveSong(Song *song) noexcept
 {
 	assert(holding_db_lock());
 	assert(song != nullptr);
-	assert(song->parent == this);
+	assert(&song->parent == this);
 
 	songs.erase(songs.iterator_to(*song));
+	return SongPtr(song);
 }
 
 const Song *
-Directory::FindSong(const char *name_utf8) const
+Directory::FindSong(std::string_view name_utf8) const noexcept
 {
 	assert(holding_db_lock());
-	assert(name_utf8 != nullptr);
 
 	for (auto &song : songs) {
-		assert(song.parent == this);
+		assert(&song.parent == this);
 
-		if (strcmp(song.uri, name_utf8) == 0)
+		if (song.filename == name_utf8)
 			return &song;
 	}
 
@@ -200,13 +210,13 @@ Directory::FindSong(const char *name_utf8) const
 
 gcc_pure
 static bool
-directory_cmp(const Directory &a, const Directory &b)
+directory_cmp(const Directory &a, const Directory &b) noexcept
 {
-	return IcuCollate(a.path.c_str(), b.path.c_str()) < 0;
+	return IcuCollate(a.path, b.path) < 0;
 }
 
 void
-Directory::Sort()
+Directory::Sort() noexcept
 {
 	assert(holding_db_lock());
 
@@ -219,8 +229,9 @@ Directory::Sort()
 
 void
 Directory::Walk(bool recursive, const SongFilter *filter,
-		VisitDirectory visit_directory, VisitSong visit_song,
-		VisitPlaylist visit_playlist) const
+		bool hide_playlist_targets,
+		const VisitDirectory& visit_directory, const VisitSong& visit_song,
+		const VisitPlaylist& visit_playlist) const
 {
 	if (IsMount()) {
 		assert(IsEmpty());
@@ -230,15 +241,18 @@ Directory::Walk(bool recursive, const SongFilter *filter,
 		   call will lock it again */
 		const ScopeDatabaseUnlock unlock;
 		WalkMount(GetPath(), *mounted_database,
-			  recursive, filter,
+			  "", DatabaseSelection("", recursive, filter),
 			  visit_directory, visit_song,
 			  visit_playlist);
 		return;
 	}
 
 	if (visit_song) {
-		for (auto &song : songs){
-			const LightSong song2 = song.Export();
+		for (auto &song : songs) {
+			if (hide_playlist_targets && song.in_playlist)
+				continue;
+
+			const auto song2 = song.Export();
 			if (filter == nullptr || filter->Match(song2))
 				visit_song(song2);
 		}
@@ -255,13 +269,14 @@ Directory::Walk(bool recursive, const SongFilter *filter,
 
 		if (recursive)
 			child.Walk(recursive, filter,
+				   hide_playlist_targets,
 				   visit_directory, visit_song,
 				   visit_playlist);
 	}
 }
 
 LightDirectory
-Directory::Export() const
+Directory::Export() const noexcept
 {
-	return LightDirectory(GetPath(), mtime);
+	return {GetPath(), mtime};
 }

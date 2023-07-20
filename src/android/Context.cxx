@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Context.hxx"
 #include "java/Class.hxx"
+#include "java/Exception.hxx"
 #include "java/File.hxx"
+#include "java/String.hxx"
 #include "fs/AllocatedPath.hxx"
 
+#include "AudioManager.hxx"
+
 AllocatedPath
-Context::GetCacheDir(JNIEnv *env) const
+Context::GetExternalFilesDir(JNIEnv *env, const char *_type) noexcept
+{
+	assert(_type != nullptr);
+
+	Java::Class cls{env, env->GetObjectClass(Get())};
+	jmethodID method = env->GetMethodID(cls, "getExternalFilesDir",
+					    "(Ljava/lang/String;)Ljava/io/File;");
+	assert(method);
+
+	Java::String type{env, _type};
+
+	jobject file = env->CallObjectMethod(Get(), method, type.Get());
+	if (Java::DiscardException(env) || file == nullptr)
+		return nullptr;
+
+	return Java::File::ToAbsolutePath(env, file);
+}
+
+AllocatedPath
+Context::GetCacheDir(JNIEnv *env) const noexcept
 {
 	assert(env != nullptr);
 
@@ -34,10 +56,26 @@ Context::GetCacheDir(JNIEnv *env) const
 	assert(method);
 
 	jobject file = env->CallObjectMethod(Get(), method);
-	if (file == nullptr) {
-		env->ExceptionClear();
-		return AllocatedPath::Null();
-	}
+	if (Java::DiscardException(env) || file == nullptr)
+		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
+}
+
+AudioManager *
+Context::GetAudioManager(JNIEnv *env) noexcept
+{
+	assert(env != nullptr);
+
+	Java::Class cls(env, env->GetObjectClass(Get()));
+	jmethodID method = env->GetMethodID(cls, "getSystemService",
+					    "(Ljava/lang/String;)Ljava/lang/Object;");
+	assert(method);
+
+	Java::String name(env, "audio");
+	jobject am = env->CallObjectMethod(Get(), method, name.Get());
+	if (Java::DiscardException(env) || am == nullptr)
+		return nullptr;
+
+    return new AudioManager(env, am);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Util.hxx"
 #include "util/AllocatedString.hxx"
 #include "util/AllocatedArray.hxx"
-#include "util/WritableBuffer.hxx"
 #include "util/ConstBuffer.hxx"
 
 #include <unicode/ustring.h>
 
+#include <cassert>
 #include <memory>
 #include <stdexcept>
 
-#include <assert.h>
 #include <string.h>
 
 AllocatedArray<UChar>
-UCharFromUTF8(const char *src)
+UCharFromUTF8(std::string_view src)
 {
-	assert(src != nullptr);
-
-	const size_t src_length = strlen(src);
-	const size_t dest_capacity = src_length;
+	const size_t dest_capacity = src.size();
 	AllocatedArray<UChar> dest(dest_capacity);
 
 	UErrorCode error_code = U_ZERO_ERROR;
 	int32_t dest_length;
 	u_strFromUTF8(dest.begin(), dest_capacity, &dest_length,
-		      src, src_length,
+		      src.data(), src.size(),
 		      &error_code);
 	if (U_FAILURE(error_code))
 		throw std::runtime_error(u_errorName(error_code));
@@ -53,24 +48,22 @@ UCharFromUTF8(const char *src)
 	return dest;
 }
 
-AllocatedString<>
-UCharToUTF8(ConstBuffer<UChar> src)
+AllocatedString
+UCharToUTF8(std::basic_string_view<UChar> src)
 {
-	assert(!src.IsNull());
-
 	/* worst-case estimate */
-	size_t dest_capacity = 4 * src.size;
+	size_t dest_capacity = 4 * src.size();
 
-	std::unique_ptr<char[]> dest(new char[dest_capacity + 1]);
+	auto dest = std::make_unique<char[]>(dest_capacity + 1);
 
 	UErrorCode error_code = U_ZERO_ERROR;
 	int32_t dest_length;
 	u_strToUTF8(dest.get(), dest_capacity, &dest_length,
-		    src.data, src.size,
+		    src.data(), src.size(),
 		    &error_code);
 	if (U_FAILURE(error_code))
 		throw std::runtime_error(u_errorName(error_code));
 
 	dest[dest_length] = 0;
-	return AllocatedString<>::Donate(dest.release());
+	return AllocatedString::Donate(dest.release());
 }

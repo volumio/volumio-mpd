@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,11 +26,9 @@
 #ifndef MPD_DB_LOCK_HXX
 #define MPD_DB_LOCK_HXX
 
-#include "check.h"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
 
-#include <assert.h>
+#include <cassert>
 
 extern Mutex db_mutex;
 
@@ -43,9 +41,9 @@ extern ThreadId db_mutex_holder;
 /**
  * Does the current thread hold the database lock?
  */
-gcc_pure
+[[gnu::pure]]
 static inline bool
-holding_db_lock(void)
+holding_db_lock() noexcept
 {
 	return db_mutex_holder.IsInside();
 }

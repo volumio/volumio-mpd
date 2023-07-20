@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,9 +28,9 @@ public:
 	~ShutdownHandler();
 };
 
-#ifdef WIN32
-ShutdownHandler::ShutdownHandler(EventLoop &loop) {}
-ShutdownHandler::~ShutdownHandler() {}
+#ifdef _WIN32
+inline ShutdownHandler::ShutdownHandler(EventLoop &) {}
+inline ShutdownHandler::~ShutdownHandler() {}
 #endif
 
 #endif

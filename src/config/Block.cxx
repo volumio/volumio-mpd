@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Block.hxx"
-#include "ConfigParser.hxx"
-#include "ConfigPath.hxx"
-#include "system/FatalError.hxx"
+#include "Parser.hxx"
+#include "Path.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <assert.h>
 #include <stdlib.h>
+
+void
+BlockParam::ThrowWithNested() const
+{
+	std::throw_with_nested(FormatRuntimeError("Error in setting \"%s\" on line %i",
+						  name.c_str(), line));
+}
 
 int
 BlockParam::GetIntValue() const
 {
+	const char *const s = value.c_str();
 	char *endptr;
-	long value2 = strtol(value.c_str(), &endptr, 0);
-	if (*endptr != 0)
-		FormatFatalError("Not a valid number in line %i", line);
+	long value2 = strtol(s, &endptr, 0);
+	if (endptr == s || *endptr != 0)
+		throw FormatRuntimeError("Not a valid number in line %i", line);
 
 	return value2;
 }
@@ -42,33 +47,23 @@ BlockParam::GetIntValue() const
 unsigned
 BlockParam::GetUnsignedValue() const
 {
-	char *endptr;
-	unsigned long value2 = strtoul(value.c_str(), &endptr, 0);
-	if (*endptr != 0)
-		FormatFatalError("Not a valid number in line %i", line);
+	return With(ParseUnsigned);
+}
 
-	return (unsigned)value2;
+unsigned
+BlockParam::GetPositiveValue() const
+{
+	return With(ParsePositive);
 }
 
 bool
 BlockParam::GetBoolValue() const
 {
-	bool value2;
-	if (!get_bool(value.c_str(), &value2))
-		FormatFatalError("%s is not a boolean value (yes, true, 1) or "
-				 "(no, false, 0) on line %i\n",
-				 name.c_str(), line);
-
-	return value2;
-}
-
-ConfigBlock::~ConfigBlock()
-{
-	delete next;
+	return With(ParseBool);
 }
 
 const BlockParam *
-ConfigBlock::GetBlockParam(const char *name) const
+ConfigBlock::GetBlockParam(const char *name) const noexcept
 {
 	for (const auto &i : block_params) {
 		if (i.name == name) {
@@ -81,7 +76,8 @@ ConfigBlock::GetBlockParam(const char *name) const
 }
 
 const char *
-ConfigBlock::GetBlockValue(const char *name, const char *default_value) const
+ConfigBlock::GetBlockValue(const char *name,
+			   const char *default_value) const noexcept
 {
 	const BlockParam *bp = GetBlockParam(name);
 	if (bp == nullptr)
@@ -100,7 +96,7 @@ ConfigBlock::GetPath(const char *name, const char *default_value) const
 		s = bp->value.c_str();
 	} else {
 		if (default_value == nullptr)
-			return AllocatedPath::Null();
+			return nullptr;
 
 		s = default_value;
 	}
@@ -128,7 +124,16 @@ ConfigBlock::GetBlockValue(const char *name, unsigned default_value) const
 	return bp->GetUnsignedValue();
 }
 
-gcc_pure
+unsigned
+ConfigBlock::GetPositiveValue(const char *name, unsigned default_value) const
+{
+	const auto *param = GetBlockParam(name);
+	if (param == nullptr)
+		return default_value;
+
+	return param->GetPositiveValue();
+}
+
 bool
 ConfigBlock::GetBlockValue(const char *name, bool default_value) const
 {

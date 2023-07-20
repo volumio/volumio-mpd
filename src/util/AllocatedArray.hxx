@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2019 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +30,12 @@
 #ifndef ALLOCATED_ARRAY_HXX
 #define ALLOCATED_ARRAY_HXX
 
+#include "ConstBuffer.hxx"
 #include "WritableBuffer.hxx"
-#include "Compiler.h"
 
 #include <algorithm>
-
-#include <assert.h>
+#include <cassert>
+#include <utility>
 
 /**
  * An array allocated on the heap with a length determined at runtime.
@@ -45,11 +45,13 @@ class AllocatedArray {
 	typedef WritableBuffer<T> Buffer;
 
 public:
-	typedef typename Buffer::size_type size_type;
-	typedef typename Buffer::reference_type reference_type;
-	typedef typename Buffer::const_reference_type const_reference_type;
-	typedef typename Buffer::iterator iterator;
-	typedef typename Buffer::const_iterator const_iterator;
+	using size_type = typename Buffer::size_type;
+	using reference = typename Buffer::reference;
+	using const_reference = typename Buffer::const_reference;
+	using pointer = typename Buffer::pointer;
+	using const_pointer = typename Buffer::const_pointer;
+	using iterator = typename Buffer::iterator;
+	using const_iterator = typename Buffer::const_iterator;
 
 protected:
 	Buffer buffer{nullptr};
@@ -57,29 +59,40 @@ protected:
 public:
 	constexpr AllocatedArray() = default;
 
-	explicit AllocatedArray(size_type _size)
-		:buffer{new T[_size], _size} {
-		assert(size() == 0 || buffer.data != nullptr);
+	explicit AllocatedArray(size_type _size) noexcept
+		:buffer{new T[_size], _size} {}
+
+	explicit AllocatedArray(ConstBuffer<T> src) noexcept {
+		if (src == nullptr)
+			return;
+
+		buffer = {new T[src.size], src.size};
+		std::copy_n(src.data, src.size, buffer.data);
 	}
 
-	explicit AllocatedArray(const AllocatedArray &other)
-		:buffer{new T[other.buffer.size], other.buffer.size} {
-		assert(size() == 0 || buffer.data != nullptr);
-		assert(other.size() == 0 || other.buffer.data != nullptr);
+	AllocatedArray(std::nullptr_t n) noexcept
+		:buffer(n) {}
 
-		std::copy_n(other.buffer.data, buffer.size, buffer.data);
-	}
+	explicit AllocatedArray(const AllocatedArray &other) noexcept
+		:AllocatedArray(other.buffer) {}
 
-	AllocatedArray(AllocatedArray &&other)
-		:buffer(other.buffer) {
-		other.buffer = Buffer::Null();
-	}
+	AllocatedArray(AllocatedArray &&other) noexcept
+		:buffer(other.release()) {}
 
-	~AllocatedArray() {
+	~AllocatedArray() noexcept {
 		delete[] buffer.data;
 	}
 
-	AllocatedArray &operator=(const AllocatedArray &other) {
+	AllocatedArray &operator=(ConstBuffer<T> src) noexcept {
+		assert(size() == 0 || buffer.data != nullptr);
+		assert(src.size == 0 || src.data != nullptr);
+
+		ResizeDiscard(src.size);
+		std::copy_n(src.data, src.size, buffer.data);
+		return *this;
+	}
+
+	AllocatedArray &operator=(const AllocatedArray &other) noexcept {
 		assert(size() == 0 || buffer.data != nullptr);
 		assert(other.size() == 0 || other.buffer.data != nullptr);
 
@@ -91,91 +104,123 @@ public:
 		return *this;
 	}
 
-	AllocatedArray &operator=(AllocatedArray &&other) {
-		std::swap(buffer, other.buffer);
+	AllocatedArray &operator=(AllocatedArray &&other) noexcept {
+		using std::swap;
+		swap(buffer, other.buffer);
 		return *this;
 	}
 
-	constexpr bool IsNull() const {
+	AllocatedArray &operator=(std::nullptr_t n) noexcept {
+		delete[] buffer.data;
+		buffer = n;
+		return *this;
+	}
+
+	operator ConstBuffer<T>() const noexcept {
+		return buffer;
+	}
+
+	operator WritableBuffer<T>() noexcept {
+		return buffer;
+	}
+
+	constexpr bool IsNull() const noexcept {
 		return buffer.IsNull();
+	}
+
+	constexpr bool operator==(std::nullptr_t) const noexcept {
+		return buffer == nullptr;
+	}
+
+	constexpr bool operator!=(std::nullptr_t) const noexcept {
+		return buffer != nullptr;
 	}
 
 	/**
 	 * Returns true if no memory was allocated so far.
 	 */
-	constexpr bool empty() const {
-		return buffer.IsEmpty();
+	constexpr bool empty() const noexcept {
+		return buffer.empty();
 	}
 
 	/**
 	 * Returns the number of allocated elements.
 	 */
-	constexpr size_type size() const {
+	constexpr size_type size() const noexcept {
 		return buffer.size;
 	}
 
-	reference_type front() {
+	/**
+	 * Returns the number of allocated elements.
+	 */
+	constexpr size_type capacity() const noexcept {
+		return buffer.size;
+	}
+
+	pointer data() noexcept {
+		return buffer.data;
+	}
+
+	const_pointer data() const noexcept {
+		return buffer.data;
+	}
+
+	reference front() noexcept {
 		return buffer.front();
 	}
 
-	const_reference_type front() const {
+	const_reference front() const noexcept {
 		return buffer.front();
 	}
 
-	reference_type back() {
+	reference back() noexcept {
 		return buffer.back();
 	}
 
-	const_reference_type back() const {
+	const_reference back() const noexcept {
 		return buffer.back();
 	}
 
 	/**
 	 * Returns one element.  No bounds checking.
 	 */
-	reference_type operator[](size_type i) {
-		assert(i < size());
-
-		return buffer.data[i];
+	reference operator[](size_type i) noexcept {
+		return buffer[i];
 	}
 
 	/**
 	 * Returns one constant element.  No bounds checking.
 	 */
-	const_reference_type operator[](size_type i) const {
-		assert(i < size());
-
-		return buffer.data[i];
+	const_reference operator[](size_type i) const noexcept {
+		return buffer[i];
 	}
 
-	iterator begin() {
+	iterator begin() noexcept {
 		return buffer.begin();
 	}
 
-	constexpr const_iterator begin() const {
+	constexpr const_iterator begin() const noexcept {
 		return buffer.cbegin();
 	}
 
-	iterator end() {
+	iterator end() noexcept {
 		return buffer.end();
 	}
 
-	constexpr const_iterator end() const {
+	constexpr const_iterator end() const noexcept {
 		return buffer.cend();
 	}
 
 	/**
 	 * Resizes the array, discarding old data.
 	 */
-	void ResizeDiscard(size_type _size) {
+	void ResizeDiscard(size_type _size) noexcept {
 		if (_size == buffer.size)
 			return;
 
 		delete[] buffer.data;
 		buffer.size = _size;
 		buffer.data = new T[buffer.size];
-
-		assert(size() == 0 || buffer.data != nullptr);
 	}
 
 	/**
@@ -183,7 +228,7 @@ public:
 	 * Similar to ResizeDiscard(), but will never shrink the array to
 	 * avoid expensive heap operations.
 	 */
-	void GrowDiscard(size_type _size) {
+	void GrowDiscard(size_type _size) noexcept {
 		if (_size > buffer.size)
 			ResizeDiscard(_size);
 	}
@@ -192,12 +237,11 @@ public:
 	 * Grows the array to the specified size, preserving the value of a
 	 * range of elements, starting from the beginning.
 	 */
-	void GrowPreserve(size_type _size, size_type preserve) {
+	void GrowPreserve(size_type _size, size_type preserve) noexcept {
 		if (_size <= buffer.size)
 			return;
 
 		T *new_data = new T[_size];
-		assert(_size == 0 || new_data != nullptr);
 
 		std::move(buffer.data, buffer.data + preserve, new_data);
 
@@ -211,10 +255,17 @@ public:
 	 * larger than the current size.  Excess elements are not used (but
 	 * they are still allocated).
 	 */
-	void SetSize(size_type _size) {
+	void SetSize(size_type _size) noexcept {
 		assert(_size <= buffer.size);
 
 		buffer.size = _size;
+	}
+
+	/**
+	 * Give up ownership of the allocated buffer and return it.
+	 */
+	Buffer release() noexcept {
+		return std::exchange(buffer, nullptr);
 	}
 };
 

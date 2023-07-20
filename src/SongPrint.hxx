@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,22 +23,19 @@
 struct LightSong;
 class DetachedSong;
 class Response;
-struct Partition;
 
 void
-song_print_info(Response &r, Partition &partition,
-		const DetachedSong &song, bool base=false);
+song_print_info(Response &r, const DetachedSong &song,
+		bool base=false) noexcept;
 
 void
-song_print_info(Response &r, Partition &partition,
-		const LightSong &song, bool base=false);
+song_print_info(Response &r, const LightSong &song, bool base=false) noexcept;
 
 void
-song_print_uri(Response &r, Partition &partition,
-	       const LightSong &song, bool base=false);
+song_print_uri(Response &r, const LightSong &song, bool base=false) noexcept;
 
 void
-song_print_uri(Response &r, Partition &partition,
-	       const DetachedSong &song, bool base=false);
+song_print_uri(Response &r, const DetachedSong &song,
+	       bool base=false) noexcept;
 
 #endif

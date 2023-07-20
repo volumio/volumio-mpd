@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,12 @@
 #ifndef MPD_APE_REPLAY_GAIN_HXX
 #define MPD_APE_REPLAY_GAIN_HXX
 
-#include "check.h"
-
 class InputStream;
 struct ReplayGainInfo;
 
+/**
+ * Throws on I/O error.
+ */
 bool
 replay_gain_ape_read(InputStream &is, ReplayGainInfo &info);
 

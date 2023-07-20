@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,36 +20,39 @@
 #ifndef MPD_CROSSFADE_HXX
 #define MPD_CROSSFADE_HXX
 
-#include "Compiler.h"
+#include "Chrono.hxx"
 
 struct AudioFormat;
 class SignedSongTime;
 
 struct CrossFadeSettings {
 	/**
+	 * Songs shorter than this will never cross-fade.
+	 */
+	static constexpr SignedSongTime MIN_TOTAL_TIME{std::chrono::seconds{20}};
+
+	/**
 	 * The configured cross fade duration [s].
 	 */
-	float duration;
+	FloatDuration duration{0};
 
-	float mixramp_db;
+	float mixramp_db{0};
 
 	/**
 	 * The configured MixRapm delay [s].  A non-positive value
 	 * disables MixRamp.
 	 */
-	float mixramp_delay;
+	FloatDuration mixramp_delay{-1};
 
-	CrossFadeSettings()
-		:duration(0),
-		 mixramp_db(0),
-		 mixramp_delay(-1)
-	{}
-
+	constexpr bool IsEnabled() const noexcept {
+		return duration.count() > 0;
+	}
 
 	/**
 	 * Calculate how many music pipe chunks should be used for crossfading.
 	 *
-	 * @param total_time total_time the duration of the new song
+	 * @param current_total_time the duration of the current song
+	 * @param next_total_time the duration of the new song
 	 * @param replay_gain_db the ReplayGain adjustment used for this song
 	 * @param replay_gain_prev_db the ReplayGain adjustment used on the last song
 	 * @param mixramp_start the next songs mixramp_start tag
@@ -60,13 +63,21 @@ struct CrossFadeSettings {
 	 * @return the number of chunks for crossfading, or 0 if cross fading
 	 * should be disabled for this song change
 	 */
-	gcc_pure
-	unsigned Calculate(SignedSongTime total_time,
+	[[gnu::pure]]
+	unsigned Calculate(SignedSongTime current_total_time,
+			   SignedSongTime next_total_time,
 			   float replay_gain_db, float replay_gain_prev_db,
 			   const char *mixramp_start,
 			   const char *mixramp_prev_end,
 			   AudioFormat af, AudioFormat old_format,
-			   unsigned max_chunks) const;
+			   unsigned max_chunks) const noexcept;
+
+private:
+	/**
+	 * Can the described song be cross-faded?
+	 */
+	[[gnu::pure]]
+	bool CanCrossFadeSong(SignedSongTime total_time) const noexcept;
 };
 
 #endif

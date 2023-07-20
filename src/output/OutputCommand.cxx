@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,11 +24,9 @@
  *
  */
 
-#include "config.h"
 #include "OutputCommand.hxx"
 #include "MultipleOutputs.hxx"
-#include "Internal.hxx"
-#include "player/Control.hxx"
+#include "Client.hxx"
 #include "mixer/MixerControl.hxx"
 #include "mixer/Volume.hxx"
 #include "Idle.hxx"
@@ -41,19 +39,18 @@ audio_output_enable_index(MultipleOutputs &outputs, unsigned idx)
 	if (idx >= outputs.Size())
 		return false;
 
-	AudioOutput &ao = outputs.Get(idx);
-	if (ao.enabled)
+	auto &ao = outputs.Get(idx);
+	if (!ao.LockSetEnabled(true))
 		return true;
 
-	ao.enabled = true;
 	idle_add(IDLE_OUTPUT);
 
-	if (ao.mixer != nullptr) {
+	if (ao.GetMixer() != nullptr) {
 		InvalidateHardwareVolume();
 		idle_add(IDLE_MIXER);
 	}
 
-	ao.player_control->LockUpdateAudio();
+	ao.GetClient().ApplyEnabled();
 
 	++audio_output_state_version;
 
@@ -66,21 +63,20 @@ audio_output_disable_index(MultipleOutputs &outputs, unsigned idx)
 	if (idx >= outputs.Size())
 		return false;
 
-	AudioOutput &ao = outputs.Get(idx);
-	if (!ao.enabled)
+	auto &ao = outputs.Get(idx);
+	if (!ao.LockSetEnabled(false))
 		return true;
 
-	ao.enabled = false;
 	idle_add(IDLE_OUTPUT);
 
-	Mixer *mixer = ao.mixer;
+	auto *mixer = ao.GetMixer();
 	if (mixer != nullptr) {
 		mixer_close(mixer);
 		InvalidateHardwareVolume();
 		idle_add(IDLE_MIXER);
 	}
 
-	ao.player_control->LockUpdateAudio();
+	ao.GetClient().ApplyEnabled();
 
 	++audio_output_state_version;
 
@@ -93,12 +89,12 @@ audio_output_toggle_index(MultipleOutputs &outputs, unsigned idx)
 	if (idx >= outputs.Size())
 		return false;
 
-	AudioOutput &ao = outputs.Get(idx);
-	const bool enabled = ao.enabled = !ao.enabled;
+	auto &ao = outputs.Get(idx);
+	const bool enabled = ao.LockToggleEnabled();
 	idle_add(IDLE_OUTPUT);
 
 	if (!enabled) {
-		Mixer *mixer = ao.mixer;
+		auto *mixer = ao.GetMixer();
 		if (mixer != nullptr) {
 			mixer_close(mixer);
 			InvalidateHardwareVolume();
@@ -106,7 +102,7 @@ audio_output_toggle_index(MultipleOutputs &outputs, unsigned idx)
 		}
 	}
 
-	ao.player_control->LockUpdateAudio();
+	ao.GetClient().ApplyEnabled();
 
 	++audio_output_state_version;
 

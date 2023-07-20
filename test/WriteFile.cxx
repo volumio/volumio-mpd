@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "fs/io/FileOutputStream.hxx"
-#include "Log.hxx"
+#include "fs/NarrowPath.hxx"
+#include "util/PrintException.hxx"
+
+#include <cerrno>
 
 #include <unistd.h>
-#include <errno.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -49,25 +50,23 @@ Copy(OutputStream &dest, int src)
 
 int
 main(int argc, char **argv)
-{
+try {
 	if (argc != 2) {
 		fprintf(stderr, "Usage: WriteFile PATH\n");
 		return EXIT_FAILURE;
 	}
 
-	const Path path = Path::FromFS(argv[1]);
+	const FromNarrowPath path = argv[1];
 
-	try {
-		FileOutputStream fos(path);
+	FileOutputStream fos(path);
 
-		if (!Copy(fos, STDIN_FILENO))
-			return EXIT_FAILURE;
-
-		fos.Commit();
-
-		return EXIT_SUCCESS;
-	} catch (const std::exception &e) {
-		LogError(e);
+	if (!Copy(fos, STDIN_FILENO))
 		return EXIT_FAILURE;
-	}
+
+	fos.Commit();
+
+	return EXIT_SUCCESS;
+} catch (...) {
+	PrintException(std::current_exception());
+	return EXIT_FAILURE;
 }

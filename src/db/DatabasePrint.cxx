@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,25 +17,28 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabasePrint.hxx"
 #include "Selection.hxx"
-#include "SongFilter.hxx"
 #include "SongPrint.hxx"
 #include "TimePrint.hxx"
 #include "client/Response.hxx"
 #include "Partition.hxx"
+#include "song/LightSong.hxx"
 #include "tag/Tag.hxx"
-#include "LightSong.hxx"
 #include "LightDirectory.hxx"
 #include "PlaylistInfo.hxx"
 #include "Interface.hxx"
 #include "fs/Traits.hxx"
+#include "time/ChronoUtil.hxx"
+#include "util/RecursiveMap.hxx"
+
+#include <fmt/format.h>
 
 #include <functional>
 
+gcc_pure
 static const char *
-ApplyBaseFlag(const char *uri, bool base)
+ApplyBaseFlag(const char *uri, bool base) noexcept
 {
 	if (base)
 		uri = PathTraitsUTF8::GetBase(uri);
@@ -43,143 +46,99 @@ ApplyBaseFlag(const char *uri, bool base)
 }
 
 static void
-PrintDirectoryURI(Response &r, bool base, const LightDirectory &directory)
+PrintDirectoryURI(Response &r, bool base,
+		  const LightDirectory &directory) noexcept
 {
-	r.Format("directory: %s\n",
-		 ApplyBaseFlag(directory.GetPath(), base));
+	r.Fmt(FMT_STRING("directory: {}\n"),
+	      ApplyBaseFlag(directory.GetPath(), base));
 }
 
-static bool
-PrintDirectoryBrief(Response &r, bool base, const LightDirectory &directory)
+static void
+PrintDirectoryBrief(Response &r, bool base,
+		    const LightDirectory &directory) noexcept
 {
 	if (!directory.IsRoot())
 		PrintDirectoryURI(r, base, directory);
-
-	return true;
 }
 
-static bool
-PrintDirectoryFull(Response &r, bool base, const LightDirectory &directory)
+static void
+PrintDirectoryFull(Response &r, bool base,
+		   const LightDirectory &directory) noexcept
 {
 	if (!directory.IsRoot()) {
 		PrintDirectoryURI(r, base, directory);
 
-		if (directory.mtime > 0)
+		if (!IsNegative(directory.mtime))
 			time_print(r, "Last-Modified", directory.mtime);
 	}
-
-	return true;
 }
 
 static void
 print_playlist_in_directory(Response &r, bool base,
 			    const char *directory,
-			    const char *name_utf8)
+			    const char *name_utf8) noexcept
 {
 	if (base || directory == nullptr)
-		r.Format("playlist: %s\n",
-			 ApplyBaseFlag(name_utf8, base));
+		r.Fmt(FMT_STRING("playlist: {}\n"),
+		      ApplyBaseFlag(name_utf8, base));
 	else
-		r.Format("playlist: %s/%s\n",
-			 directory, name_utf8);
+		r.Fmt(FMT_STRING("playlist: {}/{}\n"),
+		      directory, name_utf8);
 }
 
 static void
 print_playlist_in_directory(Response &r, bool base,
 			    const LightDirectory *directory,
-			    const char *name_utf8)
+			    const char *name_utf8) noexcept
 {
 	if (base || directory == nullptr || directory->IsRoot())
-		r.Format("playlist: %s\n", name_utf8);
+		r.Fmt(FMT_STRING("playlist: {}\n"), name_utf8);
 	else
-		r.Format("playlist: %s/%s\n",
-			 directory->GetPath(), name_utf8);
+		r.Fmt(FMT_STRING("playlist: {}/{}\n"),
+		      directory->GetPath(), name_utf8);
 }
 
-static bool
-PrintSongBrief(Response &r, Partition &partition,
-	       bool base, const LightSong &song)
+static void
+PrintSongBrief(Response &r, bool base, const LightSong &song) noexcept
 {
-	song_print_uri(r, partition, song, base);
+	song_print_uri(r, song, base);
 
-	if (song.tag->has_playlist)
+	if (song.tag.has_playlist)
 		/* this song file has an embedded CUE sheet */
 		print_playlist_in_directory(r, base,
 					    song.directory, song.uri);
-
-	return true;
 }
 
-static bool
-PrintSongFull(Response &r, Partition &partition,
-	      bool base, const LightSong &song)
+static void
+PrintSongFull(Response &r, bool base, const LightSong &song) noexcept
 {
-	song_print_info(r, partition, song, base);
+	song_print_info(r, song, base);
 
-	if (song.tag->has_playlist)
+	if (song.tag.has_playlist)
 		/* this song file has an embedded CUE sheet */
 		print_playlist_in_directory(r, base,
 					    song.directory, song.uri);
-
-	return true;
 }
 
-static bool
+static void
 PrintPlaylistBrief(Response &r, bool base,
 		   const PlaylistInfo &playlist,
-		   const LightDirectory &directory)
+		   const LightDirectory &directory) noexcept
 {
 	print_playlist_in_directory(r, base,
 				    &directory, playlist.name.c_str());
-	return true;
 }
 
-static bool
+static void
 PrintPlaylistFull(Response &r, bool base,
 		  const PlaylistInfo &playlist,
-		  const LightDirectory &directory)
+		  const LightDirectory &directory) noexcept
 {
 	print_playlist_in_directory(r, base,
 				    &directory, playlist.name.c_str());
 
-	if (playlist.mtime > 0)
+	if (!IsNegative(playlist.mtime))
 		time_print(r, "Last-Modified", playlist.mtime);
-
-	return true;
-}
-
-void
-db_selection_print(Response &r, Partition &partition,
-		   const DatabaseSelection &selection,
-		   bool full, bool base,
-		   unsigned window_start, unsigned window_end)
-{
-	const Database &db = partition.GetDatabaseOrThrow();
-
-	unsigned i = 0;
-
-	using namespace std::placeholders;
-	const auto d = selection.filter == nullptr
-		? std::bind(full ? PrintDirectoryFull : PrintDirectoryBrief,
-			    std::ref(r), base, _1)
-		: VisitDirectory();
-	VisitSong s = std::bind(full ? PrintSongFull : PrintSongBrief,
-				std::ref(r), std::ref(partition), base, _1);
-	const auto p = selection.filter == nullptr
-		? std::bind(full ? PrintPlaylistFull : PrintPlaylistBrief,
-			    std::ref(r), base, _1, _2)
-		: VisitPlaylist();
-
-	if (window_start > 0 ||
-	    window_end < (unsigned)std::numeric_limits<int>::max())
-		s = [s, window_start, window_end, &i](const LightSong &song){
-			const bool in_window = i >= window_start && i < window_end;
-			++i;
-			if (in_window)
-				s(song);
-		};
-
-	db.Visit(selection, d, s, p);
 }
 
 void
@@ -187,55 +146,74 @@ db_selection_print(Response &r, Partition &partition,
 		   const DatabaseSelection &selection,
 		   bool full, bool base)
 {
-	db_selection_print(r, partition, selection, full, base,
-			   0, std::numeric_limits<int>::max());
+	const Database &db = partition.GetDatabaseOrThrow();
+
+	const auto d = selection.filter == nullptr
+		? [&,base](const auto &dir)
+			{ return full ?
+				PrintDirectoryFull(r, base, dir) :
+				PrintDirectoryBrief(r, base, dir); }
+		: VisitDirectory();
+
+	VisitSong s = [&,base](const auto &song)
+		{ return full ?
+			PrintSongFull(r, base, song) :
+			PrintSongBrief(r, base, song); };
+
+	const auto p = selection.filter == nullptr
+		? [&,base](const auto &playlist, const auto &dir)
+			{ return full ?
+				PrintPlaylistFull(r, base, playlist, dir) :
+				PrintPlaylistBrief(r, base, playlist, dir); }
+		: VisitPlaylist();
+
+	db.Visit(selection, d, s, p);
 }
 
-static bool
-PrintSongURIVisitor(Response &r, Partition &partition, const LightSong &song)
+static void
+PrintSongURIVisitor(Response &r, const LightSong &song) noexcept
 {
-	song_print_uri(r, partition, song);
-
-	return true;
+	song_print_uri(r, song);
 }
 
-static bool
-PrintUniqueTag(Response &r, TagType tag_type,
-	       const Tag &tag)
+void
+PrintSongUris(Response &r, Partition &partition,
+	      const SongFilter *filter)
 {
-	const char *value = tag.GetValue(tag_type);
-	assert(value != nullptr);
-	r.Format("%s: %s\n", tag_item_names[tag_type], value);
+	const Database &db = partition.GetDatabaseOrThrow();
 
-	for (const auto &item : tag)
-		if (item.type != tag_type)
-			r.Format("%s: %s\n",
-				 tag_item_names[item.type], item.value);
+	const DatabaseSelection selection("", true, filter);
 
-	return true;
+	const auto f = [&](const auto &song)
+		{ return PrintSongURIVisitor(r, song); };
+
+	db.Visit(selection, f);
+}
+
+static void
+PrintUniqueTags(Response &r, ConstBuffer<TagType> tag_types,
+		const RecursiveMap<std::string> &map) noexcept
+{
+	const char *const name = tag_item_names[tag_types.front()];
+	tag_types.pop_front();
+
+	for (const auto &[key, tag] : map) {
+		r.Fmt(FMT_STRING("{}: {}\n"), name, key);
+
+		if (!tag_types.empty())
+			PrintUniqueTags(r, tag_types, tag);
+	}
 }
 
 void
 PrintUniqueTags(Response &r, Partition &partition,
-		unsigned type, tag_mask_t group_mask,
+		ConstBuffer<TagType> tag_types,
 		const SongFilter *filter)
 {
 	const Database &db = partition.GetDatabaseOrThrow();
 
 	const DatabaseSelection selection("", true, filter);
 
-	if (type == LOCATE_TAG_FILE_TYPE) {
-		using namespace std::placeholders;
-		const auto f = std::bind(PrintSongURIVisitor,
-					 std::ref(r), std::ref(partition), _1);
-		db.Visit(selection, f);
-	} else {
-		assert(type < TAG_NUM_OF_ITEM_TYPES);
-
-		using namespace std::placeholders;
-		const auto f = std::bind(PrintUniqueTag, std::ref(r),
-					 (TagType)type, _1);
-		db.VisitUniqueTags(selection, (TagType)type,
-				   group_mask, f);
-	}
+	PrintUniqueTags(r, tag_types,
+			db.CollectUniqueTags(selection, tag_types));
 }

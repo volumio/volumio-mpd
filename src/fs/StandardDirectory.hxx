@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -16,55 +16,80 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
- 
+
 #ifndef MPD_FS_STANDARD_DIRECTORY_HXX
 #define MPD_FS_STANDARD_DIRECTORY_HXX
 
-#include "check.h"
 #include "AllocatedPath.hxx"
 
 /**
  * Obtains configuration directory for the current user.
  */
-AllocatedPath GetUserConfigDir();
+[[gnu::const]]
+AllocatedPath
+GetUserConfigDir() noexcept;
 
 /**
  * Obtains music directory for the current user.
  */
-AllocatedPath GetUserMusicDir();
+[[gnu::const]]
+AllocatedPath
+GetUserMusicDir() noexcept;
 
 /**
  * Obtains cache directory for the current user.
  */
-gcc_pure
+[[gnu::const]]
 AllocatedPath
-GetUserCacheDir();
+GetUserCacheDir() noexcept;
 
-#ifdef WIN32
+/**
+ * Obtains the runtime directory for the current user.
+ */
+[[gnu::const]]
+AllocatedPath
+GetUserRuntimeDir() noexcept;
+
+/**
+ * Obtains the runtime directory for this application.
+ */
+[[gnu::const]]
+AllocatedPath
+GetAppRuntimeDir() noexcept;
+
+#ifdef _WIN32
 
 /**
  * Obtains system configuration directory.
  */
-AllocatedPath GetSystemConfigDir();
+[[gnu::const]]
+AllocatedPath
+GetSystemConfigDir() noexcept;
 
 /**
  * Obtains application application base directory.
  * Application base directory is a directory that contains 'bin' folder
  * for current executable.
  */
-AllocatedPath GetAppBaseDir();
+[[gnu::const]]
+AllocatedPath
+GetAppBaseDir() noexcept;
 
 #else
 
 /**
  * Obtains home directory for the current user.
  */
-AllocatedPath GetHomeDir();
+[[gnu::const]]
+AllocatedPath
+GetHomeDir() noexcept;
 
 /**
  * Obtains home directory for the specified user.
  */
-AllocatedPath GetHomeDir(const char *user_name);
+[[gnu::pure]]
+AllocatedPath
+GetHomeDir(const char *user_name) noexcept;
 
 #endif
 

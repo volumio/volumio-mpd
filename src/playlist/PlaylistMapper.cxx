@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,22 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlaylistMapper.hxx"
 #include "PlaylistFile.hxx"
 #include "PlaylistStream.hxx"
+#include "SongEnumerator.hxx"
 #include "Mapper.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "storage/StorageInterface.hxx"
 #include "util/UriUtil.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 /**
  * Load a playlist from the configured playlist directory.
  */
-static SongEnumerator *
-playlist_open_in_playlist_dir(const char *uri, Mutex &mutex, Cond &cond)
+static std::unique_ptr<SongEnumerator>
+playlist_open_in_playlist_dir(const char *uri, Mutex &mutex)
 {
 	assert(spl_valid_name(uri));
 
@@ -40,7 +40,7 @@ playlist_open_in_playlist_dir(const char *uri, Mutex &mutex, Cond &cond)
 	if (path_fs.IsNull())
 		return nullptr;
 
-	return playlist_open_path(path_fs, mutex, cond);
+	return playlist_open_path(path_fs, mutex);
 }
 
 #ifdef ENABLE_DATABASE
@@ -48,9 +48,8 @@ playlist_open_in_playlist_dir(const char *uri, Mutex &mutex, Cond &cond)
 /**
  * Load a playlist from the configured music directory.
  */
-static SongEnumerator *
-playlist_open_in_storage(const char *uri, const Storage *storage,
-			 Mutex &mutex, Cond &cond)
+static std::unique_ptr<SongEnumerator>
+playlist_open_in_storage(const char *uri, const Storage *storage, Mutex &mutex)
 {
 	assert(uri_safe_local(uri));
 
@@ -60,33 +59,31 @@ playlist_open_in_storage(const char *uri, const Storage *storage,
 	{
 		const auto path = storage->MapFS(uri);
 		if (!path.IsNull())
-			return playlist_open_path(path, mutex, cond);
+			return playlist_open_path(path, mutex);
 	}
 
 	const auto uri2 = storage->MapUTF8(uri);
-	return playlist_open_remote(uri2.c_str(), mutex, cond);
+	return playlist_open_remote(uri2.c_str(), mutex);
 }
 
 #endif
 
-SongEnumerator *
+std::unique_ptr<SongEnumerator>
 playlist_mapper_open(const char *uri,
 #ifdef ENABLE_DATABASE
 		     const Storage *storage,
 #endif
-		     Mutex &mutex, Cond &cond)
+		     Mutex &mutex)
 {
 	if (spl_valid_name(uri)) {
-		auto playlist = playlist_open_in_playlist_dir(uri,
-							      mutex, cond);
+		auto playlist = playlist_open_in_playlist_dir(uri, mutex);
 		if (playlist != nullptr)
 			return playlist;
 	}
 
 #ifdef ENABLE_DATABASE
 	if (uri_safe_local(uri)) {
-		auto playlist = playlist_open_in_storage(uri, storage,
-							 mutex, cond);
+		auto playlist = playlist_open_in_storage(uri, storage, mutex);
 		if (playlist != nullptr)
 			return playlist;
 	}

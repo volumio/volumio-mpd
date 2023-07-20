@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 #ifndef MPD_TAG_ID3_LOAD_HXX
 #define MPD_TAG_ID3_LOAD_HXX
 
-#include "check.h"
 #include "Id3Unique.hxx"
 
 class InputStream;
@@ -28,8 +27,7 @@ class InputStream;
 /**
  * Loads the ID3 tags from the #InputStream into a libid3tag object.
  *
- * @return nullptr on error or if no ID3 tag was found in the file (no
- * Error will be set)
+ * @return nullptr on error or if no ID3 tag was found in the file
  */
 UniqueId3Tag
 tag_id3_load(InputStream &is);

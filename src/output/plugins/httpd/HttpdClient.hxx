@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,19 +20,19 @@
 #ifndef MPD_OUTPUT_HTTPD_CLIENT_HXX
 #define MPD_OUTPUT_HTTPD_CLIENT_HXX
 
+#include "Page.hxx"
 #include "event/BufferedSocket.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
 #include <boost/intrusive/link_mode.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
-#include <queue>
+#include <cstddef>
 #include <list>
+#include <queue>
 
-#include <stddef.h>
-
+class UniqueSocketDescriptor;
 class HttpdOutput;
-class Page;
 
 class HttpdClient final
 	: BufferedSocket,
@@ -45,7 +45,7 @@ class HttpdClient final
 	/**
 	 * The current state of the client.
 	 */
-	enum {
+	enum class State {
 		/** reading the request line */
 		REQUEST,
 
@@ -54,22 +54,22 @@ class HttpdClient final
 
 		/** sending the HTTP response */
 		RESPONSE,
-	} state;
+	} state = State::REQUEST;
 
 	/**
 	 * A queue of #Page objects to be sent to the client.
 	 */
-	std::queue<Page *, std::list<Page *>> pages;
+	std::queue<PagePtr, std::list<PagePtr>> pages;
 
 	/**
 	 * The sum of all page sizes in #pages.
 	 */
-	size_t queue_size;
+	size_t queue_size = 0;
 
 	/**
 	 * The #page which is currently being sent to the client.
 	 */
-	Page *current_page;
+	PagePtr current_page;
 
 	/**
 	 * The amount of bytes which were already sent from
@@ -80,12 +80,12 @@ class HttpdClient final
 	/**
 	 * Is this a HEAD request?
 	 */
-	bool head_method;
+	bool head_method = false;
 
 	/**
-         * If DLNA streaming was an option.
-         */
-	bool dlna_streaming_requested;
+	 * Should we reject this request?
+	 */
+	bool should_reject = false;
 
 	/* ICY */
 
@@ -98,101 +98,110 @@ class HttpdClient final
 	/**
 	 * If we should sent icy metadata.
 	 */
-	bool metadata_requested;
+	bool metadata_requested = false;
 
 	/**
 	 * If the current metadata was already sent to the client.
+	 *
+	 * Initialized to `true` because there is no metadata #Page
+	 * pending to be sent.
 	 */
-	bool metadata_sent;
+	bool metadata_sent = true;
 
 	/**
 	 * The amount of streaming data between each metadata block
 	 */
-	unsigned metaint;
+	unsigned metaint = 8192; /*TODO: just a std value */
 
 	/**
 	 * The metadata as #Page which is currently being sent to the client.
 	 */
-	Page *metadata;
+	PagePtr metadata;
 
 	/*
 	 * The amount of bytes which were already sent from the metadata.
 	 */
-	size_t metadata_current_position;
+	size_t metadata_current_position = 0;
 
 	/**
 	 * The amount of streaming data sent to the client
 	 * since the last icy information was sent.
 	 */
-	unsigned metadata_fill;
+	unsigned metadata_fill = 0;
 
 public:
 	/**
 	 * @param httpd the HTTP output device
 	 * @param _fd the socket file descriptor
 	 */
-	HttpdClient(HttpdOutput &httpd, int _fd, EventLoop &_loop,
+	HttpdClient(HttpdOutput &httpd, UniqueSocketDescriptor _fd,
+		    EventLoop &_loop,
 		    bool _metadata_supported);
 
 	/**
 	 * Note: this does not remove the client from the
 	 * #HttpdOutput object.
 	 */
-	~HttpdClient();
+	~HttpdClient() noexcept;
 
 	/**
 	 * Frees the client and removes it from the server's client list.
+	 *
+	 * Caller must lock the mutex.
 	 */
-	void Close();
+	void Close() noexcept;
 
-	void LockClose();
+	void LockClose() noexcept;
 
 	/**
 	 * Clears the page queue.
 	 */
-	void CancelQueue();
+	void CancelQueue() noexcept;
 
 	/**
 	 * Handle a line of the HTTP request.
 	 */
-	bool HandleLine(const char *line);
+	bool HandleLine(const char *line) noexcept;
 
 	/**
-	 * Switch the client to the "RESPONSE" state.
+	 * Switch the client to #State::RESPONSE.
 	 */
-	void BeginResponse();
+	void BeginResponse() noexcept;
 
 	/**
 	 * Sends the status line and response headers to the client.
 	 */
-	bool SendResponse();
+	bool SendResponse() noexcept;
 
 	gcc_pure
-	ssize_t GetBytesTillMetaData() const;
+	ssize_t GetBytesTillMetaData() const noexcept;
 
-	ssize_t TryWritePage(const Page &page, size_t position);
-	ssize_t TryWritePageN(const Page &page, size_t position, ssize_t n);
+	ssize_t TryWritePage(const Page &page, size_t position) noexcept;
+	ssize_t TryWritePageN(const Page &page,
+			      size_t position, ssize_t n) noexcept;
 
-	bool TryWrite();
+	bool TryWrite() noexcept;
 
 	/**
 	 * Appends a page to the client's queue.
 	 */
-	void PushPage(Page *page);
+	void PushPage(PagePtr page) noexcept;
 
 	/**
 	 * Sends the passed metadata.
 	 */
-	void PushMetaData(Page *page);
+	void PushMetaData(PagePtr page) noexcept;
 
 private:
-	void ClearQueue();
+	void ClearQueue() noexcept;
 
 protected:
-	virtual bool OnSocketReady(unsigned flags) override;
-	virtual InputResult OnSocketInput(void *data, size_t length) override;
-	void OnSocketError(std::exception_ptr ep) override;
-	virtual void OnSocketClosed() override;
+	/* virtual methods from class BufferedSocket */
+	void OnSocketReady(unsigned flags) noexcept override;
+
+	InputResult OnSocketInput(void *data, size_t length) noexcept override;
+	void OnSocketError(std::exception_ptr ep) noexcept override;
+	void OnSocketClosed() noexcept override;
 };
 
 #endif

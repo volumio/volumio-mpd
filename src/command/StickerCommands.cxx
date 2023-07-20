@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,39 +17,42 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "StickerCommands.hxx"
 #include "Request.hxx"
 #include "SongPrint.hxx"
 #include "db/Interface.hxx"
+#include "sticker/Sticker.hxx"
 #include "sticker/SongSticker.hxx"
-#include "sticker/StickerPrint.hxx"
-#include "sticker/StickerDatabase.hxx"
+#include "sticker/Print.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "Partition.hxx"
+#include "Instance.hxx"
 #include "util/StringAPI.hxx"
 #include "util/ScopeExit.hxx"
 
+namespace {
 struct sticker_song_find_data {
 	Response &r;
-	Partition &partition;
 	const char *name;
 };
+} // namespace
 
 static void
 sticker_song_find_print_cb(const LightSong &song, const char *value,
 			   void *user_data)
 {
-	struct sticker_song_find_data *data =
+	auto *data =
 		(struct sticker_song_find_data *)user_data;
 
-	song_print_uri(data->r, data->partition, song);
+	song_print_uri(data->r, song);
 	sticker_print_value(data->r, data->name, value);
 }
 
 static CommandResult
-handle_sticker_song(Response &r, Partition &partition, Request args)
+handle_sticker_song(Response &r, Partition &partition,
+		    StickerDatabase &sticker_database,
+		    Request args)
 {
 	const Database &db = partition.GetDatabaseOrThrow();
 
@@ -61,7 +64,8 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 		assert(song != nullptr);
 		AtScopeExit(&db, song) { db.ReturnSong(song); };
 
-		const auto value = sticker_song_get_value(*song, args[3]);
+		const auto value = sticker_song_get_value(sticker_database,
+							  *song, args[3]);
 		if (value.empty()) {
 			r.Error(ACK_ERROR_NO_EXIST, "no such sticker");
 			return CommandResult::ERROR;
@@ -76,11 +80,8 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 		assert(song != nullptr);
 		AtScopeExit(&db, song) { db.ReturnSong(song); };
 
-		Sticker *sticker = sticker_song_get(*song);
-		if (sticker) {
-			sticker_print(r, *sticker);
-			sticker_free(sticker);
-		}
+		const auto sticker = sticker_song_get(sticker_database, *song);
+		sticker_print(r, sticker);
 
 		return CommandResult::OK;
 	/* set song song_id id key */
@@ -89,7 +90,8 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 		assert(song != nullptr);
 		AtScopeExit(&db, song) { db.ReturnSong(song); };
 
-		sticker_song_set_value(*song, args[3], args[4]);
+		sticker_song_set_value(sticker_database, *song,
+				       args[3], args[4]);
 		return CommandResult::OK;
 	/* delete song song_id [key] */
 	} else if ((args.size == 3 || args.size == 4) &&
@@ -99,10 +101,11 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 		AtScopeExit(&db, song) { db.ReturnSong(song); };
 
 		bool ret = args.size == 3
-			? sticker_song_delete(*song)
-			: sticker_song_delete_value(*song, args[3]);
+			? sticker_song_delete(sticker_database, *song)
+			: sticker_song_delete_value(sticker_database, *song,
+						    args[3]);
 		if (!ret) {
-			r.Error(ACK_ERROR_SYSTEM, "no such sticker");
+			r.Error(ACK_ERROR_NO_EXIST, "no such sticker");
 			return CommandResult::ERROR;
 		}
 
@@ -137,11 +140,10 @@ handle_sticker_song(Response &r, Partition &partition, Request args)
 
 		struct sticker_song_find_data data = {
 			r,
-			partition,
 			args[3],
 		};
 
-		sticker_song_find(db, base_uri, data.name,
+		sticker_song_find(sticker_database, db, base_uri, data.name,
 				  op, value,
 				  sticker_song_find_print_cb, &data);
 
@@ -157,13 +159,18 @@ handle_sticker(Client &client, Request args, Response &r)
 {
 	assert(args.size >= 3);
 
-	if (!sticker_enabled()) {
+	auto &instance = client.GetInstance();
+	if (!instance.HasStickerDatabase()) {
 		r.Error(ACK_ERROR_UNKNOWN, "sticker database is disabled");
 		return CommandResult::ERROR;
 	}
 
+	auto &sticker_database = *instance.sticker_database;
+
 	if (StringIsEqual(args[1], "song"))
-		return handle_sticker_song(r, client.partition, args);
+		return handle_sticker_song(r, client.GetPartition(),
+					   sticker_database,
+					   args);
 	else {
 		r.Error(ACK_ERROR_ARG, "unknown sticker domain");
 		return CommandResult::ERROR;

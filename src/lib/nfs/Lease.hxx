@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_NFS_LEASE_HXX
 #define MPD_NFS_LEASE_HXX
 
-#include "check.h"
-
 #include <exception>
 
 class NfsLease {
@@ -30,19 +28,19 @@ public:
 	 * The #NfsConnection has successfully mounted the server's
 	 * export and is ready for regular operation.
 	 */
-	virtual void OnNfsConnectionReady() = 0;
+	virtual void OnNfsConnectionReady() noexcept = 0;
 
 	/**
 	 * The #NfsConnection has failed to mount the server's export.
 	 * This is being called instead of OnNfsConnectionReady().
 	 */
-	virtual void OnNfsConnectionFailed(std::exception_ptr e) = 0;
+	virtual void OnNfsConnectionFailed(std::exception_ptr e) noexcept = 0;
 
 	/**
 	 * The #NfsConnection has failed after OnNfsConnectionReady()
 	 * had been called already.
 	 */
-	virtual void OnNfsConnectionDisconnected(std::exception_ptr e) = 0;
+	virtual void OnNfsConnectionDisconnected(std::exception_ptr e) noexcept = 0;
 };
 
 #endif

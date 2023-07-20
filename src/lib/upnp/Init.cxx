@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,49 +17,57 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Init.hxx"
+#include "Compat.hxx"
 #include "thread/Mutex.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <upnp/upnp.h>
-#include <upnp/upnptools.h>
-#include <upnp/ixml.h>
+#include <upnptools.h>
+#ifdef USING_PUPNP
+#	include <ixml.h>
+#endif
 
-#include <assert.h>
+#include <cassert>
 
 static Mutex upnp_init_mutex;
 static unsigned upnp_ref;
 
 static void
-DoInit()
+DoInit(const char* iface)
 {
-	auto code = UpnpInit(0, 0);
+
+#ifdef UPNP_ENABLE_IPV6
+	auto code = UpnpInit2(iface, 0);
+#else
+	auto code = UpnpInit(iface, 0);
+#endif
 	if (code != UPNP_E_SUCCESS)
 		throw FormatRuntimeError("UpnpInit() failed: %s",
 					 UpnpGetErrorMessage(code));
 
 	UpnpSetMaxContentLength(2000*1024);
 
+#ifdef USING_PUPNP
 	// Servers sometimes make error (e.g.: minidlna returns bad utf-8)
 	ixmlRelaxParser(1);
+#endif
 }
 
 void
-UpnpGlobalInit()
+UpnpGlobalInit(const char* iface)
 {
-	const ScopeLock protect(upnp_init_mutex);
+	const std::scoped_lock<Mutex> protect(upnp_init_mutex);
 
 	if (upnp_ref == 0)
-		DoInit();
+		DoInit(iface);
 
 	++upnp_ref;
 }
 
 void
-UpnpGlobalFinish()
+UpnpGlobalFinish() noexcept
 {
-	const ScopeLock protect(upnp_init_mutex);
+	const std::scoped_lock<Mutex> protect(upnp_init_mutex);
 
 	assert(upnp_ref > 0);
 

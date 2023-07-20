@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TextInputStream.hxx"
 #include "InputStream.hxx"
 #include "util/TextFile.hxx"
-#include "Log.hxx"
 
-#include <stdexcept>
+#include <cassert>
 
-#include <assert.h>
-
-TextInputStream::TextInputStream(InputStreamPtr &&_is)
+TextInputStream::TextInputStream(InputStreamPtr &&_is) noexcept
 	:is(std::move(_is)) {}
 
-TextInputStream::~TextInputStream() {}
+TextInputStream::~TextInputStream() noexcept = default;
 
 char *
 TextInputStream::ReadLine()
@@ -47,7 +43,7 @@ TextInputStream::ReadLine()
 			/* line too long: terminate the current
 			   line */
 
-			assert(!dest.IsEmpty());
+			assert(!dest.empty());
 			dest[0] = 0;
 			line = buffer.Read().data;
 			buffer.Clear();
@@ -59,14 +55,7 @@ TextInputStream::ReadLine()
 		   character */
 		--dest.size;
 
-		size_t nbytes;
-
-		try {
-			nbytes = is->LockRead(dest.data, dest.size);
-		} catch (const std::runtime_error &e) {
-			LogError(e);
-			return nullptr;
-		}
+		size_t nbytes = is->LockRead(dest.data, dest.size);
 
 		buffer.Append(nbytes);
 
@@ -79,12 +68,12 @@ TextInputStream::ReadLine()
 			   line */
 
 			dest = buffer.Write();
-			assert(!dest.IsEmpty());
+			assert(!dest.empty());
 			dest[0] = 0;
 
 			auto r = buffer.Read();
 			buffer.Clear();
-			return r.IsEmpty()
+			return r.empty()
 				? nullptr
 				: r.data;
 		}

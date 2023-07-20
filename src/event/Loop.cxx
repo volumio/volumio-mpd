@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,280 +17,415 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Loop.hxx"
+#include "DeferEvent.hxx"
+#include "SocketEvent.hxx"
+#include "IdleEvent.hxx"
+#include "util/ScopeExit.hxx"
 
-#include "system/Clock.hxx"
-#include "TimeoutMonitor.hxx"
-#include "SocketMonitor.hxx"
-#include "IdleMonitor.hxx"
-#include "DeferredMonitor.hxx"
-
-#include <algorithm>
-
-EventLoop::EventLoop()
-	:SocketMonitor(*this),
-	 now_ms(::MonotonicClockMS()),
-	 quit(false), busy(true),
-#ifndef NDEBUG
-	 virgin(true),
+#ifdef HAVE_THREADED_EVENT_LOOP
+#include "InjectEvent.hxx"
 #endif
-	 thread(ThreadId::Null())
+
+#ifdef HAVE_URING
+#include "UringManager.hxx"
+#include "util/PrintException.hxx"
+#include <stdio.h>
+#endif
+
+EventLoop::EventLoop(
+#ifdef HAVE_THREADED_EVENT_LOOP
+		     ThreadId _thread
+#endif
+		     )
+#ifdef HAVE_THREADED_EVENT_LOOP
+	:thread(_thread),
+	 /* if this instance is hosted by an EventThread (no ThreadId
+	    known yet) then we're not yet alive until the thread is
+	    started; for the main EventLoop instance, we assume it's
+	    already alive, because nobody but EventThread will call
+	    SetAlive() */
+	 alive(!_thread.IsNull())
+#endif
 {
-	SocketMonitor::Open(wake_fd.Get());
-	SocketMonitor::Schedule(SocketMonitor::READ);
 }
 
-EventLoop::~EventLoop()
+EventLoop::~EventLoop() noexcept
 {
+#if defined(HAVE_URING) && !defined(NDEBUG)
+	/* if Run() was never called (maybe because startup failed and
+	   an exception is pending), we need to destruct the
+	   Uring::Manager here or else the assertions below fail */
+	uring.reset();
+#endif
+
+	assert(defer.empty());
 	assert(idle.empty());
-	assert(timers.empty());
-
-	/* this is necessary to get a well-defined destruction
-	   order */
-	SocketMonitor::Cancel();
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(inject.empty());
+#endif
+	assert(sockets.empty());
+	assert(ready_sockets.empty());
 }
 
-void
-EventLoop::Break()
+#ifdef HAVE_URING
+
+Uring::Queue *
+EventLoop::GetUring() noexcept
 {
-	quit = true;
-	wake_fd.Write();
-}
-
-bool
-EventLoop::Abandon(int _fd, SocketMonitor &m)
-{
-	assert(IsInsideOrVirgin());
-
-	poll_result.Clear(&m);
-	return poll_group.Abandon(_fd);
-}
-
-bool
-EventLoop::RemoveFD(int _fd, SocketMonitor &m)
-{
-	assert(IsInsideOrNull());
-
-	poll_result.Clear(&m);
-	return poll_group.Remove(_fd);
-}
-
-void
-EventLoop::AddIdle(IdleMonitor &i)
-{
-	assert(IsInsideOrVirgin());
-	assert(std::find(idle.begin(), idle.end(), &i) == idle.end());
-
-	idle.push_back(&i);
-	again = true;
-}
-
-void
-EventLoop::RemoveIdle(IdleMonitor &i)
-{
-	assert(IsInsideOrVirgin());
-
-	auto it = std::find(idle.begin(), idle.end(), &i);
-	assert(it != idle.end());
-
-	idle.erase(it);
-}
-
-void
-EventLoop::AddTimer(TimeoutMonitor &t, unsigned ms)
-{
-	/* can't use IsInsideOrVirgin() here because libavahi-client
-	   modifies the timeout during avahi_client_free() */
-	assert(IsInsideOrNull());
-
-	timers.insert(TimerRecord(t, now_ms + ms));
-	again = true;
-}
-
-void
-EventLoop::CancelTimer(TimeoutMonitor &t)
-{
-	assert(IsInsideOrNull());
-
-	for (auto i = timers.begin(), end = timers.end(); i != end; ++i) {
-		if (&i->timer == &t) {
-			timers.erase(i);
-			return;
+	if (!uring_initialized) {
+		uring_initialized = true;
+		try {
+			uring = std::make_unique<Uring::Manager>(*this);
+		} catch (...) {
+			fprintf(stderr, "Failed to initialize io_uring: ");
+			PrintException(std::current_exception());
 		}
+	}
+
+	return uring.get();
+}
+
+#endif
+
+void
+EventLoop::Break() noexcept
+{
+	if (quit.exchange(true))
+		return;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	wake_fd.Write();
+#endif
+}
+
+bool
+EventLoop::AddFD(int fd, unsigned events, SocketEvent &event) noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(!IsAlive() || IsInside());
+#endif
+	assert(events != 0);
+
+	if (!poll_backend.Add(fd, events, &event))
+		return false;
+
+	sockets.push_back(event);
+	return true;
+}
+
+bool
+EventLoop::ModifyFD(int fd, unsigned events, SocketEvent &event) noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(!IsAlive() || IsInside());
+#endif
+	assert(events != 0);
+
+	return poll_backend.Modify(fd, events, &event);
+}
+
+bool
+EventLoop::RemoveFD(int fd, SocketEvent &event) noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(!IsAlive() || IsInside());
+#endif
+
+	event.unlink();
+	return poll_backend.Remove(fd);
+}
+
+bool
+EventLoop::AbandonFD(SocketEvent &event)  noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(!IsAlive() || IsInside());
+#endif
+	assert(event.IsDefined());
+
+	event.unlink();
+
+	return poll_backend.Abandon(event.GetSocket().Get());
+}
+
+void
+EventLoop::Insert(CoarseTimerEvent &t) noexcept
+{
+	coarse_timers.Insert(t, SteadyNow());
+	again = true;
+}
+
+void
+EventLoop::Insert(FineTimerEvent &t) noexcept
+{
+	assert(IsInside());
+
+	timers.Insert(t);
+	again = true;
+}
+
+inline Event::Duration
+EventLoop::HandleTimers() noexcept
+{
+	const auto now = SteadyNow();
+
+	auto fine_timeout = timers.Run(now);
+	auto coarse_timeout = coarse_timers.Run(now);
+
+	return fine_timeout.count() < 0 ||
+		(coarse_timeout.count() >= 0 && coarse_timeout < fine_timeout)
+		? coarse_timeout
+		: fine_timeout;
+}
+
+void
+EventLoop::AddDefer(DeferEvent &d) noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(!IsAlive() || IsInside());
+#endif
+
+	defer.push_back(d);
+	again = true;
+}
+
+void
+EventLoop::AddIdle(DeferEvent &e) noexcept
+{
+	idle.push_front(e);
+	again = true;
+}
+
+void
+EventLoop::RunDeferred() noexcept
+{
+	while (!defer.empty() && !quit) {
+		defer.pop_front_and_dispose([](DeferEvent *e){
+			e->Run();
+		});
 	}
 }
 
-void
-EventLoop::Run()
+bool
+EventLoop::RunOneIdle() noexcept
 {
-	assert(thread.IsNull());
-	assert(virgin);
+	if (idle.empty())
+		return false;
 
-#ifndef NDEBUG
-	virgin = false;
+	idle.pop_front_and_dispose([](DeferEvent *e){
+		e->Run();
+	});
+
+	return true;
+}
+
+template<class ToDuration, class Rep, class Period>
+static constexpr ToDuration
+duration_cast_round_up(std::chrono::duration<Rep, Period> d) noexcept
+{
+	using FromDuration = decltype(d);
+	constexpr auto one = std::chrono::duration_cast<FromDuration>(ToDuration(1));
+	constexpr auto round_add = one > one.zero()
+		? one - FromDuration(1)
+		: one.zero();
+	return std::chrono::duration_cast<ToDuration>(d + round_add);
+}
+
+/**
+ * Convert the given timeout specification to a milliseconds integer,
+ * to be used by functions like poll() and epoll_wait().  Any negative
+ * value (= never times out) is translated to the magic value -1.
+ */
+static constexpr int
+ExportTimeoutMS(Event::Duration timeout) noexcept
+{
+	return timeout >= timeout.zero()
+		? int(duration_cast_round_up<std::chrono::milliseconds>(timeout).count())
+		: -1;
+}
+
+inline bool
+EventLoop::Wait(Event::Duration timeout) noexcept
+{
+	const auto poll_result =
+		poll_backend.ReadEvents(ExportTimeoutMS(timeout));
+
+	for (size_t i = 0; i < poll_result.GetSize(); ++i) {
+		auto &socket_event = *(SocketEvent *)poll_result.GetObject(i);
+		socket_event.SetReadyFlags(poll_result.GetEvents(i));
+
+		/* move from "sockets" to "ready_sockets" */
+		socket_event.unlink();
+		ready_sockets.push_back(socket_event);
+	}
+
+	return poll_result.GetSize() > 0;
+}
+
+void
+EventLoop::Run() noexcept
+{
+#ifdef HAVE_THREADED_EVENT_LOOP
+	if (thread.IsNull())
+		thread = ThreadId::GetCurrent();
 #endif
 
-	thread = ThreadId::GetCurrent();
-
+	assert(IsInside());
 	assert(!quit);
+#ifdef HAVE_THREADED_EVENT_LOOP
+	assert(alive);
 	assert(busy);
 
+	wake_event.Schedule(SocketEvent::READ);
+#endif
+
+#ifdef HAVE_URING
+	AtScopeExit(this) {
+		/* make sure that the Uring::Manager gets destructed
+		   from within the EventThread, or else its
+		   destruction in another thread will cause assertion
+		   failures */
+		uring.reset();
+		uring_initialized = false;
+	};
+#endif
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	AtScopeExit(this) {
+		wake_event.Cancel();
+	};
+#endif
+
+	steady_clock_cache.flush();
+
 	do {
-		now_ms = ::MonotonicClockMS();
 		again = false;
 
 		/* invoke timers */
 
-		int timeout_ms;
-		while (true) {
-			auto i = timers.begin();
-			if (i == timers.end()) {
-				timeout_ms = -1;
-				break;
-			}
+		const auto timeout = HandleTimers();
+		if (quit)
+			break;
 
-			timeout_ms = i->due_ms - now_ms;
-			if (timeout_ms > 0)
-				break;
+		RunDeferred();
+		if (quit)
+			break;
 
-			TimeoutMonitor &m = i->timer;
-			timers.erase(i);
-
-			m.Run();
-
-			if (quit)
-				return;
-		}
-
-		/* invoke idle */
-
-		while (!idle.empty()) {
-			IdleMonitor &m = *idle.front();
-			idle.pop_front();
-			m.Run();
-
-			if (quit)
-				return;
-		}
-
-		/* try to handle DeferredMonitors without WakeFD
-		   overhead */
-		mutex.lock();
-		HandleDeferred();
-		busy = false;
-		const bool _again = again;
-		mutex.unlock();
-
-		if (_again)
-			/* re-evaluate timers because one of the
-			   IdleMonitors may have added a new
-			   timeout */
+		if (RunOneIdle())
+			/* check for other new events after each
+			   "idle" invocation to ensure that the other
+			   "idle" events are really invoked at the
+			   very end */
 			continue;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+		/* try to handle DeferEvents without WakeFD
+		   overhead */
+		{
+			const std::scoped_lock<Mutex> lock(mutex);
+			HandleInject();
+#endif
+
+			if (again)
+				/* re-evaluate timers because one of
+				   the DeferEvents may have added a
+				   new timeout */
+				continue;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+			busy = false;
+		}
+#endif
 
 		/* wait for new event */
 
-		poll_group.ReadEvents(poll_result, timeout_ms);
+		Wait(timeout);
 
-		now_ms = ::MonotonicClockMS();
+		steady_clock_cache.flush();
 
-		mutex.lock();
-		busy = true;
-		mutex.unlock();
+#ifdef HAVE_THREADED_EVENT_LOOP
+		{
+			const std::scoped_lock<Mutex> lock(mutex);
+			busy = true;
+		}
+#endif
 
 		/* invoke sockets */
-		for (int i = 0; i < poll_result.GetSize(); ++i) {
-			auto events = poll_result.GetEvents(i);
-			if (events != 0) {
-				if (quit)
-					break;
+		while (!ready_sockets.empty() && !quit) {
+			auto &socket_event = ready_sockets.front();
 
-				auto m = (SocketMonitor *)poll_result.GetObject(i);
-				m->Dispatch(events);
-			}
+			/* move from "ready_sockets" back to "sockets" */
+			socket_event.unlink();
+			sockets.push_back(socket_event);
+
+			socket_event.Dispatch();
 		}
-
-		poll_result.Reset();
-
 	} while (!quit);
 
+#ifdef HAVE_THREADED_EVENT_LOOP
 #ifndef NDEBUG
-	assert(busy);
 	assert(thread.IsInside());
-	thread = ThreadId::Null();
+#endif
 #endif
 }
 
+#ifdef HAVE_THREADED_EVENT_LOOP
+
 void
-EventLoop::AddDeferred(DeferredMonitor &d)
+EventLoop::AddInject(InjectEvent &d) noexcept
 {
-	mutex.lock();
-	if (d.pending) {
-		mutex.unlock();
-		return;
+	bool must_wake;
+
+	{
+		const std::scoped_lock<Mutex> lock(mutex);
+		if (d.IsPending())
+			return;
+
+		/* we don't need to wake up the EventLoop if another
+		   InjectEvent has already done it */
+		must_wake = !busy && inject.empty();
+
+		inject.push_back(d);
+		again = true;
 	}
-
-	assert(std::find(deferred.begin(),
-			 deferred.end(), &d) == deferred.end());
-
-	/* we don't need to wake up the EventLoop if another
-	   DeferredMonitor has already done it */
-	const bool must_wake = !busy && deferred.empty();
-
-	d.pending = true;
-	deferred.push_back(&d);
-	again = true;
-	mutex.unlock();
 
 	if (must_wake)
 		wake_fd.Write();
 }
 
 void
-EventLoop::RemoveDeferred(DeferredMonitor &d)
+EventLoop::RemoveInject(InjectEvent &d) noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
-	if (!d.pending) {
-		assert(std::find(deferred.begin(),
-				 deferred.end(), &d) == deferred.end());
-		return;
-	}
-
-	d.pending = false;
-
-	auto i = std::find(deferred.begin(), deferred.end(), &d);
-	assert(i != deferred.end());
-
-	deferred.erase(i);
+	if (d.IsPending())
+		inject.erase(inject.iterator_to(d));
 }
 
 void
-EventLoop::HandleDeferred()
+EventLoop::HandleInject() noexcept
 {
-	while (!deferred.empty() && !quit) {
-		DeferredMonitor &m = *deferred.front();
-		assert(m.pending);
+	while (!inject.empty() && !quit) {
+		auto &m = inject.front();
+		assert(m.IsPending());
 
-		deferred.pop_front();
-		m.pending = false;
+		inject.pop_front();
 
-		mutex.unlock();
-		m.RunDeferred();
-		mutex.lock();
+		const ScopeUnlock unlock(mutex);
+		m.Run();
 	}
 }
 
-bool
-EventLoop::OnSocketReady(gcc_unused unsigned flags)
+void
+EventLoop::OnSocketReady([[maybe_unused]] unsigned flags) noexcept
 {
 	assert(IsInside());
 
 	wake_fd.Read();
 
-	mutex.lock();
-	HandleDeferred();
-	mutex.unlock();
-
-	return true;
+	const std::scoped_lock<Mutex> lock(mutex);
+	HandleInject();
 }
+
+#endif

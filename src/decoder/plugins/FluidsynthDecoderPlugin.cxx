@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FluidsynthDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "CheckAudioFormat.hxx"
+#include "pcm/CheckAudioFormat.hxx"
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
-#include "util/Macros.hxx"
 #include "Log.hxx"
 
 #include <fluidsynth.h>
@@ -64,17 +62,22 @@ fluidsynth_level_to_mpd(enum fluid_log_level level)
  * logging library.
  */
 static void
-fluidsynth_mpd_log_function(int level, char *message, gcc_unused void *data)
+fluidsynth_mpd_log_function(int level,
+#if FLUIDSYNTH_VERSION_MAJOR >= 2
+			    const
+#endif
+			    char *message,
+			    void *)
 {
-	Log(fluidsynth_domain,
-	    fluidsynth_level_to_mpd(fluid_log_level(level)),
+	Log(fluidsynth_level_to_mpd(fluid_log_level(level)),
+	    fluidsynth_domain,
 	    message);
 }
 
 static bool
 fluidsynth_init(const ConfigBlock &block)
 {
-	sample_rate = block.GetBlockValue("sample_rate", 48000u);
+	sample_rate = block.GetPositiveValue("sample_rate", 48000U);
 	CheckSampleRate(sample_rate);
 
 	soundfont_path = block.GetBlockValue("soundfont",
@@ -165,7 +168,7 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 	DecoderCommand cmd;
 	while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
 		int16_t buffer[2048];
-		const unsigned max_frames = ARRAY_SIZE(buffer) / 2;
+		const unsigned max_frames = std::size(buffer) / 2;
 
 		/* read samples from fluidsynth and send them to the
 		   MPD core */
@@ -193,8 +196,7 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 
 static bool
 fluidsynth_scan_file(Path path_fs,
-		     gcc_unused const TagHandler &handler,
-		     gcc_unused void *handler_ctx)
+		     [[maybe_unused]] TagHandler &handler) noexcept
 {
 	return fluid_is_midifile(path_fs.c_str());
 }
@@ -204,15 +206,8 @@ static const char *const fluidsynth_suffixes[] = {
 	nullptr
 };
 
-const struct DecoderPlugin fluidsynth_decoder_plugin = {
-	"fluidsynth",
-	fluidsynth_init,
-	nullptr,
-	nullptr,
-	fluidsynth_file_decode,
-	fluidsynth_scan_file,
-	nullptr,
-	nullptr,
-	fluidsynth_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin fluidsynth_decoder_plugin =
+	DecoderPlugin("fluidsynth",
+		      fluidsynth_file_decode, fluidsynth_scan_file)
+	.WithInit(fluidsynth_init)
+	.WithSuffixes(fluidsynth_suffixes);

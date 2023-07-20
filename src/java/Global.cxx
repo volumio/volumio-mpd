@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,10 +30,12 @@
 #include "Global.hxx"
 
 namespace Java {
-	JavaVM *jvm;
 
-	void Init(JNIEnv *env)
-	{
-		env->GetJavaVM(&jvm);
-	}
+JavaVM *jvm;
+
+void Init(JNIEnv *env) noexcept
+{
+	env->GetJavaVM(&jvm);
 }
+
+} // namespace Java
