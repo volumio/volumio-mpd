@@ -8,7 +8,7 @@ endif
 
 # systemd, alsa and io_uring on linux arches only
 ifeq ($(DEB_HOST_ARCH_OS), linux)
-WITH_LINUX=-Dsystemd=enabled -Dalsa=enabled -Dio_uring=enabled
+WITH_LINUX=-Dsystemd=enabled -Dalsa=enabled -Dio_uring=disabled
 else
 WITH_LINUX=-Dsystemd=disabled -Dalsa=disabled -Dio_uring=disabled
 endif
@@ -58,7 +58,7 @@ ENABLE_FILEFORMATS=-Dfaad=enabled \
 		-Dmodplug=enabled \
 		-Dmpcdec=enabled \
 		-Dmpg123=enabled \
-		-Dopenmpt=enabled \
+		-Dopenmpt=disabled \
 		-Dopus=enabled \
 		-Dsidplay=enabled \
 		-Dsndfile=enabled \
@@ -86,16 +86,16 @@ ENABLE_METADATA=-Did3tag=enabled \
 # Playback support
 # Note: ALSA is in WITH_LINUX
 ENABLE_PLAYBACKS=-Dfifo=true \
-		-Dsndio=enabled \
+		-Dsndio=disabled \
 		-Drecorder=true \
 		-Dhttpd=true \
-		-Djack=enabled \
+		-Djack=disabled \
 		-Dao=enabled \
-		-Doss=enabled \
-		-Dopenal=enabled \
+		-Doss=disabled \
+		-Dopenal=disabled \
 		-Dpipe=true \
-		-Dpipewire=enabled \
-		-Dpulse=enabled \
+		-Dpipewire=disabled \
+		-Dpulse=disabled \
 		-Dshout=enabled \
 		-Dsnapcast=true
 
