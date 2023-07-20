@@ -3,7 +3,7 @@ Section: sound
 Priority: optional
 Maintainer: mpd maintainers <pkg-mpd-maintainers@lists.alioth.debian.org>
 Uploaders: Florian Schlichting <fsfs@debian.org>
-Build-Depends: debhelper-compat (= 13),
+Build-Depends: debhelper-compat (= 12),
                meson (>= 0.56.0),
                libsndio-dev,
                libadplug-dev,
