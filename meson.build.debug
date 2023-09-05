@@ -121,7 +121,7 @@ test_ldflags = [
   '-Wl,-z,now',
 ]
 
-if get_option('buildtype') != 'debug'
+
   test_global_cxxflags += [
     '-ffunction-sections',
     '-fdata-sections',
@@ -133,7 +133,7 @@ if get_option('buildtype') != 'debug'
   test_ldflags += [
     '-Wl,--gc-sections',
   ]
-endif
+
 
 if get_option('fuzzer')
   fuzzer_flags = ['-fsanitize=fuzzer']
