@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +27,7 @@
 class SongLoader;
 class SongEnumerator;
 struct playlist;
-struct PlayerControl;
+class PlayerControl;
 
 /**
  * Loads the contents of a playlist and append it to the specified
@@ -49,7 +49,7 @@ playlist_load_into_queue(const char *uri, SongEnumerator &e,
  * play queue.
  */
 void
-playlist_open_into_queue(const char *uri,
+playlist_open_into_queue(const LocatedUri &uri,
 			 unsigned start_index, unsigned end_index,
 			 playlist &dest, PlayerControl &pc,
 			 const SongLoader &loader);

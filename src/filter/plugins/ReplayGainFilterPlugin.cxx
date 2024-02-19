@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ReplayGainFilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
-#include "AudioFormat.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
 #include "ReplayGainInfo.hxx"
 #include "ReplayGainConfig.hxx"
 #include "mixer/MixerControl.hxx"
+#include "mixer/MixerInternal.hxx"
+#include "mixer/Listener.hxx"
+#include "pcm/AudioFormat.hxx"
 #include "pcm/Volume.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/Domain.hxx"
+#include "Idle.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
-
-#include <assert.h>
+#include <cassert>
+#include <exception>
 
 static constexpr Domain replay_gain_domain("replay_gain");
 
@@ -69,7 +71,7 @@ class ReplayGainFilter final : public Filter {
 	PcmVolume pv;
 
 public:
-	ReplayGainFilter(const ReplayGainConfig &_config,
+	ReplayGainFilter(const ReplayGainConfig &_config, bool allow_convert,
 			 const AudioFormat &audio_format,
 			 Mixer *_mixer, unsigned _base)
 		:Filter(audio_format),
@@ -77,7 +79,8 @@ public:
 		 mixer(_mixer), base(_base) {
 		info.Clear();
 
-		pv.Open(out_audio_format.format);
+		out_audio_format.format = pv.Open(out_audio_format.format,
+						  allow_convert);
 	}
 
 	void SetInfo(const ReplayGainInfo *_info) {
@@ -94,9 +97,9 @@ public:
 			/* no change */
 			return;
 
-		FormatDebug(replay_gain_domain,
-			    "replay gain mode has changed %s->%s\n",
-			    ToString(mode), ToString(_mode));
+		FmtDebug(replay_gain_domain,
+			 "replay gain mode has changed {}->{}",
+			 ToString(mode), ToString(_mode));
 
 		mode = _mode;
 		Update();
@@ -121,14 +124,21 @@ class PreparedReplayGainFilter final : public PreparedFilter {
 	Mixer *mixer = nullptr;
 
 	/**
+	 * Allow the class to convert to a different #SampleFormat to
+	 * preserve quality?
+	 */
+	const bool allow_convert;
+
+	/**
 	 * The base volume level for scale=1.0, between 1 and 100
 	 * (including).
 	 */
 	unsigned base;
 
 public:
-	explicit PreparedReplayGainFilter(const ReplayGainConfig _config)
-		:config(_config) {}
+	explicit PreparedReplayGainFilter(const ReplayGainConfig _config,
+					  bool _allow_convert)
+		:config(_config), allow_convert(_allow_convert) {}
 
 	void SetMixer(Mixer *_mixer, unsigned _base) {
 		assert(_mixer == nullptr || (_base > 0 && _base <= 100));
@@ -138,7 +148,7 @@ public:
 	}
 
 	/* virtual methods from class Filter */
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
 void
@@ -148,8 +158,7 @@ ReplayGainFilter::Update()
 	if (mode != ReplayGainMode::OFF) {
 		const auto &tuple = info.Get(mode);
 		float scale = tuple.CalculateScale(config);
-		FormatDebug(replay_gain_domain,
-			    "scale=%f\n", (double)scale);
+		FmtDebug(replay_gain_domain, "scale={}\n", scale);
 
 		volume = pcm_float_to_volume(scale);
 	}
@@ -163,23 +172,33 @@ ReplayGainFilter::Update()
 
 		try {
 			mixer_set_volume(mixer, _volume);
-		} catch (const std::runtime_error &e) {
-			LogError(e, "Failed to update hardware mixer");
+
+			/* invoke the mixer's listener manually, just
+			   in case the mixer implementation didn't do
+			   that already (this depends on the
+			   implementation) */
+			mixer->listener.OnMixerVolumeChanged(*mixer, _volume);
+		} catch (...) {
+			LogError(std::current_exception(),
+				 "Failed to update hardware mixer");
 		}
 	} else
 		pv.SetVolume(volume);
 }
 
-PreparedFilter *
-NewReplayGainFilter(const ReplayGainConfig &config)
+std::unique_ptr<PreparedFilter>
+NewReplayGainFilter(const ReplayGainConfig &config,
+		    bool allow_convert) noexcept
 {
-	return new PreparedReplayGainFilter(config);
+	return std::make_unique<PreparedReplayGainFilter>(config,
+							  allow_convert);
 }
 
-Filter *
+std::unique_ptr<Filter>
 PreparedReplayGainFilter::Open(AudioFormat &af)
 {
-	return new ReplayGainFilter(config, af, mixer, base);
+	return std::make_unique<ReplayGainFilter>(config, allow_convert,
+						  af, mixer, base);
 }
 
 ConstBuffer<void>

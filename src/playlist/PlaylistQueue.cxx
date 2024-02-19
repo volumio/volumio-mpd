@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,15 +18,15 @@
  */
 
 #include "config.h"
+#include "LocateUri.hxx"
 #include "PlaylistQueue.hxx"
 #include "PlaylistAny.hxx"
 #include "PlaylistSong.hxx"
 #include "PlaylistError.hxx"
 #include "queue/Playlist.hxx"
 #include "SongEnumerator.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "fs/Traits.hxx"
 
 #ifdef ENABLE_DATABASE
@@ -41,9 +41,9 @@ playlist_load_into_queue(const char *uri, SongEnumerator &e,
 			 playlist &dest, PlayerControl &pc,
 			 const SongLoader &loader)
 {
-	const std::string base_uri = uri != nullptr
+	const auto base_uri = uri != nullptr
 		? PathTraitsUTF8::GetParent(uri)
-		: std::string(".");
+		: ".";
 
 	std::unique_ptr<DetachedSong> song;
 	for (unsigned i = 0;
@@ -54,7 +54,7 @@ playlist_load_into_queue(const char *uri, SongEnumerator &e,
 			continue;
 		}
 
-		if (!playlist_check_translate_song(*song, base_uri.c_str(),
+		if (!playlist_check_translate_song(*song, base_uri,
 						   loader)) {
 			continue;
 		}
@@ -64,23 +64,22 @@ playlist_load_into_queue(const char *uri, SongEnumerator &e,
 }
 
 void
-playlist_open_into_queue(const char *uri,
+playlist_open_into_queue(const LocatedUri &uri,
 			 unsigned start_index, unsigned end_index,
 			 playlist &dest, PlayerControl &pc,
 			 const SongLoader &loader)
 {
 	Mutex mutex;
-	Cond cond;
 
-	std::unique_ptr<SongEnumerator> playlist(playlist_open_any(uri,
+	auto playlist = playlist_open_any(uri,
 #ifdef ENABLE_DATABASE
-								   loader.GetStorage(),
+					  loader.GetStorage(),
 #endif
-								   mutex, cond));
+					  mutex);
 	if (playlist == nullptr)
 		throw PlaylistError::NoSuchList();
 
-	playlist_load_into_queue(uri, *playlist,
+	playlist_load_into_queue(uri.canonical_uri, *playlist,
 				 start_index, end_index,
 				 dest, pc, loader);
 }

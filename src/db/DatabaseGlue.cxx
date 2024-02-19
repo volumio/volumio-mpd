@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabaseGlue.hxx"
+#include "Interface.hxx"
 #include "Registry.hxx"
-#include "DatabaseError.hxx"
 #include "util/RuntimeError.hxx"
 #include "config/Block.hxx"
 #include "DatabasePlugin.hxx"
 
-Database *
-DatabaseGlobalInit(EventLoop &loop, DatabaseListener &listener,
+DatabasePtr
+DatabaseGlobalInit(EventLoop &main_event_loop,
+		   EventLoop &io_event_loop,
+		   DatabaseListener &listener,
 		   const ConfigBlock &block)
 {
 	const char *plugin_name =
@@ -37,5 +38,11 @@ DatabaseGlobalInit(EventLoop &loop, DatabaseListener &listener,
 		throw FormatRuntimeError("No such database plugin: %s",
 					 plugin_name);
 
-	return plugin->create(loop, listener, block);
+	try {
+		return plugin->create(main_event_loop, io_event_loop,
+				      listener, block);
+	} catch (...) {
+		std::throw_with_nested(FormatRuntimeError("Failed to initialize database plugin '%s'",
+							  plugin_name));
+	}
 }

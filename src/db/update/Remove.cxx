@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Remove.hxx"
 #include "UpdateDomain.hxx"
 #include "db/DatabaseListener.hxx"
@@ -29,7 +28,7 @@
  * available only there.
  */
 void
-UpdateRemoveService::RunDeferred()
+UpdateRemoveService::RunDeferred() noexcept
 {
 	/* copy the list and unlock the mutex before invoking
 	   callbacks */
@@ -37,12 +36,12 @@ UpdateRemoveService::RunDeferred()
 	std::forward_list<std::string> copy;
 
 	{
-		const ScopeLock protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		std::swap(uris, copy);
 	}
 
 	for (const auto &uri : copy) {
-		FormatDefault(update_domain, "removing %s", uri.c_str());
+		FmtNotice(update_domain, "removing {}", uri);
 		listener.OnDatabaseSongRemoved(uri.c_str());
 	}
 
@@ -56,7 +55,7 @@ UpdateRemoveService::Remove(std::string &&uri)
 	bool was_empty;
 
 	{
-		const ScopeLock protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		was_empty = uris.empty();
 		uris.emplace_front(std::move(uri));
 	}
@@ -65,5 +64,5 @@ UpdateRemoveService::Remove(std::string &&uri)
 	   was empty; if it was not, then that even was already
 	   pending */
 	if (was_empty)
-		DeferredMonitor::Schedule();
+		defer.Schedule();
 }

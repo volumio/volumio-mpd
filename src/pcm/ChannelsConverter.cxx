@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ChannelsConverter.hxx"
 #include "PcmChannels.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 void
 PcmChannelsConverter::Open(SampleFormat _format,
@@ -49,7 +48,7 @@ PcmChannelsConverter::Open(SampleFormat _format,
 }
 
 void
-PcmChannelsConverter::Close()
+PcmChannelsConverter::Close() noexcept
 {
 #ifndef NDEBUG
 	format = SampleFormat::UNDEFINED;
@@ -57,7 +56,7 @@ PcmChannelsConverter::Close()
 }
 
 ConstBuffer<void>
-PcmChannelsConverter::Convert(ConstBuffer<void> src)
+PcmChannelsConverter::Convert(ConstBuffer<void> src) noexcept
 {
 	switch (format) {
 	case SampleFormat::UNDEFINED:

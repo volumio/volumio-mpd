@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,21 +20,20 @@
 #ifndef MPD_DECODER_DSDLIB_HXX
 #define MPD_DECODER_DSDLIB_HXX
 
-#include "system/ByteOrder.hxx"
+#include "util/ByteOrder.hxx"
 #include "input/Offset.hxx"
-#include "Compiler.h"
 
-#include <stdint.h>
+#include <cstdint>
 
-struct TagHandler;
+class TagHandler;
 class DecoderClient;
 class InputStream;
 
 struct DsdId {
 	char value[4];
 
-	gcc_pure
-	bool Equals(const char *s) const;
+	[[gnu::pure]]
+	bool Equals(const char *s) const noexcept;
 };
 
 class DsdUint64 {
@@ -70,17 +69,16 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 /**
  * Check if the sample frequency is a valid DSD frequency.
  **/
-gcc_const
+[[gnu::const]]
 bool
-dsdlib_valid_freq(uint32_t samplefreq);
+dsdlib_valid_freq(uint32_t samplefreq) noexcept;
 
 /**
  * Add tags from ID3 tag. All tags commonly found in the ID3 tags of
  * DSF and DSDIFF files are imported
  */
 void
-dsdlib_tag_id3(InputStream &is,
-	       const TagHandler &handler,
-	       void *handler_ctx, offset_type tagoffset);
+dsdlib_tag_id3(InputStream &is, TagHandler &handler,
+	       offset_type tagoffset);
 
 #endif

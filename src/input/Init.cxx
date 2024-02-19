@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,34 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Init.hxx"
 #include "Registry.hxx"
 #include "InputPlugin.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
 #include "config/Block.hxx"
 #include "Log.hxx"
 #include "PluginUnavailable.hxx"
+#include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
 
+#include <cassert>
 #include <stdexcept>
 
-#include <assert.h>
+#include "io/uring/Features.h"
+#ifdef HAVE_URING
+#include "plugins/UringInputPlugin.hxx"
+#endif
+
+static constexpr Domain input_domain("input");
 
 void
-input_stream_global_init()
+input_stream_global_init(const ConfigData &config, EventLoop &event_loop)
 {
+#ifdef HAVE_URING
+	InitUringInputPlugin(event_loop);
+#endif
+
 	const ConfigBlock empty;
 
 	for (unsigned i = 0; input_plugins[i] != nullptr; ++i) {
@@ -45,31 +55,39 @@ input_stream_global_init()
 		assert(plugin->open != nullptr);
 
 		const auto *block =
-			config_find_block(ConfigBlockOption::INPUT, "plugin",
-					  plugin->name);
+			config.FindBlock(ConfigBlockOption::INPUT, "plugin",
+					 plugin->name);
 		if (block == nullptr) {
 			block = &empty;
 		} else if (!block->GetBlockValue("enabled", true))
 			/* the plugin is disabled in mpd.conf */
 			continue;
 
+		block->SetUsed();
+
 		try {
 			if (plugin->init != nullptr)
-				plugin->init(*block);
+				plugin->init(event_loop, *block);
 			input_plugins_enabled[i] = true;
-		} catch (const PluginUnavailable &e) {
-			FormatError(e,
-				    "Input plugin '%s' is unavailable",
-				    plugin->name);
+		} catch (const PluginUnconfigured &e) {
+			FmtDebug(input_domain,
+				 "Input plugin '{}' is not configured: {}",
+				 plugin->name, e.what());
 			continue;
-		} catch (const std::runtime_error &e) {
+		} catch (const PluginUnavailable &e) {
+			FmtDebug(input_domain,
+				 "Input plugin '{}' is unavailable: {}",
+				 plugin->name, e.what());
+			continue;
+		} catch (...) {
 			std::throw_with_nested(FormatRuntimeError("Failed to initialize input plugin '%s'",
 								  plugin->name));
 		}
 	}
 }
 
-void input_stream_global_finish(void)
+void
+input_stream_global_finish() noexcept
 {
 	input_plugins_for_each_enabled(plugin)
 		if (plugin->finish != nullptr)

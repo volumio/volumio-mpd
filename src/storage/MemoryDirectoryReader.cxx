@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MemoryDirectoryReader.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 const char *
-MemoryStorageDirectoryReader::Read()
+MemoryStorageDirectoryReader::Read() noexcept
 {
 	if (first)
 		first = false;
@@ -37,7 +36,7 @@ MemoryStorageDirectoryReader::Read()
 }
 
 StorageFileInfo
-MemoryStorageDirectoryReader::GetInfo(gcc_unused bool follow)
+MemoryStorageDirectoryReader::GetInfo([[maybe_unused]] bool follow)
 {
 	assert(!first);
 	assert(!entries.empty());

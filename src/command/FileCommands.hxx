@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,5 +32,11 @@ handle_listfiles_local(Response &response, Path path_fs);
 
 CommandResult
 handle_read_comments(Client &client, Request request, Response &response);
+
+CommandResult
+handle_album_art(Client &client, Request request, Response &response);
+
+CommandResult
+handle_read_picture(Client &client, Request request, Response &response);
 
 #endif

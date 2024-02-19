@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,12 +23,11 @@
  *
  */
 
-#include "config.h"
 #include "Playlist.hxx"
 #include "PlaylistError.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Builder.hxx"
 
 void
 playlist::AddSongIdTag(unsigned id, TagType tag_type, const char *value)

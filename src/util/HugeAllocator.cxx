@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,9 @@
  */
 
 #include "HugeAllocator.hxx"
+#include "Compiler.h"
+
+#include <new>
 
 #ifdef __linux__
 #include <sys/mman.h>
@@ -43,18 +46,18 @@
  */
 gcc_const
 static size_t
-AlignToPageSize(size_t size)
+AlignToPageSize(size_t size) noexcept
 {
 	static const long page_size = sysconf(_SC_PAGESIZE);
-	if (page_size == 0)
+	if (page_size <= 0)
 		return size;
 
 	size_t ps(page_size);
 	return (size + ps - 1) / ps * ps;
 }
 
-void *
-HugeAllocate(size_t size) throw(std::bad_alloc)
+WritableBuffer<void>
+HugeAllocate(size_t size)
 {
 	size = AlignToPageSize(size);
 
@@ -71,19 +74,22 @@ HugeAllocate(size_t size) throw(std::bad_alloc)
 	madvise(p, size, MADV_HUGEPAGE);
 #endif
 
-#ifdef MADV_DONTFORK
-	/* just in case MPD needs to fork, don't copy this allocation
-	   to the child process, to reduce overhead */
-	madvise(p, size, MADV_DONTFORK);
-#endif
-
-	return p;
+	return {p, size};
 }
 
 void
 HugeFree(void *p, size_t size) noexcept
 {
 	munmap(p, AlignToPageSize(size));
+}
+
+void
+HugeForkCow(void *p, size_t size, bool enable) noexcept
+{
+#ifdef MADV_DONTFORK
+	madvise(p, AlignToPageSize(size),
+		enable ? MADV_DOFORK : MADV_DONTFORK);
+#endif
 }
 
 void
@@ -94,10 +100,10 @@ HugeDiscard(void *p, size_t size) noexcept
 #endif
 }
 
-#elif defined(WIN32)
+#elif defined(_WIN32)
 
-void *
-HugeAllocate(size_t size) throw(std::bad_alloc)
+WritableBuffer<void>
+HugeAllocate(size_t size)
 {
 	// TODO: use MEM_LARGE_PAGES
 	void *p = VirtualAlloc(nullptr, size,
@@ -106,7 +112,8 @@ HugeAllocate(size_t size) throw(std::bad_alloc)
 	if (p == nullptr)
 		throw std::bad_alloc();
 
-	return p;
+	// TODO: round size up to the page size
+	return {p, size};
 }
 
 #endif

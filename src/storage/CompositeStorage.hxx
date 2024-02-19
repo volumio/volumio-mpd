@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,10 @@
 #ifndef MPD_COMPOSITE_STORAGE_HXX
 #define MPD_COMPOSITE_STORAGE_HXX
 
-#include "check.h"
 #include "StorageInterface.hxx"
 #include "thread/Mutex.hxx"
-#include "Compiler.h"
 
+#include <memory>
 #include <string>
 #include <map>
 
@@ -47,34 +46,31 @@ class CompositeStorage final : public Storage {
 		 * Other Directory instances may have one, and child
 		 * mounts will be "mixed" in.
 		 */
-		Storage *storage;
+		std::unique_ptr<Storage> storage;
 
-		std::map<std::string, Directory> children;
+		std::map<std::string, Directory, std::less<>> children;
 
-		Directory():storage(nullptr) {}
-		~Directory();
-
-		gcc_pure
-		bool IsEmpty() const {
+		[[gnu::pure]]
+		bool IsEmpty() const noexcept {
 			return storage == nullptr && children.empty();
 		}
 
-		gcc_pure
-		const Directory *Find(const char *uri) const;
+		[[gnu::pure]]
+		const Directory *Find(std::string_view uri) const noexcept;
 
-		Directory &Make(const char *uri);
+		Directory &Make(std::string_view uri);
 
-		bool Unmount();
-		bool Unmount(const char *uri);
+		bool Unmount() noexcept;
+		bool Unmount(std::string_view uri) noexcept;
 
-		gcc_pure
+		[[gnu::pure]]
 		bool MapToRelativeUTF8(std::string &buffer,
-				       const char *uri) const;
+				       std::string_view uri) const noexcept;
 	};
 
 	struct FindResult {
 		const Directory *directory;
-		const char *uri;
+		std::string_view uri;
 	};
 
 	/**
@@ -89,8 +85,8 @@ class CompositeStorage final : public Storage {
 	mutable std::string relative_buffer;
 
 public:
-	CompositeStorage();
-	virtual ~CompositeStorage();
+	CompositeStorage() noexcept;
+	~CompositeStorage() override;
 
 	/**
 	 * Get the #Storage at the specified mount point.  Returns
@@ -100,8 +96,17 @@ public:
 	 * allowed to unmount the given mount point while the return
 	 * value is being used.
 	 */
-	gcc_pure gcc_nonnull_all
-	Storage *GetMount(const char *uri);
+	[[gnu::pure]]
+	Storage *GetMount(std::string_view uri) noexcept;
+
+	/**
+         * Is the given URI a mount point, i.e. is something already
+         * mounted on this path?
+	 */
+	[[gnu::pure]] [[gnu::nonnull]]
+	bool IsMountPoint(const char *uri) noexcept {
+		return GetMount(uri) != nullptr;
+	}
 
 	/**
 	 * Call the given function for each mounted storage, including
@@ -110,32 +115,40 @@ public:
 	 */
 	template<typename T>
 	void VisitMounts(T t) const {
-		const ScopeLock protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		std::string uri;
 		VisitMounts(uri, root, t);
 	}
 
-	void Mount(const char *uri, Storage *storage);
+	/**
+	 * Is a storage with the given URI already mounted?
+	 */
+	[[gnu::pure]] [[gnu::nonnull]]
+	bool IsMounted(const char *storage_uri) const noexcept {
+		const std::scoped_lock<Mutex> protect(mutex);
+		return IsMounted(root, storage_uri);
+	}
+
+	void Mount(const char *uri, std::unique_ptr<Storage> storage);
 	bool Unmount(const char *uri);
 
 	/* virtual methods from class Storage */
-	StorageFileInfo GetInfo(const char *uri, bool follow) override;
+	StorageFileInfo GetInfo(std::string_view uri, bool follow) override;
 
-	StorageDirectoryReader *OpenDirectory(const char *uri) override;
+	std::unique_ptr<StorageDirectoryReader> OpenDirectory(std::string_view uri) override;
 
-	std::string MapUTF8(const char *uri) const override;
+	std::string MapUTF8(std::string_view uri) const noexcept override;
 
-	AllocatedPath MapFS(const char *uri) const override;
+	AllocatedPath MapFS(std::string_view uri) const noexcept override;
 
-	const char *MapToRelativeUTF8(const char *uri) const override;
+	std::string_view MapToRelativeUTF8(std::string_view uri) const noexcept override;
 
 private:
 	template<typename T>
 	void VisitMounts(std::string &uri, const Directory &directory,
 			 T t) const {
-		const Storage *const storage = directory.storage;
-		if (storage != nullptr)
-			t(uri.c_str(), *storage);
+		if (directory.storage)
+			t(uri.c_str(), *directory.storage);
 
 		if (!uri.empty())
 			uri.push_back('/');
@@ -150,6 +163,22 @@ private:
 		}
 	}
 
+	[[gnu::pure]] [[gnu::nonnull]]
+	static bool IsMounted(const Directory &directory,
+			      const char *storage_uri) noexcept {
+		if (directory.storage) {
+			const auto uri = directory.storage->MapUTF8("");
+			if (uri == storage_uri)
+				return true;
+		}
+
+		for (const auto &i : directory.children)
+			if (IsMounted(i.second, storage_uri))
+				return true;
+
+		return false;
+	}
+
 	/**
 	 * Follow the given URI path, and find the outermost directory
 	 * which is a #Storage mount point.  If there are no mounts,
@@ -158,8 +187,8 @@ private:
 	 * remaining unused part of the URI (may be empty if all of
 	 * the URI was used).
 	 */
-	gcc_pure
-	FindResult FindStorage(const char *uri) const;
+	[[gnu::pure]]
+	FindResult FindStorage(std::string_view uri) const noexcept;
 
 	const char *MapToRelativeUTF8(const Directory &directory,
 				      const char *uri) const;

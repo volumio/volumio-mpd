@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2008-2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,14 +30,14 @@
 #ifndef TEXT_FILE_HXX
 #define TEXT_FILE_HXX
 
-#include <string.h>
+#include <cstring>
 
 template<typename B>
 char *
 ReadBufferedLine(B &buffer)
 {
 	auto r = buffer.Read();
-	char *newline = reinterpret_cast<char*>(memchr(r.data, '\n', r.size));
+	char *newline = reinterpret_cast<char*>(std::memchr(r.data, '\n', r.size));
 	if (newline == nullptr)
 		return nullptr;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,13 +33,7 @@ CommandResult
 handle_decoders(Client &client, Request request, Response &response);
 
 CommandResult
-handle_tagtypes(Client &client, Request request, Response &response);
-
-CommandResult
 handle_kill(Client &client, Request request, Response &response);
-
-CommandResult
-handle_close(Client &client, Request request, Response &response);
 
 CommandResult
 handle_listfiles(Client &client, Request request, Response &response);
@@ -54,6 +48,9 @@ CommandResult
 handle_rescan(Client &client, Request request, Response &response);
 
 CommandResult
+handle_getvol(Client &client, Request request, Response &response);
+
+CommandResult
 handle_setvol(Client &client, Request request, Response &response);
 
 CommandResult
@@ -61,12 +58,6 @@ handle_volume(Client &client, Request request, Response &response);
 
 CommandResult
 handle_stats(Client &client, Request request, Response &response);
-
-CommandResult
-handle_ping(Client &client, Request request, Response &response);
-
-CommandResult
-handle_password(Client &client, Request request, Response &response);
 
 CommandResult
 handle_config(Client &client, Request request, Response &response);

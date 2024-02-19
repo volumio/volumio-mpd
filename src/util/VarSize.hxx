@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2008-2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +30,12 @@
 #ifndef MPD_VAR_SIZE_HXX
 #define MPD_VAR_SIZE_HXX
 
-#include "Alloc.hxx"
 #include "Compiler.h"
 
 #include <type_traits>
 #include <utility>
 #include <new>
+#include <cstdlib>
 
 /**
  * Allocate and construct a variable-size object.  That is useful for
@@ -49,7 +49,7 @@
  * #T
  */
 template<class T, typename... Args>
-gcc_malloc
+gcc_malloc gcc_returns_nonnull
 T *
 NewVarSize(size_t declared_tail_size, size_t real_tail_size, Args&&... args)
 {
@@ -60,7 +60,9 @@ NewVarSize(size_t declared_tail_size, size_t real_tail_size, Args&&... args)
 	size_t size = sizeof(T) - declared_tail_size + real_tail_size;
 
 	/* allocate memory */
-	T *instance = (T *)xalloc(size);
+	T *instance = (T *)malloc(size);
+	if (instance == nullptr)
+		throw std::bad_alloc{};
 
 	/* call the constructor */
 	new(instance) T(std::forward<Args>(args)...);

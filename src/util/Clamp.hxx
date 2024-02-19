@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2012 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,7 @@
  * value is outside.
  */
 template<typename T>
-static inline constexpr const T &
+constexpr const T &
 Clamp(const T &value, const T &min, const T &max)
 {
 	return gcc_unlikely(value < min)

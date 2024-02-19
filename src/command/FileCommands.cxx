@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,53 +17,53 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#define __STDC_FORMAT_MACROS /* for PRIu64 */
-
 #include "config.h"
 #include "FileCommands.hxx"
 #include "Request.hxx"
-#include "CommandError.hxx"
 #include "protocol/Ack.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "util/CharUtil.hxx"
-#include "util/UriUtil.hxx"
-#include "tag/TagHandler.hxx"
+#include "util/OffsetPointer.hxx"
+#include "util/ScopeExit.hxx"
+#include "util/StringCompare.hxx"
+#include "util/StringView.hxx"
+#include "util/UriExtract.hxx"
+#include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
-#include "TagStream.hxx"
-#include "TagFile.hxx"
+#include "TagAny.hxx"
+#include "db/Interface.hxx"
+#include "song/LightSong.hxx"
 #include "storage/StorageInterface.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileInfo.hxx"
 #include "fs/DirectoryReader.hxx"
+#include "input/InputStream.hxx"
+#include "input/Error.hxx"
 #include "LocateUri.hxx"
 #include "TimePrint.hxx"
+#include "thread/Mutex.hxx"
+#include "Log.hxx"
 
-#include <assert.h>
-#include <inttypes.h> /* for PRIu64 */
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <cassert>
+#include <array>
 
 gcc_pure
 static bool
-SkipNameFS(PathTraitsFS::const_pointer_type name_fs)
+SkipNameFS(PathTraitsFS::const_pointer name_fs) noexcept
 {
-	return name_fs[0] == '.' &&
-		(name_fs[1] == 0 ||
-		 (name_fs[1] == '.' && name_fs[2] == 0));
+	return PathTraitsFS::IsSpecialFilename(name_fs);
 }
 
 gcc_pure
 static bool
-skip_path(Path name_fs)
+skip_path(Path name_fs) noexcept
 {
 	return name_fs.HasNewline();
 }
-
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
-/* PRIu64 causes bogus compiler warning */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-#endif
 
 CommandResult
 handle_listfiles_local(Response &r, Path path_fs)
@@ -79,19 +79,18 @@ handle_listfiles_local(Response &r, Path path_fs)
 		if (name_utf8.empty())
 			continue;
 
-		const AllocatedPath full_fs =
-			AllocatedPath::Build(path_fs, name_fs);
+		const auto full_fs = path_fs / name_fs;
 		FileInfo fi;
 		if (!GetFileInfo(full_fs, fi, false))
 			continue;
 
 		if (fi.IsRegular())
-			r.Format("file: %s\n"
-				 "size: %" PRIu64 "\n",
-				 name_utf8.c_str(),
-				 fi.GetSize());
+			r.Fmt(FMT_STRING("file: {}\n"
+					 "size: {}\n"),
+			      name_utf8,
+			      fi.GetSize());
 		else if (fi.IsDirectory())
-			r.Format("directory: %s\n", name_utf8.c_str());
+			r.Fmt(FMT_STRING("directory: {}\n"), name_utf8);
 		else
 			continue;
 
@@ -101,112 +100,38 @@ handle_listfiles_local(Response &r, Path path_fs)
 	return CommandResult::OK;
 }
 
-#if defined(WIN32) && GCC_CHECK_VERSION(4,6)
-#pragma GCC diagnostic pop
-#endif
-
 gcc_pure
 static bool
-IsValidName(const char *p)
+IsValidName(const StringView s) noexcept
 {
-	if (!IsAlphaASCII(*p))
+	if (s.empty() || !IsAlphaASCII(s.front()))
 		return false;
 
-	while (*++p) {
-		const char ch = *p;
-		if (!IsAlphaASCII(ch) && ch != '_' && ch != '-')
-			return false;
-	}
-
-	return true;
+	return std::none_of(s.begin(), s.end(), [=](const auto &ch) {
+		return !IsAlphaASCII(ch) && ch != '_' && ch != '-';
+	});
 }
 
 gcc_pure
 static bool
-IsValidValue(const char *p)
+IsValidValue(const StringView s) noexcept
 {
-	while (*p) {
-		const char ch = *p++;
+	return std::none_of(s.begin(), s.end(), [](const auto &ch) { return (unsigned char)ch < 0x20; });
+}
 
-		if ((unsigned char)ch < 0x20)
-			return false;
+class PrintCommentHandler final : public NullTagHandler {
+	Response &response;
+
+public:
+	explicit PrintCommentHandler(Response &_response) noexcept
+		:NullTagHandler(WANT_PAIR), response(_response) {}
+
+	void OnPair(StringView _key, StringView _value) noexcept override {
+		const std::string_view key{_key}, value{_value};
+		if (IsValidName(key) && IsValidValue(value))
+			response.Fmt(FMT_STRING("{}: {}\n"), key, value);
 	}
-
-	return true;
-}
-
-static void
-print_pair(const char *key, const char *value, void *ctx)
-{
-	auto &r = *(Response *)ctx;
-
-	if (IsValidName(key) && IsValidValue(value))
-		r.Format("%s: %s\n", key, value);
-}
-
-static constexpr TagHandler print_comment_handler = {
-	nullptr,
-	nullptr,
-	print_pair,
 };
-
-static CommandResult
-read_stream_comments(Response &r, const char *uri)
-{
-	if (!tag_stream_scan(uri, print_comment_handler, &r)) {
-		r.Error(ACK_ERROR_NO_EXIST, "Failed to load file");
-		return CommandResult::ERROR;
-	}
-
-	return CommandResult::OK;
-
-}
-
-static CommandResult
-read_file_comments(Response &r, const Path path_fs)
-{
-	if (!tag_file_scan(path_fs, print_comment_handler, &r)) {
-		r.Error(ACK_ERROR_NO_EXIST, "Failed to load file");
-		return CommandResult::ERROR;
-	}
-
-	ScanGenericTags(path_fs, print_comment_handler, &r);
-
-	return CommandResult::OK;
-
-}
-
-static CommandResult
-read_db_comments(Client &client, Response &r, const char *uri)
-{
-#ifdef ENABLE_DATABASE
-	const Storage *storage = client.GetStorage();
-	if (storage == nullptr) {
-#else
-		(void)client;
-		(void)uri;
-#endif
-		r.Error(ACK_ERROR_NO_EXIST, "No database");
-		return CommandResult::ERROR;
-#ifdef ENABLE_DATABASE
-	}
-
-	{
-		AllocatedPath path_fs = storage->MapFS(uri);
-		if (!path_fs.IsNull())
-			return read_file_comments(r, path_fs);
-	}
-
-	{
-		const std::string uri2 = storage->MapUTF8(uri);
-		if (uri_has_scheme(uri2.c_str()))
-			return read_stream_comments(r, uri2.c_str());
-	}
-
-	r.Error(ACK_ERROR_NO_EXIST, "No such file");
-	return CommandResult::ERROR;
-#endif
-}
 
 CommandResult
 handle_read_comments(Client &client, Request args, Response &r)
@@ -215,21 +140,240 @@ handle_read_comments(Client &client, Request args, Response &r)
 
 	const char *const uri = args.front();
 
-	const auto located_uri = LocateUri(uri, &client
+	PrintCommentHandler handler(r);
+	TagScanAny(client, uri, handler);
+	return CommandResult::OK;
+}
+
+/**
+ * Searches for the files listed in #artnames in the UTF8 folder
+ * URI #directory. This can be a local path or protocol-based
+ * URI that #InputStream supports. Returns the first successfully
+ * opened file or #nullptr on failure.
+ */
+static InputStreamPtr
+find_stream_art(std::string_view directory, Mutex &mutex)
+{
+	static constexpr auto art_names = std::array {
+		"cover.png",
+		"cover.jpg",
+		"cover.webp",
+	};
+
+	for(const auto name : art_names) {
+		std::string art_file = PathTraitsUTF8::Build(directory, name);
+
+		try {
+			return InputStream::OpenReady(art_file.c_str(), mutex);
+		} catch (...) {
+			auto e = std::current_exception();
+			if (!IsFileNotFound(e))
+				LogError(e);
+		}
+	}
+	return nullptr;
+}
+
+static CommandResult
+read_stream_art(Response &r, const std::string_view art_directory,
+		size_t offset)
+{
+	// TODO: eliminate this const_cast
+	auto &client = const_cast<Client &>(r.GetClient());
+
+	/* to avoid repeating the search for each chunk request by the
+	   same client, use the #LastInputStream class to cache the
+	   #InputStream instance */
+	auto *is = client.last_album_art.Open(art_directory, [](std::string_view directory,
+								Mutex &mutex){
+		return find_stream_art(directory, mutex);
+	});
+
+	if (is == nullptr) {
+		r.Error(ACK_ERROR_NO_EXIST, "No file exists");
+		return CommandResult::ERROR;
+	}
+	if (!is->KnownSize()) {
+		r.Error(ACK_ERROR_NO_EXIST, "Cannot get size for stream");
+		return CommandResult::ERROR;
+	}
+
+	const offset_type art_file_size = is->GetSize();
+
+	if (offset > art_file_size) {
+		r.Error(ACK_ERROR_ARG, "Offset too large");
+		return CommandResult::ERROR;
+	}
+
+	std::size_t buffer_size =
+		std::min<offset_type>(art_file_size - offset,
+				      r.GetClient().binary_limit);
+
+	auto buffer = std::make_unique<std::byte[]>(buffer_size);
+
+	std::size_t read_size = 0;
+	if (buffer_size > 0) {
+		std::unique_lock<Mutex> lock(is->mutex);
+		is->Seek(lock, offset);
+		read_size = is->Read(lock, buffer.get(), buffer_size);
+	}
+
+	r.Fmt(FMT_STRING("size: {}\n"), art_file_size);
+
+	r.WriteBinary({buffer.get(), read_size});
+
+	return CommandResult::OK;
+}
+
+#ifdef ENABLE_DATABASE
+
+/**
+ * Attempt to locate the "real" directory where the given song is
+ * stored.  This attempts to resolve "virtual" directories/songs,
+ * e.g. expanded CUE sheet contents.
+ */
+[[gnu::pure]]
+static std::string_view
+RealDirectoryOfSong(Client &client, const char *song_uri,
+		    std::string_view directory_uri) noexcept
+try {
+	const auto *db = client.GetDatabase();
+	if (db == nullptr)
+		return directory_uri;
+
+	const auto *song = db->GetSong(song_uri);
+	if (song == nullptr)
+		return directory_uri;
+
+	AtScopeExit(db, song) { db->ReturnSong(song); };
+
+	if (song->real_uri == nullptr)
+		return directory_uri;
+
+	const char *real_uri = song->real_uri;
+
+	/* this is a simplification which is just enough for CUE
+	   sheets (but may be incomplete): for each "../", go one
+	   level up */
+	while ((real_uri = StringAfterPrefix(real_uri, "../")) != nullptr)
+		directory_uri = PathTraitsUTF8::GetParent(directory_uri);
+
+	return directory_uri;
+} catch (...) {
+	/* ignore all exceptions from Database::GetSong() */
+	return directory_uri;
+}
+
+static CommandResult
+read_db_art(Client &client, Response &r, const char *uri, const uint64_t offset)
+{
+	const Storage *storage = client.GetStorage();
+	if (storage == nullptr) {
+		r.Error(ACK_ERROR_NO_EXIST, "No database");
+		return CommandResult::ERROR;
+	}
+	std::string uri2 = storage->MapUTF8(uri);
+
+	std::string_view directory_uri =
+		RealDirectoryOfSong(client,
+				    uri,
+				    PathTraitsUTF8::GetParent(uri2.c_str()));
+
+	return read_stream_art(r, directory_uri, offset);
+}
+#endif
+
+CommandResult
+handle_album_art(Client &client, Request args, Response &r)
+{
+	assert(args.size == 2);
+
+	const char *uri = args.front();
+	size_t offset = args.ParseUnsigned(1);
+
+	const auto located_uri = LocateUri(UriPluginKind::INPUT, uri, &client
 #ifdef ENABLE_DATABASE
 					   , nullptr
 #endif
 					   );
+
 	switch (located_uri.type) {
 	case LocatedUri::Type::ABSOLUTE:
-		return read_stream_comments(r, located_uri.canonical_uri);
+	case LocatedUri::Type::PATH:
+		return read_stream_art(r,
+				       PathTraitsUTF8::GetParent(located_uri.canonical_uri),
+				       offset);
 
 	case LocatedUri::Type::RELATIVE:
-		return read_db_comments(client, r, located_uri.canonical_uri);
+#ifdef ENABLE_DATABASE
+		return read_db_art(client, r, located_uri.canonical_uri, offset);
+#else
+		r.Error(ACK_ERROR_NO_EXIST, "Database disabled");
+		return CommandResult::ERROR;
+#endif
+	}
+	r.Error(ACK_ERROR_NO_EXIST, "No art file exists");
+	return CommandResult::ERROR;
+}
 
-	case LocatedUri::Type::PATH:
-		return read_file_comments(r, located_uri.path);
+class PrintPictureHandler final : public NullTagHandler {
+	Response &response;
+
+	const size_t offset;
+
+	bool found = false;
+
+	bool bad_offset = false;
+
+public:
+	PrintPictureHandler(Response &_response, size_t _offset) noexcept
+		:NullTagHandler(WANT_PICTURE), response(_response),
+		 offset(_offset) {}
+
+	void RethrowError() const {
+		if (bad_offset)
+			throw ProtocolError(ACK_ERROR_ARG, "Bad file offset");
 	}
 
-	gcc_unreachable();
+	void OnPicture(const char *mime_type,
+		       ConstBuffer<void> buffer) noexcept override {
+		if (found)
+			/* only use the first picture */
+			return;
+
+		found = true;
+
+		if (offset > buffer.size) {
+			bad_offset = true;
+			return;
+		}
+
+		response.Fmt(FMT_STRING("size: {}\n"), buffer.size);
+
+		if (mime_type != nullptr)
+			response.Fmt(FMT_STRING("type: {}\n"), mime_type);
+
+		buffer.size -= offset;
+
+		const std::size_t binary_limit = response.GetClient().binary_limit;
+		if (buffer.size > binary_limit)
+			buffer.size = binary_limit;
+		buffer.data = OffsetPointer(buffer.data, offset);
+
+		response.WriteBinary(buffer);
+	}
+};
+
+CommandResult
+handle_read_picture(Client &client, Request args, Response &r)
+{
+	assert(args.size == 2);
+
+	const char *const uri = args.front();
+	const size_t offset = args.ParseUnsigned(1);
+
+	PrintPictureHandler handler(r, offset);
+	TagScanAny(client, uri, handler);
+	handler.RethrowError();
+	return CommandResult::OK;
 }

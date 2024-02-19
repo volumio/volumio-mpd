@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,22 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagSave.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "playlist/SongEnumerator.hxx"
 #include "input/InputStream.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "ConfigGlue.hxx"
 #include "decoder/DecoderList.hxx"
 #include "input/Init.hxx"
-#include "ScopeIOThread.hxx"
+#include "event/Thread.hxx"
 #include "playlist/PlaylistRegistry.hxx"
 #include "playlist/PlaylistPlugin.hxx"
 #include "fs/Path.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
-#include "fs/io/StdioOutputStream.hxx"
+#include "fs/NarrowPath.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "io/StdioOutputStream.hxx"
 #include "thread/Cond.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -41,9 +41,9 @@ static void
 tag_save(FILE *file, const Tag &tag)
 {
 	StdioOutputStream sos(file);
-	BufferedOutputStream bos(sos);
-	tag_save(bos, tag);
-	bos.Flush();
+	WithBufferedOutputStream(sos, [&](auto &bos){
+		tag_save(bos, tag);
+	});
 }
 
 int main(int argc, char **argv)
@@ -55,37 +55,35 @@ try {
 		return EXIT_FAILURE;
 	}
 
-	const Path config_path = Path::FromFS(argv[1]);
+	const FromNarrowPath config_path = argv[1];
 	uri = argv[2];
 
 	/* initialize MPD */
 
-	config_global_init();
+	const auto config = AutoLoadConfigFile(config_path);
 
-	ReadConfigFile(config_path);
+	EventThread io_thread;
+	io_thread.Start();
 
-	const ScopeIOThread io_thread;
-
-	input_stream_global_init();
-	playlist_list_global_init();
-	decoder_plugin_init_all();
+	const ScopeInputPluginsInit input_plugins_init(config, io_thread.GetEventLoop());
+	const ScopePlaylistPluginsInit playlist_plugins_init(config);
+	const ScopeDecoderPluginsInit decoder_plugins_init(config);
 
 	/* open the playlist */
 
 	Mutex mutex;
-	Cond cond;
 
 	InputStreamPtr is;
-	auto playlist = playlist_list_open_uri(uri, mutex, cond);
-	if (playlist == NULL) {
+	auto playlist = playlist_list_open_uri(uri, mutex);
+	if (playlist == nullptr) {
 		/* open the stream and wait until it becomes ready */
 
-		is = InputStream::OpenReady(uri, mutex, cond);
+		is = InputStream::OpenReady(uri, mutex);
 
 		/* open the playlist */
 
 		playlist = playlist_list_open_stream(std::move(is), uri);
-		if (playlist == NULL) {
+		if (playlist == nullptr) {
 			fprintf(stderr, "Failed to open playlist\n");
 			return 2;
 		}
@@ -94,7 +92,7 @@ try {
 	/* dump the playlist */
 
 	std::unique_ptr<DetachedSong> song;
-	while ((song = playlist->NextSong()) != NULL) {
+	while ((song = playlist->NextSong()) != nullptr) {
 		printf("%s\n", song->GetURI());
 
 		const unsigned start_ms = song->GetStartTime().ToMS();
@@ -116,16 +114,11 @@ try {
 
 	/* deinitialize everything */
 
-	delete playlist;
+	playlist.reset();
 	is.reset();
 
-	decoder_plugin_deinit_all();
-	playlist_list_global_finish();
-	input_stream_global_finish();
-	config_global_finish();
-
 	return EXIT_SUCCESS;
- } catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
- }
+}

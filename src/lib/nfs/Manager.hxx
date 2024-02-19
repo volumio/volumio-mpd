@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,8 @@
 #ifndef MPD_NFS_MANAGER_HXX
 #define MPD_NFS_MANAGER_HXX
 
-#include "check.h"
 #include "Connection.hxx"
-#include "Compiler.h"
-#include "event/IdleMonitor.hxx"
+#include "event/IdleEvent.hxx"
 
 #include <boost/intrusive/set.hpp>
 #include <boost/intrusive/slist.hpp>
@@ -32,7 +30,7 @@
  * A manager for NFS connections.  Handles multiple connections to
  * multiple NFS servers.
  */
-class NfsManager final : IdleMonitor {
+class NfsManager final {
 	struct LookupKey {
 		const char *server;
 		const char *export_name;
@@ -47,27 +45,27 @@ class NfsManager final : IdleMonitor {
 	public:
 		ManagedConnection(NfsManager &_manager, EventLoop &_loop,
 				  const char *_server,
-				  const char *_export_name)
+				  const char *_export_name) noexcept
 			:NfsConnection(_loop, _server, _export_name),
 			 manager(_manager) {}
 
 	protected:
 		/* virtual methods from NfsConnection */
-		void OnNfsConnectionError(std::exception_ptr &&e) override;
+		void OnNfsConnectionError(std::exception_ptr &&e) noexcept override;
 	};
 
 	struct Compare {
-		gcc_pure
+		[[gnu::pure]]
 		bool operator()(const LookupKey a,
-				const ManagedConnection &b) const;
+				const ManagedConnection &b) const noexcept;
 
-		gcc_pure
+		[[gnu::pure]]
 		bool operator()(const ManagedConnection &a,
-				const LookupKey b) const;
+				const LookupKey b) const noexcept;
 
-		gcc_pure
+		[[gnu::pure]]
 		bool operator()(const ManagedConnection &a,
-				const ManagedConnection &b) const;
+				const ManagedConnection &b) const noexcept;
 	};
 
 	/**
@@ -88,33 +86,39 @@ class NfsManager final : IdleMonitor {
 	 */
 	List garbage;
 
+	IdleEvent idle_event;
+
 public:
-	NfsManager(EventLoop &_loop)
-		:IdleMonitor(_loop) {}
+	explicit NfsManager(EventLoop &_loop) noexcept
+		:idle_event(_loop, BIND_THIS_METHOD(OnIdle)) {}
 
 	/**
 	 * Must be run from EventLoop's thread.
 	 */
-	~NfsManager();
+	~NfsManager() noexcept;
 
-	gcc_pure
+	auto &GetEventLoop() const noexcept {
+		return idle_event.GetEventLoop();
+	}
+
+	[[gnu::pure]]
 	NfsConnection &GetConnection(const char *server,
-				     const char *export_name);
+				     const char *export_name) noexcept;
 
 private:
-	void ScheduleDelete(ManagedConnection &c) {
+	void ScheduleDelete(ManagedConnection &c) noexcept {
 		connections.erase(connections.iterator_to(c));
 		garbage.push_front(c);
-		IdleMonitor::Schedule();
+		idle_event.Schedule();
 	}
 
 	/**
 	 * Delete all connections on the #garbage list.
 	 */
-	void CollectGarbage();
+	void CollectGarbage() noexcept;
 
 	/* virtual methods from IdleMonitor */
-	void OnIdle() override;
+	void OnIdle() noexcept;
 };
 
 #endif

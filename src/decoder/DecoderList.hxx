@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,9 @@
 #ifndef MPD_DECODER_LIST_HXX
 #define MPD_DECODER_LIST_HXX
 
-#include "Compiler.h"
+#include <string_view>
 
+struct ConfigData;
 struct DecoderPlugin;
 
 extern const struct DecoderPlugin *const decoder_plugins[];
@@ -29,21 +30,32 @@ extern bool decoder_plugins_enabled[];
 
 /* interface for using plugins */
 
-gcc_pure
+[[gnu::pure]]
 const struct DecoderPlugin *
-decoder_plugin_from_name(const char *name);
+decoder_plugin_from_name(const char *name) noexcept;
 
 /* this is where we "load" all the "plugins" ;-) */
 void
-decoder_plugin_init_all();
+decoder_plugin_init_all(const ConfigData &config);
 
 /* this is where we "unload" all the "plugins" */
 void
-decoder_plugin_deinit_all();
+decoder_plugin_deinit_all() noexcept;
+
+class ScopeDecoderPluginsInit {
+public:
+	explicit ScopeDecoderPluginsInit(const ConfigData &config) {
+		decoder_plugin_init_all(config);
+	}
+
+	~ScopeDecoderPluginsInit() noexcept {
+		decoder_plugin_deinit_all();
+	}
+};
 
 template<typename F>
 static inline const DecoderPlugin *
-decoder_plugins_find(F f)
+decoder_plugins_find(F f) noexcept
 {
 	for (unsigned i = 0; decoder_plugins[i] != nullptr; ++i)
 		if (decoder_plugins_enabled[i] && f(*decoder_plugins[i]))
@@ -84,8 +96,8 @@ decoder_plugins_for_each_enabled(F f)
  * Is there at least once #DecoderPlugin that supports the specified
  * file name suffix?
  */
-gcc_pure gcc_nonnull_all
+[[gnu::pure]]
 bool
-decoder_plugins_supports_suffix(const char *suffix);
+decoder_plugins_supports_suffix(std::string_view suffix) noexcept;
 
 #endif

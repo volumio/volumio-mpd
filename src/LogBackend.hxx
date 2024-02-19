@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,19 +20,18 @@
 #ifndef MPD_LOG_BACKEND_HXX
 #define MPD_LOG_BACKEND_HXX
 
-#include "check.h"
 #include "LogLevel.hxx"
 
 void
-SetLogThreshold(LogLevel _threshold);
+SetLogThreshold(LogLevel _threshold) noexcept;
 
 void
-EnableLogTimestamp();
+EnableLogTimestamp() noexcept;
 
 void
-LogInitSysLog();
+LogInitSysLog() noexcept;
 
 void
-LogFinishSysLog();
+LogFinishSysLog() noexcept;
 
 #endif /* LOG_H */

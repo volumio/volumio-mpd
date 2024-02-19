@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,37 +17,48 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabaseSong.hxx"
-#include "LightSong.hxx"
 #include "Interface.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
+#include "song/LightSong.hxx"
 #include "storage/StorageInterface.hxx"
+#include "util/ScopeExit.hxx"
+#include "util/UriExtract.hxx"
+#include "util/UriRelative.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 DetachedSong
-DatabaseDetachSong(const Storage &storage, const LightSong &song)
+DatabaseDetachSong(const Storage *storage, const LightSong &song) noexcept
 {
 	DetachedSong detached(song);
 	assert(detached.IsInDatabase());
 
-	if (!detached.HasRealURI()) {
-		const auto uri = song.GetURI();
-		detached.SetRealURI(storage.MapUTF8(uri.c_str()));
+	if (storage != nullptr) {
+		if (!detached.HasRealURI()) {
+			const auto uri = song.GetURI();
+			detached.SetRealURI(storage->MapUTF8(uri.c_str()));
+		} else if (uri_is_relative_path(detached.GetRealURI())) {
+			/* if the "RealURI" is relative, translate it
+			   using the song's "URI" attribute, because
+			   it's assumed to be relative to it */
+			const auto real_uri =
+				uri_apply_relative(detached.GetRealURI(),
+						   song.GetURI());
+			detached.SetRealURI(storage->MapUTF8(real_uri.c_str()));
+		}
 	}
 
 	return detached;
 }
 
-DetachedSong *
-DatabaseDetachSong(const Database &db, const Storage &storage, const char *uri)
+DetachedSong
+DatabaseDetachSong(const Database &db, const Storage *storage, const char *uri)
 {
 	const LightSong *tmp = db.GetSong(uri);
 	assert(tmp != nullptr);
 
-	DetachedSong *song = new DetachedSong(DatabaseDetachSong(storage,
-								 *tmp));
-	db.ReturnSong(tmp);
-	return song;
+	AtScopeExit(&db, tmp) { db.ReturnSong(tmp); };
+
+	return DatabaseDetachSong(storage, *tmp);
 }

@@ -1,0 +1,2 @@
+# this is a user autostart entry for the non-systemd case
+maintainer-desktop-entry [debian/mpd.desktop]

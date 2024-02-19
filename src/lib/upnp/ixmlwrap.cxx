@@ -15,13 +15,16 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#include "ixmlwrap.hxx"
-#include "UniqueIxml.hxx"
+#include "config.h"
+
+#ifdef USING_PUPNP
+#	include "ixmlwrap.hxx"
+#	include "UniqueIxml.hxx"
 
 namespace ixmlwrap {
 
 const char *
-getFirstElementValue(IXML_Document *doc, const char *name)
+getFirstElementValue(IXML_Document *doc, const char *name) noexcept
 {
 	UniqueIxmlNodeList nodes(ixmlDocument_getElementsByTagName(doc, name));
 	if (!nodes)
@@ -38,4 +41,5 @@ getFirstElementValue(IXML_Document *doc, const char *name)
 	return ixmlNode_getNodeValue(dnode);
 }
 
-}
+} // namespace ixmlwrap
+#endif

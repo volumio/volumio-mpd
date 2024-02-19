@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,11 +23,10 @@
 #include "HugeAllocator.hxx"
 #include "Compiler.h"
 
-#include <utility>
+#include <cassert>
+#include <cstddef>
 #include <new>
-
-#include <assert.h>
-#include <stddef.h>
+#include <utility>
 
 /**
  * This class pre-allocates a certain number of objects, and allows
@@ -41,78 +40,73 @@ class SliceBuffer {
 		T value;
 	};
 
-	/**
-	 * The maximum number of slices in this container.
-	 */
-	const unsigned n_max;
+	HugeArray<Slice> buffer;
 
 	/**
 	 * The number of slices that are initialized.  This is used to
 	 * avoid page faulting on the new allocation, so the kernel
 	 * does not need to reserve physical memory pages.
 	 */
-	unsigned n_initialized;
+	unsigned n_initialized = 0;
 
 	/**
 	 * The number of slices currently allocated.
 	 */
-	unsigned n_allocated;
-
-	Slice *const data;
+	unsigned n_allocated = 0;
 
 	/**
 	 * Pointer to the first free element in the chain.
 	 */
-	Slice *available;
-
-	size_t CalcAllocationSize() const {
-		return n_max * sizeof(Slice);
-	}
+	Slice *available = nullptr;
 
 public:
 	SliceBuffer(unsigned _count)
-		:n_max(_count), n_initialized(0), n_allocated(0),
-		 data((Slice *)HugeAllocate(CalcAllocationSize())),
-		 available(nullptr) {
-		assert(n_max > 0);
+		:buffer(_count) {
+		buffer.ForkCow(false);
 	}
 
-	~SliceBuffer() {
+	~SliceBuffer() noexcept {
 		/* all slices must be freed explicitly, and this
 		   assertion checks for leaks */
 		assert(n_allocated == 0);
-
-		HugeFree(data, CalcAllocationSize());
 	}
 
 	SliceBuffer(const SliceBuffer &other) = delete;
 	SliceBuffer &operator=(const SliceBuffer &other) = delete;
 
-	unsigned GetCapacity() const {
-		return n_max;
+	unsigned GetCapacity() const noexcept {
+		return buffer.size();
 	}
 
-	bool IsEmpty() const {
+	bool empty() const noexcept {
 		return n_allocated == 0;
 	}
 
-	bool IsFull() const {
-		return n_allocated == n_max;
+	bool IsFull() const noexcept {
+		return n_allocated == buffer.size();
+	}
+
+	void DiscardMemory() noexcept {
+		assert(empty());
+
+		n_initialized = 0;
+		buffer.Discard();
+		available = nullptr;
 	}
 
 	template<typename... Args>
 	T *Allocate(Args&&... args) {
-		assert(n_initialized <= n_max);
+		assert(n_initialized <= buffer.size());
 		assert(n_allocated <= n_initialized);
 
 		if (available == nullptr) {
-			if (n_initialized == n_max) {
+			if (n_initialized == buffer.size()) {
 				/* out of (internal) memory, buffer is full */
-				assert(n_allocated == n_max);
+				assert(n_allocated == buffer.size());
 				return nullptr;
 			}
 
-			available = &data[n_initialized++];
+			available = &buffer[n_initialized++];
 			available->next = nullptr;
 		}
 
@@ -125,13 +119,13 @@ public:
 		return ::new((void *)value) T(std::forward<Args>(args)...);
 	}
 
-	void Free(T *value) {
-		assert(n_initialized <= n_max);
+	void Free(T *value) noexcept {
+		assert(n_initialized <= buffer.size());
 		assert(n_allocated > 0);
 		assert(n_allocated <= n_initialized);
 
 		Slice *slice = reinterpret_cast<Slice *>(value);
-		assert(slice >= data && slice < data + n_max);
+		assert(slice >= &buffer.front() && slice <= &buffer.back());
 
 		/* destruct the object */
 		value->~T();
@@ -144,9 +138,7 @@ public:
 		/* give memory back to the kernel when the last slice
 		   was freed */
 		if (n_allocated == 0) {
-			HugeDiscard(data, CalcAllocationSize());
-			n_initialized = 0;
-			available = nullptr;
+			DiscardMemory();
 		}
 	}
 };

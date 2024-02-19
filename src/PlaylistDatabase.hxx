@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,11 @@
 #ifndef MPD_PLAYLIST_DATABASE_HXX
 #define MPD_PLAYLIST_DATABASE_HXX
 
-#include "check.h"
-
 #define PLAYLIST_META_BEGIN "playlist_begin: "
 
 class PlaylistVector;
 class BufferedOutputStream;
-class TextFile;
+class LineReader;
 
 void
 playlist_vector_save(BufferedOutputStream &os, const PlaylistVector &pv);
@@ -35,6 +33,7 @@ playlist_vector_save(BufferedOutputStream &os, const PlaylistVector &pv);
  * Throws #std::runtime_error on error.
  */
 void
-playlist_metadata_load(TextFile &file, PlaylistVector &pv, const char *name);
+playlist_metadata_load(LineReader &file, PlaylistVector &pv,
+		       const char *name);
 
 #endif

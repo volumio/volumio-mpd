@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,13 +22,12 @@
  *
  */
 
-#include "config.h"
 #include "IdleFlags.hxx"
 #include "util/ASCII.hxx"
 
-#include <assert.h>
+#include <cassert>
 
-static const char *const idle_names[] = {
+static constexpr const char * idle_names[] = {
 	"database",
 	"stored_playlist",
 	"playlist",
@@ -42,17 +41,18 @@ static const char *const idle_names[] = {
 	"message",
 	"neighbor",
 	"mount",
-	nullptr
+	"partition",
+	nullptr,
 };
 
 const char*const*
-idle_get_names(void)
+idle_get_names() noexcept
 {
         return idle_names;
 }
 
 unsigned
-idle_parse_name(const char *name)
+idle_parse_name(const char *name) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */

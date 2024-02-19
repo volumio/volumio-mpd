@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MixerControl.hxx"
 #include "MixerInternal.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 Mixer *
 mixer_new(EventLoop &event_loop,
@@ -53,7 +52,7 @@ mixer_open(Mixer *mixer)
 {
 	assert(mixer != nullptr);
 
-	const ScopeLock protect(mixer->mutex);
+	const std::scoped_lock<Mutex> protect(mixer->mutex);
 
 	if (mixer->open)
 		return;
@@ -61,9 +60,9 @@ mixer_open(Mixer *mixer)
 	try {
 		mixer->Open();
 		mixer->open = true;
-		mixer->failed = false;
+		mixer->failure = {};
 	} catch (...) {
-		mixer->failed = true;
+		mixer->failure = std::current_exception();
 		throw;
 	}
 }
@@ -76,6 +75,7 @@ mixer_close_internal(Mixer *mixer)
 
 	mixer->Close();
 	mixer->open = false;
+	mixer->failure = {};
 }
 
 void
@@ -83,7 +83,7 @@ mixer_close(Mixer *mixer)
 {
 	assert(mixer != nullptr);
 
-	const ScopeLock protect(mixer->mutex);
+	const std::scoped_lock<Mutex> protect(mixer->mutex);
 
 	if (mixer->open)
 		mixer_close_internal(mixer);
@@ -92,22 +92,8 @@ mixer_close(Mixer *mixer)
 void
 mixer_auto_close(Mixer *mixer)
 {
-	if (!mixer->plugin.global)
+	if (!mixer->IsGlobal())
 		mixer_close(mixer);
-}
-
-/*
- * Close the mixer due to failure.  The mutex must be locked before
- * calling this function.
- */
-static void
-mixer_failed(Mixer *mixer)
-{
-	assert(mixer->open);
-
-	mixer_close_internal(mixer);
-
-	mixer->failed = true;
 }
 
 int
@@ -117,16 +103,17 @@ mixer_get_volume(Mixer *mixer)
 
 	assert(mixer != nullptr);
 
-	if (mixer->plugin.global && !mixer->failed)
+	if (mixer->IsGlobal() && !mixer->failure)
 		mixer_open(mixer);
 
-	const ScopeLock protect(mixer->mutex);
+	const std::scoped_lock<Mutex> protect(mixer->mutex);
 
 	if (mixer->open) {
 		try {
 			volume = mixer->GetVolume();
 		} catch (...) {
-			mixer_failed(mixer);
+			mixer_close_internal(mixer);
+			mixer->failure = std::current_exception();
 			throw;
 		}
 	} else
@@ -141,11 +128,13 @@ mixer_set_volume(Mixer *mixer, unsigned volume)
 	assert(mixer != nullptr);
 	assert(volume <= 100);
 
-	if (mixer->plugin.global && !mixer->failed)
+	if (mixer->IsGlobal() && !mixer->failure)
 		mixer_open(mixer);
 
-	const ScopeLock protect(mixer->mutex);
+	const std::scoped_lock<Mutex> protect(mixer->mutex);
 
 	if (mixer->open)
 		mixer->SetVolume(volume);
+	else if (mixer->failure)
+		std::rethrow_exception(mixer->failure);
 }

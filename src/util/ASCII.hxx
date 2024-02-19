@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +32,9 @@
 
 #include "Compiler.h"
 
-#include <assert.h>
+#include <cassert>
+#include <string_view>
+
 #include <strings.h>
 
 /**
@@ -41,7 +43,7 @@
  */
 gcc_pure gcc_nonnull_all
 static inline bool
-StringEqualsCaseASCII(const char *a, const char *b)
+StringEqualsCaseASCII(const char *a, const char *b) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */
@@ -56,7 +58,7 @@ StringEqualsCaseASCII(const char *a, const char *b)
 
 gcc_pure gcc_nonnull_all
 static inline bool
-StringEqualsCaseASCII(const char *a, const char *b, size_t n)
+StringEqualsCaseASCII(const char *a, const char *b, size_t n) noexcept
 {
 #if !CLANG_CHECK_VERSION(3,6)
 	/* disabled on clang due to -Wtautological-pointer-compare */
@@ -67,6 +69,24 @@ StringEqualsCaseASCII(const char *a, const char *b, size_t n)
 	/* note: strcasecmp() depends on the locale, but for ASCII-only
 	   strings, it's safe to use */
 	return strncasecmp(a, b, n) == 0;
+}
+
+gcc_pure gcc_nonnull_all
+static inline bool
+StringStartsWithCaseASCII(const char *haystack,
+			  std::string_view needle) noexcept
+{
+	return StringEqualsCaseASCII(haystack, needle.data(), needle.length());
+}
+
+gcc_pure gcc_nonnull_all
+static inline const char *
+StringAfterPrefixCaseASCII(const char *haystack,
+			   std::string_view needle) noexcept
+{
+	return StringStartsWithCaseASCII(haystack, needle)
+		? haystack + needle.length()
+		: nullptr;
 }
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_VORBIS_COMMENT_HXX
 #define MPD_VORBIS_COMMENT_HXX
 
-#include "check.h"
-
 #include <vorbis/codec.h>
 
 /**
@@ -31,26 +29,26 @@ class VorbisComment {
 	vorbis_comment vc;
 
 public:
-	VorbisComment() {
+	VorbisComment() noexcept {
 		vorbis_comment_init(&vc);
 	}
 
-	~VorbisComment() {
+	~VorbisComment() noexcept {
 		vorbis_comment_clear(&vc);
 	}
 
 	VorbisComment(const VorbisComment &) = delete;
 	VorbisComment &operator=(const VorbisComment &) = delete;
 
-	operator vorbis_comment &() {
+	operator vorbis_comment &() noexcept {
 		return vc;
 	}
 
-	operator vorbis_comment *() {
+	operator vorbis_comment *() noexcept {
 		return &vc;
 	}
 
-	void AddTag(const char *tag, const char *contents) {
+	void AddTag(const char *tag, const char *contents) noexcept {
 		vorbis_comment_add_tag(&vc, tag, contents);
 	}
 };

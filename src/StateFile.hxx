@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #ifndef MPD_STATE_FILE_HXX
 #define MPD_STATE_FILE_HXX
 
-#include "event/TimeoutMonitor.hxx"
-#include "fs/AllocatedPath.hxx"
-#include "Compiler.h"
+#include "StateFileConfig.hxx"
+#include "event/FarTimerEvent.hxx"
+#include "config.h"
 
 #include <string>
 
@@ -30,11 +30,12 @@ struct Partition;
 class OutputStream;
 class BufferedOutputStream;
 
-class StateFile final : private TimeoutMonitor {
-	const AllocatedPath path;
+class StateFile final {
+	const StateFileConfig config;
+
 	const std::string path_utf8;
 
-	const unsigned interval;
+	FarTimerEvent timer_event;
 
 	Partition &partition;
 
@@ -42,13 +43,15 @@ class StateFile final : private TimeoutMonitor {
 	 * These version numbers determine whether we need to save the state
 	 * file.  If nothing has changed, we won't let the hard drive spin up.
 	 */
-	unsigned prev_volume_version, prev_output_version,
-		prev_playlist_version;
+	unsigned prev_volume_version = 0, prev_output_version = 0,
+		prev_playlist_version = 0;
+
+#ifdef ENABLE_DATABASE
+	unsigned prev_storage_version = 0;
+#endif
 
 public:
-	static constexpr unsigned DEFAULT_INTERVAL = 2 * 60;
-
-	StateFile(AllocatedPath &&path, unsigned interval,
+	StateFile(StateFileConfig &&_config,
 		  Partition &partition, EventLoop &loop);
 
 	void Read();
@@ -57,7 +60,7 @@ public:
 	/**
 	 * Schedules a write if MPD's state was modified.
 	 */
-	void CheckModified();
+	void CheckModified() noexcept;
 
 private:
 	void Write(OutputStream &os);
@@ -66,17 +69,17 @@ private:
 	/**
 	 * Save the current state versions for use with IsModified().
 	 */
-	void RememberVersions();
+	void RememberVersions() noexcept;
 
 	/**
 	 * Check if MPD's state was modified since the last
 	 * RememberVersions() call.
 	 */
-	gcc_pure
-	bool IsModified() const;
+	[[gnu::pure]]
+	bool IsModified() const noexcept;
 
-	/* virtual methods from TimeoutMonitor */
-	void OnTimeout() override;
+	/* callback for #timer_event */
+	void OnTimeout() noexcept;
 };
 
 #endif /* STATE_FILE_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,21 +19,19 @@
 
 #include "config.h"
 #include "Daemon.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "fs/FileSystem.hxx"
+#include "util/RuntimeError.hxx"
 
-#ifndef WIN32
+#ifndef _WIN32
 #include "PidFile.hxx"
 #endif
 
-#include <stdlib.h>
-#include <unistd.h>
 #include <fcntl.h>
 
-#ifndef WIN32
+#ifndef _WIN32
+#include <csignal>
 #include <sys/wait.h>
-#include <signal.h>
 #include <pwd.h>
 #include <grp.h>
 #endif
@@ -42,7 +40,7 @@
 #define WCOREDUMP(v) 0
 #endif
 
-#ifndef WIN32
+#ifndef _WIN32
 
 /** the Unix user name which MPD runs as */
 static char *user_name;
@@ -54,7 +52,7 @@ static uid_t user_uid = (uid_t)-1;
 static gid_t user_gid = (gid_t)-1;
 
 /** the absolute path of the pidfile */
-static AllocatedPath pidfile = AllocatedPath::Null();
+static AllocatedPath pidfile = nullptr;
 
 /* whether "group" conf. option was given */
 static bool had_group = false;
@@ -66,34 +64,33 @@ static bool had_group = false;
 static int detach_fd = -1;
 
 void
-daemonize_kill(void)
+daemonize_kill()
 {
 	if (pidfile.IsNull())
-		FatalError("no pid_file specified in the config file");
+		throw std::runtime_error("no pid_file specified in the config file");
 
 	const pid_t pid = ReadPidFile(pidfile);
 	if (pid < 0) {
 		const std::string utf8 = pidfile.ToUTF8();
-		FormatFatalError("unable to read the pid from file \"%s\"",
-				 utf8.c_str());
+		throw FormatErrno("unable to read the pid from file \"%s\"",
+				  utf8.c_str());
 	}
 
 	if (kill(pid, SIGTERM) < 0)
-		FormatFatalSystemError("unable to kill process %i",
-				       int(pid));
+		throw FormatErrno("unable to kill process %i", int(pid));
 
-	exit(EXIT_SUCCESS);
+	std::exit(EXIT_SUCCESS);
 }
 
 void
-daemonize_close_stdin(void)
+daemonize_close_stdin()
 {
 	close(STDIN_FILENO);
 	open("/dev/null", O_RDONLY);
 }
 
 void
-daemonize_set_user(void)
+daemonize_set_user()
 {
 	if (user_name == nullptr)
 		return;
@@ -101,8 +98,7 @@ daemonize_set_user(void)
 	/* set gid */
 	if (user_gid != (gid_t)-1 && user_gid != getgid() &&
 	    setgid(user_gid) == -1) {
-		FormatFatalSystemError("Failed to set group %d",
-				       (int)user_gid);
+		throw FormatErrno("Failed to set group %d", (int)user_gid);
 	}
 
 #ifdef HAVE_INITGROUPS
@@ -114,17 +110,16 @@ daemonize_set_user(void)
 	       we are already this user */
 	    user_uid != getuid() &&
 	    initgroups(user_name, user_gid) == -1) {
-		FormatFatalSystemError("Failed to set supplementary groups "
-				       "of user \"%s\"",
-				       user_name);
+		throw FormatErrno("Failed to set supplementary groups "
+				  "of user \"%s\"",
+				  user_name);
 	}
 #endif
 
 	/* set uid */
 	if (user_uid != (uid_t)-1 && user_uid != getuid() &&
 	    setuid(user_uid) == -1) {
-		FormatFatalSystemError("Failed to set user \"%s\"",
-				       user_name);
+		throw FormatErrno("Failed to set user \"%s\"", user_name);
 	}
 }
 
@@ -133,7 +128,7 @@ daemonize_begin(bool detach)
 {
 	/* release the current working directory */
 	if (chdir("/") < 0)
-		FatalError("problems changing to root directory");
+		throw MakeErrno("problems changing to root directory");
 
 	if (!detach)
 		/* the rest of this function deals with detaching the
@@ -152,13 +147,13 @@ daemonize_begin(bool detach)
 
 	int fds[2];
 	if (pipe(fds) < 0)
-		FatalSystemError("pipe() failed");
+		throw MakeErrno("pipe() failed");
 
 	/* move to a child process */
 
 	pid_t pid = fork();
 	if (pid < 0)
-		FatalSystemError("fork() failed");
+		throw MakeErrno("fork() failed");
 
 	if (pid == 0) {
 		/* in the child process */
@@ -183,7 +178,7 @@ daemonize_begin(bool detach)
 	if (nbytes == (ssize_t)sizeof(result)) {
 		/* the child process was successful */
 		pidfile2.Write(pid);
-		exit(EXIT_SUCCESS);
+		std::exit(EXIT_SUCCESS);
 	}
 
 	/* something bad happened in the child process */
@@ -193,13 +188,13 @@ daemonize_begin(bool detach)
 	int status;
 	pid_t pid2 = waitpid(pid, &status, 0);
 	if (pid2 < 0)
-		FatalSystemError("waitpid() failed");
+		throw MakeErrno("waitpid() failed");
 
 	if (WIFSIGNALED(status))
-		FormatFatalError("MPD died from signal %d%s", WTERMSIG(status),
-				 WCOREDUMP(status) ? " (core dumped)" : "");
+		throw FormatErrno("MPD died from signal %d%s", WTERMSIG(status),
+				  WCOREDUMP(status) ? " (core dumped)" : "");
 
-	exit(WEXITSTATUS(status));
+	std::exit(WEXITSTATUS(status));
 }
 
 void
@@ -223,7 +218,7 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 	if (user) {
 		struct passwd *pwd = getpwnam(user);
 		if (pwd == nullptr)
-			FormatFatalError("no such user \"%s\"", user);
+			throw FormatRuntimeError("no such user \"%s\"", user);
 
 		user_uid = pwd->pw_uid;
 		user_gid = pwd->pw_gid;
@@ -237,7 +232,8 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 	if (group) {
 		struct group *grp = getgrnam(group);
 		if (grp == nullptr)
-			FormatFatalError("no such group \"%s\"", group);
+			throw FormatRuntimeError("no such group \"%s\"",
+						 group);
 		user_gid = grp->gr_gid;
 		had_group = true;
 	}
@@ -247,11 +243,11 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 }
 
 void
-daemonize_finish(void)
+daemonize_finish()
 {
 	if (!pidfile.IsNull()) {
 		unlink(pidfile.c_str());
-		pidfile = AllocatedPath::Null();
+		pidfile = nullptr;
 	}
 
 	free(user_name);

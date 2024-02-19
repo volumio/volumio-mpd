@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,22 +22,21 @@
  *
  */
 
-#include "config.h"
 #include "Playlist.hxx"
 #include "PlaylistError.hxx"
 #include "player/Control.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "Log.hxx"
 
 void
-playlist::Stop(PlayerControl &pc)
+playlist::Stop(PlayerControl &pc) noexcept
 {
 	if (!playing)
 		return;
 
 	assert(current >= 0);
 
-	FormatDebug(playlist_domain, "stop");
+	LogDebug(playlist_domain, "stop");
 	pc.LockStop();
 	queued = -1;
 	playing = false;
@@ -53,6 +52,29 @@ playlist::Stop(PlayerControl &pc)
 		/* make sure that "current" stays valid, and the next
 		   "play" command plays the same song again */
 		current = queue.PositionToOrder(current_position);
+	}
+}
+
+unsigned
+playlist::MoveOrderToCurrent(unsigned old_order) noexcept
+{
+	if (!queue.random)
+		/* no-op because there is no order list */
+		return old_order;
+
+	if (playing) {
+		/* already playing: move the specified song after the
+		   current one (because the current one has already
+		   been playing and shall not be played again) */
+		return queue.MoveOrderAfter(old_order, current);
+	} else if (current >= 0) {
+		/* not playing: move the specified song before the
+		   current one, so it will be played eventually */
+		return queue.MoveOrderBefore(old_order, current);
+	} else {
+		/* not playing anything: move the specified song to
+		   the front */
+		return queue.MoveOrderBefore(old_order, 0);
 	}
 }
 
@@ -90,13 +112,7 @@ playlist::PlayPosition(PlayerControl &pc, int song)
 			   number, because random mode is enabled */
 			i = queue.PositionToOrder(song);
 
-		if (!playing)
-			current = 0;
-
-		/* swap the new song with the previous "current" one,
-		   so playback continues as planned */
-		queue.SwapOrders(i, current);
-		i = current;
+		i = MoveOrderToCurrent(i);
 	}
 
 	stop_on_error = false;
@@ -195,8 +211,6 @@ playlist::SeekSongOrder(PlayerControl &pc, unsigned i, SongTime seek_time)
 {
 	assert(queue.IsValidOrder(i));
 
-	const DetachedSong *queued_song = GetQueuedSong();
-
 	pc.LockClearError();
 	stop_on_error = true;
 	error_count = 0;
@@ -205,18 +219,18 @@ playlist::SeekSongOrder(PlayerControl &pc, unsigned i, SongTime seek_time)
 		/* seeking is not within the current song - prepare
 		   song change */
 
+		i = MoveOrderToCurrent(i);
+
 		playing = true;
 		current = i;
-
-		queued_song = nullptr;
 	}
 
 	queued = -1;
 
 	try {
-		pc.LockSeek(new DetachedSong(queue.GetOrder(i)), seek_time);
+		pc.LockSeek(std::make_unique<DetachedSong>(queue.GetOrder(i)), seek_time);
 	} catch (...) {
-		UpdateQueuedSong(pc, queued_song);
+		UpdateQueuedSong(pc, nullptr);
 		throw;
 	}
 
@@ -262,8 +276,6 @@ playlist::SeekCurrent(PlayerControl &pc,
 			throw PlaylistError::NotPlaying();
 
 		seek_time += status.elapsed_time;
-		if (seek_time.IsNegative())
-			seek_time = SignedSongTime::zero();
 	}
 
 	if (seek_time.IsNegative())

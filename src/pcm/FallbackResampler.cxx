@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FallbackResampler.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 AudioFormat
 FallbackPcmResampler::Open(AudioFormat &af, unsigned new_sample_rate)
@@ -57,7 +56,7 @@ FallbackPcmResampler::Open(AudioFormat &af, unsigned new_sample_rate)
 }
 
 void
-FallbackPcmResampler::Close()
+FallbackPcmResampler::Close() noexcept
 {
 }
 
@@ -67,7 +66,7 @@ pcm_resample_fallback(PcmBuffer &buffer,
 		      unsigned channels,
 		      unsigned src_rate,
 		      ConstBuffer<T> src,
-		      unsigned dest_rate)
+		      unsigned dest_rate) noexcept
 {
 	unsigned dest_pos = 0;
 	unsigned src_frames = src.size / channels;
@@ -107,7 +106,7 @@ pcm_resample_fallback_void(PcmBuffer &buffer,
 			   unsigned channels,
 			   unsigned src_rate,
 			   ConstBuffer<void> src,
-			   unsigned dest_rate)
+			   unsigned dest_rate) noexcept
 {
 	const auto typed_src = ConstBuffer<T>::FromVoid(src);
 	return pcm_resample_fallback(buffer, channels, src_rate, typed_src,

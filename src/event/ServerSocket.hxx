@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,47 +24,47 @@
 
 class SocketAddress;
 class AllocatedSocketAddress;
+class UniqueSocketDescriptor;
 class EventLoop;
 class AllocatedPath;
-class OneServerSocket;
 
 /**
  * A socket that accepts incoming stream connections (e.g. TCP).
  */
 class ServerSocket {
-	friend class OneServerSocket;
+	class OneServerSocket;
 
 	EventLoop &loop;
 
 	std::list<OneServerSocket> sockets;
 
-	unsigned next_serial;
+	unsigned next_serial = 1;
 
 public:
-	ServerSocket(EventLoop &_loop);
-	~ServerSocket();
+	ServerSocket(EventLoop &_loop) noexcept;
+	~ServerSocket() noexcept;
 
-	EventLoop &GetEventLoop() {
+	EventLoop &GetEventLoop() const noexcept {
 		return loop;
 	}
 
 private:
-	OneServerSocket &AddAddress(SocketAddress address);
-	OneServerSocket &AddAddress(AllocatedSocketAddress &&address);
+	template<typename A>
+	OneServerSocket &AddAddress(A &&address) noexcept;
 
 	/**
 	 * Add a listener on a port on all IPv4 interfaces.
 	 *
 	 * @param port the TCP port
 	 */
-	void AddPortIPv4(unsigned port);
+	void AddPortIPv4(unsigned port) noexcept;
 
 	/**
 	 * Add a listener on a port on all IPv6 interfaces.
 	 *
 	 * @param port the TCP port
 	 */
-	void AddPortIPv6(unsigned port);
+	void AddPortIPv6(unsigned port) noexcept;
 
 public:
 	/**
@@ -73,7 +73,6 @@ public:
 	 * Throws #std::runtime_error on error.
 	 *
 	 * @param port the TCP port
-	 * @param error location to store the error occurring
 	 */
 	void AddPort(unsigned port);
 
@@ -85,19 +84,27 @@ public:
 	 *
 	 * @param hostname the host name to be resolved
 	 * @param port the TCP port
-	 * @param error location to store the error occurring
 	 */
 	void AddHost(const char *hostname, unsigned port);
 
 	/**
-	 * Add a listener on a Unix domain socket.
+	 * Add a listener on a local socket.
 	 *
 	 * Throws #std::runtime_error on error.
 	 *
 	 * @param path the absolute socket path
-	 * @param error location to store the error occurring
 	 */
 	void AddPath(AllocatedPath &&path);
+
+	/**
+	 * Add a listener on an abstract local socket (Linux specific).
+	 *
+	 * Throws on error.
+	 *
+	 * @param name the abstract socket name, starting with a '@'
+	 * instead of a null byte
+	 */
+	void AddAbstract(const char *name);
 
 	/**
 	 * Add a socket descriptor that is accepting connections.  After this
@@ -106,17 +113,25 @@ public:
 	 *
 	 * Throws #std::runtime_error on error.
 	 */
-	void AddFD(int fd);
+	void AddFD(UniqueSocketDescriptor fd);
+
+	void AddFD(UniqueSocketDescriptor fd,
+		   AllocatedSocketAddress &&address) noexcept;
+
+	bool IsEmpty() const noexcept {
+		return sockets.empty();
+	}
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
 	void Open();
 
-	void Close();
+	void Close() noexcept;
 
 protected:
-	virtual void OnAccept(int fd, SocketAddress address, int uid) = 0;
+	virtual void OnAccept(UniqueSocketDescriptor fd,
+			      SocketAddress address, int uid) noexcept = 0;
 };
 
 #endif

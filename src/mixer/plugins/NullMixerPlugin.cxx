@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "mixer/MixerInternal.hxx"
 
 class NullMixer final : public Mixer {
@@ -27,7 +26,7 @@ class NullMixer final : public Mixer {
 	unsigned volume;
 
 public:
-	NullMixer(MixerListener &_listener)
+	explicit NullMixer(MixerListener &_listener)
 		:Mixer(null_mixer_plugin, _listener),
 		 volume(100)
 	{
@@ -37,7 +36,7 @@ public:
 	void Open() override {
 	}
 
-	void Close() override {
+	void Close() noexcept override {
 	}
 
 	int GetVolume() override {
@@ -50,10 +49,10 @@ public:
 };
 
 static Mixer *
-null_mixer_init(gcc_unused EventLoop &event_loop,
-		gcc_unused AudioOutput &ao,
+null_mixer_init([[maybe_unused]] EventLoop &event_loop,
+		[[maybe_unused]] AudioOutput &ao,
 		MixerListener &listener,
-		gcc_unused const ConfigBlock &block)
+		[[maybe_unused]] const ConfigBlock &block)
 {
 	return new NullMixer(listener);
 }

@@ -1,0 +1,66 @@
+Music Player Daemon (MPD) for Debian
+------------------------------------
+
+MPD and desktop sessions: pulseaudio
+====================================
+
+Traditionally, MPD is run as a system service starting on boot. This works
+well on headless boxes, however if you log into a graphical desktop session
+chances are you are using a pulseaudio user daemon, which has been the default
+on Debian for some time. This has two implications:
+
+1. There is no sound server for MPD to connect to after boot, pulseaudio only
+   starts when a user actually logs in.
+
+2. Access to the pulseaudio user daemon that is started after login is
+   restricted to the same user account for security reasons, so the mpd
+   system user is not allowed to play sound in a user session.
+
+The easiest way to solve these problems is to start MPD from the user session
+as well, and disable the system service:
+
+    sudo systemctl disable --now mpd
+    systemctl --user enable mpd
+
+Every user should then provide MPD with its own set of configuration and
+database files:
+
+    mkdir ~/.mpd
+    zcat /usr/share/doc/mpd/mpdconf.example.gz > ~/.mpdconf
+
+Review the paths in the "Files and directories" section, and enable the pulse
+audio_output. Also consider limiting bind_to_address to "localhost" or a local
+socket, or set a password to restrict access to MPD. Then start MPD:
+
+    systemctl --user start mpd
+
+If you don't use systemd, there is an mpd.desktop file which can be placed
+into /etc/xdg/autostart or ~/.config/autostart to start MPD as part of the
+desktop session.
+
+
+Updating the database
+=======================
+
+On first startup, MPD will automatically scan the music directory and
+populate its database. After that, whenever you add, remove or change songs
+you need to trigger a database update manually, for example by running
+
+    mpc update
+
+from the mpc package. This can take a while, depending on the size of your
+music collection and the speed of the storage. Note you can symlink your
+music into MPD's music directory instead of actually moving it there.
+
+
+Notes on specific sound servers
+===============================
+
+When using ALSA with dmix, you may run into problems sharing the sound card
+between the "mpd" user and your own account. A workaround is to use ALSA's
+"ipc_key_add_uid" and "ipc_perm" directives. See the ALSA documentation for
+instructions on how to add this to your configuration.
+
+Similarly, if you plan to use a JACK output, you might need to make mpd and
+jackd run under the same user, since a typical JACK setup doesn't permit
+several users to access the sound daemon.

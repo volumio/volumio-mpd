@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,14 @@
 #ifndef MPD_INOTIFY_SOURCE_HXX
 #define MPD_INOTIFY_SOURCE_HXX
 
-#include "event/SocketMonitor.hxx"
-#include "Compiler.h"
-
-class FileDescriptor;
+#include "event/PipeEvent.hxx"
 
 typedef void (*mpd_inotify_callback_t)(int wd, unsigned mask,
 				       const char *name, void *ctx);
 
-class InotifySource final : private SocketMonitor {
+class InotifySource final {
+	PipeEvent socket_event;
+
 	mpd_inotify_callback_t callback;
 	void *callback_ctx;
 
@@ -45,8 +44,8 @@ public:
 	InotifySource(EventLoop &_loop,
 		      mpd_inotify_callback_t callback, void *ctx);
 
-	~InotifySource() {
-		Close();
+	~InotifySource() noexcept {
+		socket_event.Close();
 	}
 
 	/**
@@ -63,10 +62,10 @@ public:
 	 *
 	 * @param wd the watch descriptor returned by mpd_inotify_source_add()
 	 */
-	void Remove(unsigned wd);
+	void Remove(unsigned wd) noexcept;
 
 private:
-	virtual bool OnSocketReady(unsigned flags) override;
+	void OnSocketReady(unsigned flags) noexcept;
 };
 
 #endif

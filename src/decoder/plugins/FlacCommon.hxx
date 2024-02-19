@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,7 @@
 #include "FlacInput.hxx"
 #include "FlacPcm.hxx"
 #include "../DecoderAPI.hxx"
+#include "util/ConstBuffer.hxx"
 
 #include <FLAC/stream_decoder.h>
 
@@ -41,6 +42,12 @@ struct FlacDecoder : public FlacInput {
 	 */
 	bool unsupported = false;
 
+	/**
+	 * The kbit_rate parameter for the next
+	 * DecoderBridge::SubmitData() call.
+	 */
+	uint16_t kbit_rate;
+
 	FlacPcmImport pcm_import;
 
 	/**
@@ -51,20 +58,28 @@ struct FlacDecoder : public FlacInput {
 
 	Tag tag;
 
-	FlacDecoder(DecoderClient &_client, InputStream &_input_stream)
+	/**
+	 * Decoded PCM data obtained by our libFLAC write callback.
+	 * If this is non-empty, then DecoderBridge::SubmitData()
+	 * should be called.
+	 */
+	ConstBuffer<void> chunk = nullptr;
+
+	FlacDecoder(DecoderClient &_client,
+		    InputStream &_input_stream) noexcept
 		:FlacInput(_input_stream, &_client) {}
 
 	/**
 	 * Wrapper for DecoderClient::Ready().
 	 */
 	bool Initialize(unsigned sample_rate, unsigned bits_per_sample,
-			unsigned channels, FLAC__uint64 total_frames);
+			unsigned channels, FLAC__uint64 total_frames) noexcept;
 
-	void OnMetadata(const FLAC__StreamMetadata &metadata);
+	void OnMetadata(const FLAC__StreamMetadata &metadata) noexcept;
 
 	FLAC__StreamDecoderWriteStatus OnWrite(const FLAC__Frame &frame,
 					       const FLAC__int32 *const buf[],
-					       FLAC__uint64 nbytes);
+					       FLAC__uint64 nbytes) noexcept;
 
 	/**
 	 * Calculate the delta (in bytes) between the last frame and
@@ -73,8 +88,8 @@ struct FlacDecoder : public FlacInput {
 	FLAC__uint64 GetDeltaPosition(const FLAC__StreamDecoder &sd);
 
 private:
-	void OnStreamInfo(const FLAC__StreamMetadata_StreamInfo &stream_info);
-	void OnVorbisComment(const FLAC__StreamMetadata_VorbisComment &vc);
+	void OnStreamInfo(const FLAC__StreamMetadata_StreamInfo &stream_info) noexcept;
+	void OnVorbisComment(const FLAC__StreamMetadata_VorbisComment &vc) noexcept;
 
 	/**
 	 * This function attempts to call DecoderClient::Ready() in case there
@@ -83,7 +98,7 @@ private:
 	 * providing the STREAMINFO block from the beginning of the file
 	 * (e.g. when seeking with SqueezeBox Server).
 	 */
-	bool OnFirstFrame(const FLAC__FrameHeader &header);
+	bool OnFirstFrame(const FLAC__FrameHeader &header) noexcept;
 };
 
 #endif /* _FLAC_COMMON_H */

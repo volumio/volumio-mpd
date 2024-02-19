@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,66 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabasePlaylist.hxx"
 #include "DatabaseSong.hxx"
-#include "Selection.hxx"
 #include "PlaylistFile.hxx"
 #include "Interface.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
+#include "protocol/Ack.hxx"
 
 #include <functional>
 
-static bool
-AddSong(const Storage &storage, const char *playlist_path_utf8,
+static void
+AddSong(const Storage *storage, const char *playlist_path_utf8,
 	const LightSong &song)
 {
 	spl_append_song(playlist_path_utf8,
 			DatabaseDetachSong(storage, song));
-	return true;
 }
 
 void
-search_add_to_playlist(const Database &db, const Storage &storage,
-		       const char *uri, const char *playlist_path_utf8,
-		       const SongFilter *filter)
+search_add_to_playlist(const Database &db, const Storage *storage,
+		       const char *playlist_path_utf8,
+		       const DatabaseSelection &selection)
 {
-	const DatabaseSelection selection(uri, true, filter);
-
-	using namespace std::placeholders;
-	const auto f = std::bind(AddSong, std::ref(storage),
-				 playlist_path_utf8, _1);
+	const auto f = [=](auto && arg1) { return AddSong(storage, playlist_path_utf8, arg1); };
 	db.Visit(selection, f);
+}
+
+unsigned
+SearchInsertIntoPlaylist(const Database &db, const Storage *storage,
+			 const DatabaseSelection &selection,
+			 PlaylistFileEditor &playlist,
+			 unsigned position)
+{
+	assert(position <= playlist.size());
+
+	unsigned n = 0;
+
+	db.Visit(selection, [&playlist, position, &n, storage](const auto &song){
+		playlist.Insert(position + n,
+				DatabaseDetachSong(storage, song));
+		++n;
+	});
+
+	return n;
+}
+
+void
+SearchInsertIntoPlaylist(const Database &db, const Storage *storage,
+			 const DatabaseSelection &selection,
+			 const char *playlist_name,
+			 unsigned position)
+{
+	PlaylistFileEditor editor{
+		playlist_name,
+		PlaylistFileEditor::LoadMode::TRY,
+	};
+
+	if (position > editor.size())
+		throw ProtocolError{ACK_ERROR_ARG, "Bad position"};
+
+	if (SearchInsertIntoPlaylist(db, storage, selection,
+				     editor, position) > 0)
+		editor.Save();
 }

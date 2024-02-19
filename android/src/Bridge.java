@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,13 @@ import android.content.Context;
  * Bridge to native code.
  */
 public class Bridge {
-	public static native void run(Context context);
+
+	/* used by jni */
+	public interface LogListener {
+		public void onLog(int priority, String msg);
+	}
+
+	public static native void run(Context context, LogListener logListener);
 	public static native void shutdown();
+	public static native void pause();
 }

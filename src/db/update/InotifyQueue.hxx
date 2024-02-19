@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,27 +20,29 @@
 #ifndef MPD_INOTIFY_QUEUE_HXX
 #define MPD_INOTIFY_QUEUE_HXX
 
-#include "event/TimeoutMonitor.hxx"
-#include "Compiler.h"
+#include "event/CoarseTimerEvent.hxx"
 
 #include <list>
 #include <string>
 
 class UpdateService;
 
-class InotifyQueue final : private TimeoutMonitor {
+class InotifyQueue final {
 	UpdateService &update;
 
 	std::list<std::string> queue;
 
-public:
-	InotifyQueue(EventLoop &_loop, UpdateService &_update)
-		:TimeoutMonitor(_loop), update(_update) {}
+	CoarseTimerEvent delay_event;
 
-	void Enqueue(const char *uri_utf8);
+public:
+	InotifyQueue(EventLoop &_loop, UpdateService &_update) noexcept
+		:update(_update),
+		 delay_event(_loop, BIND_THIS_METHOD(OnDelay)) {}
+
+	void Enqueue(const char *uri_utf8) noexcept;
 
 private:
-	virtual void OnTimeout() override;
+	void OnDelay() noexcept;
 };
 
 #endif

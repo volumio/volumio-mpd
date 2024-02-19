@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "LogBackend.hxx"
 #include "Log.hxx"
+#include "util/Compiler.h"
 #include "util/Domain.hxx"
-#include "util/StringUtil.hxx"
+#include "util/StringStrip.hxx"
+#include "Version.h"
+#include "config.h"
 
-#include <assert.h>
+#include <cassert>
+
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -34,16 +37,18 @@
 
 #ifdef ANDROID
 #include <android/log.h>
+#include "android/LogListener.hxx"
+#include "Main.hxx"
 
 static int
-ToAndroidLogLevel(LogLevel log_level)
+ToAndroidLogLevel(LogLevel log_level) noexcept
 {
 	switch (log_level) {
 	case LogLevel::DEBUG:
 		return ANDROID_LOG_DEBUG;
 
 	case LogLevel::INFO:
-	case LogLevel::DEFAULT:
+	case LogLevel::NOTICE:
 		return ANDROID_LOG_INFO;
 
 	case LogLevel::WARNING:
@@ -59,7 +64,7 @@ ToAndroidLogLevel(LogLevel log_level)
 
 #else
 
-static LogLevel log_threshold = LogLevel::INFO;
+static LogLevel log_threshold = LogLevel::NOTICE;
 
 static bool enable_timestamp;
 
@@ -68,13 +73,13 @@ static bool enable_syslog;
 #endif
 
 void
-SetLogThreshold(LogLevel _threshold)
+SetLogThreshold(LogLevel _threshold) noexcept
 {
 	log_threshold = _threshold;
 }
 
 void
-EnableLogTimestamp()
+EnableLogTimestamp() noexcept
 {
 #ifdef HAVE_SYSLOG
 	assert(!enable_syslog);
@@ -84,7 +89,8 @@ EnableLogTimestamp()
 	enable_timestamp = true;
 }
 
-static const char *log_date(void)
+static const char *
+log_date() noexcept
 {
 	static constexpr size_t LOG_DATE_BUF_SIZE = 16;
 	static char buf[LOG_DATE_BUF_SIZE];
@@ -98,16 +104,16 @@ static const char *log_date(void)
  * characters.
  */
 static int
-chomp_length(const char *p)
+chomp_length(std::string_view p) noexcept
 {
-	size_t length = strlen(p);
-	return StripRight(p, length);
+	return StripRight(p.data(), p.size());
 }
 
 #ifdef HAVE_SYSLOG
 
+[[gnu::const]]
 static int
-ToSysLogLevel(LogLevel log_level)
+ToSysLogLevel(LogLevel log_level) noexcept
 {
 	switch (log_level) {
 	case LogLevel::DEBUG:
@@ -116,7 +122,7 @@ ToSysLogLevel(LogLevel log_level)
 	case LogLevel::INFO:
 		return LOG_INFO;
 
-	case LogLevel::DEFAULT:
+	case LogLevel::NOTICE:
 		return LOG_NOTICE;
 
 	case LogLevel::WARNING:
@@ -131,22 +137,22 @@ ToSysLogLevel(LogLevel log_level)
 }
 
 static void
-SysLog(const Domain &domain, LogLevel log_level, const char *message)
+SysLog(const Domain &domain, LogLevel log_level, std::string_view message) noexcept
 {
 	syslog(ToSysLogLevel(log_level), "%s: %.*s",
 	       domain.GetName(),
-	       chomp_length(message), message);
+	       chomp_length(message), message.data());
 }
 
 void
-LogInitSysLog()
+LogInitSysLog() noexcept
 {
 	openlog(PACKAGE, 0, LOG_DAEMON);
 	enable_syslog = true;
 }
 
 void
-LogFinishSysLog()
+LogFinishSysLog() noexcept
 {
 	if (enable_syslog)
 		closelog();
@@ -155,14 +161,14 @@ LogFinishSysLog()
 #endif
 
 static void
-FileLog(const Domain &domain, const char *message)
+FileLog(const Domain &domain, std::string_view message) noexcept
 {
 	fprintf(stderr, "%s%s: %.*s\n",
 		enable_timestamp ? log_date() : "",
 		domain.GetName(),
-		chomp_length(message), message);
+		chomp_length(message), message.data());
 
-#ifdef WIN32
+#ifdef _WIN32
 	/* force-flush the log file, because setvbuf() does not seem
 	   to have an effect on WIN32 */
 	fflush(stderr);
@@ -172,11 +178,20 @@ FileLog(const Domain &domain, const char *message)
 #endif /* !ANDROID */
 
 void
-Log(const Domain &domain, LogLevel level, const char *msg)
+Log(LogLevel level, const Domain &domain, std::string_view msg) noexcept
 {
 #ifdef ANDROID
 	__android_log_print(ToAndroidLogLevel(level), "MPD",
-			    "%s: %s", domain.GetName(), msg);
+			    "%s: %.*s", domain.GetName(),
+			    (int)msg.size(), msg.data());
+	if (logListener != nullptr) {
+		char buffer[1024];
+		snprintf(buffer, sizeof(buffer), "%s: %.*s",
+			 domain.GetName(), (int)msg.size(), msg.data());
+
+		logListener->OnLog(Java::GetEnv(), ToAndroidLogLevel(level),
+				   buffer);
+	}
 #else
 
 	if (level < log_threshold)

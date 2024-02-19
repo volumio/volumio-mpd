@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
+#include "lib/alsa/NonBlock.hxx"
+#include "lib/alsa/Error.hxx"
 #include "mixer/MixerInternal.hxx"
 #include "mixer/Listener.hxx"
 #include "output/OutputAPI.hxx"
 #include "event/MultiSocketMonitor.hxx"
-#include "event/DeferredMonitor.hxx"
+#include "event/InjectEvent.hxx"
+#include "event/Call.hxx"
 #include "util/ASCII.hxx"
-#include "util/ReusableArray.hxx"
-#include "util/Clamp.hxx"
 #include "util/Domain.hxx"
+#include "util/Math.hxx"
 #include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
-#include <algorithm>
+extern "C" {
+#include "volume_mapping.h"
+}
 
 #include <alsa/asoundlib.h>
 
@@ -38,25 +41,35 @@
 #define VOLUME_MIXER_ALSA_CONTROL_DEFAULT	"PCM"
 static constexpr unsigned VOLUME_MIXER_ALSA_INDEX_DEFAULT = 0;
 
-class AlsaMixerMonitor final : MultiSocketMonitor, DeferredMonitor {
+class AlsaMixerMonitor final : MultiSocketMonitor {
+	InjectEvent defer_invalidate_sockets;
+
 	snd_mixer_t *mixer;
 
-	ReusableArray<pollfd> pfd_buffer;
+	AlsaNonBlockMixer non_block;
 
 public:
 	AlsaMixerMonitor(EventLoop &_loop, snd_mixer_t *_mixer)
-		:MultiSocketMonitor(_loop), DeferredMonitor(_loop),
+		:MultiSocketMonitor(_loop),
+		 defer_invalidate_sockets(_loop,
+					  BIND_THIS_METHOD(InvalidateSockets)),
 		 mixer(_mixer) {
-		DeferredMonitor::Schedule();
+		defer_invalidate_sockets.Schedule();
 	}
+
+	~AlsaMixerMonitor() {
+		BlockingCall(MultiSocketMonitor::GetEventLoop(), [this](){
+				MultiSocketMonitor::Reset();
+				defer_invalidate_sockets.Cancel();
+			});
+	}
+
+	AlsaMixerMonitor(const AlsaMixerMonitor &) = delete;
+	AlsaMixerMonitor &operator=(const AlsaMixerMonitor &) = delete;
 
 private:
-	virtual void RunDeferred() override {
-		InvalidateSockets();
-	}
-
-	virtual int PrepareSockets() override;
-	virtual void DispatchSockets() override;
+	Event::Duration PrepareSockets() noexcept override;
+	void DispatchSockets() noexcept override;
 };
 
 class AlsaMixer final : public Mixer {
@@ -68,63 +81,93 @@ class AlsaMixer final : public Mixer {
 
 	snd_mixer_t *handle;
 	snd_mixer_elem_t *elem;
-	long volume_min;
-	long volume_max;
-	int volume_set;
 
 	AlsaMixerMonitor *monitor;
+
+	/**
+	 * These fields are our workaround for rounding errors when
+	 * the resolution of a mixer knob isn't fine enough to
+	 * represent all 101 possible values (0..100).
+	 *
+	 * "desired_volume" is the percent value passed to
+	 * SetVolume(), and "resulting_volume" is the volume which was
+	 * actually set, and would be returned by the next
+	 * GetPercentVolume() call.
+	 *
+	 * When GetVolume() is called, we compare the
+	 * "resulting_volume" with the value returned by
+	 * GetPercentVolume(), and if it's the same, we're still on
+	 * the same value that was previously set (but may have been
+	 * rounded down or up).
+	 */
+	int desired_volume, resulting_volume;
 
 public:
 	AlsaMixer(EventLoop &_event_loop, MixerListener &_listener)
 		:Mixer(alsa_mixer_plugin, _listener),
 		 event_loop(_event_loop) {}
 
-	virtual ~AlsaMixer();
+	~AlsaMixer() override;
+
+	AlsaMixer(const AlsaMixer &) = delete;
+	AlsaMixer &operator=(const AlsaMixer &) = delete;
 
 	void Configure(const ConfigBlock &block);
 	void Setup();
 
 	/* virtual methods from class Mixer */
 	void Open() override;
-	void Close() override;
+	void Close() noexcept override;
 	int GetVolume() override;
 	void SetVolume(unsigned volume) override;
+
+private:
+	[[gnu::const]]
+	static unsigned NormalizedToPercent(double normalized) noexcept {
+		return lround(100 * normalized);
+	}
+
+	[[gnu::pure]]
+	[[nodiscard]] double GetNormalizedVolume() const noexcept {
+		return get_normalized_playback_volume(elem,
+						      SND_MIXER_SCHN_FRONT_LEFT);
+	}
+
+	[[gnu::pure]]
+	[[nodiscard]] unsigned GetPercentVolume() const noexcept {
+		return NormalizedToPercent(GetNormalizedVolume());
+	}
+
+	static int ElemCallback(snd_mixer_elem_t *elem,
+				unsigned mask) noexcept;
+
 };
 
 static constexpr Domain alsa_mixer_domain("alsa_mixer");
 
-int
-AlsaMixerMonitor::PrepareSockets()
+Event::Duration
+AlsaMixerMonitor::PrepareSockets() noexcept
 {
 	if (mixer == nullptr) {
 		ClearSocketList();
-		return -1;
+		return Event::Duration(-1);
 	}
 
-	int count = snd_mixer_poll_descriptors_count(mixer);
-	if (count < 0)
-		count = 0;
-
-	struct pollfd *pfds = pfd_buffer.Get(count);
-
-	count = snd_mixer_poll_descriptors(mixer, pfds, count);
-	if (count < 0)
-		count = 0;
-
-	ReplaceSocketList(pfds, count);
-	return -1;
+	return non_block.PrepareSockets(*this, mixer);
 }
 
 void
-AlsaMixerMonitor::DispatchSockets()
+AlsaMixerMonitor::DispatchSockets() noexcept
 {
 	assert(mixer != nullptr);
 
+	non_block.DispatchSockets(*this, mixer);
+
 	int err = snd_mixer_handle_events(mixer);
 	if (err < 0) {
-		FormatError(alsa_mixer_domain,
-			    "snd_mixer_handle_events() failed: %s",
-			    snd_strerror(err));
+		FmtError(alsa_mixer_domain,
+			 "snd_mixer_handle_events() failed: {}",
+			 snd_strerror(err));
 
 		if (err == -ENODEV) {
 			/* the sound device was unplugged; disable
@@ -141,18 +184,26 @@ AlsaMixerMonitor::DispatchSockets()
  *
  */
 
-static int
-alsa_mixer_elem_callback(snd_mixer_elem_t *elem, unsigned mask)
+int
+AlsaMixer::ElemCallback(snd_mixer_elem_t *elem, unsigned mask) noexcept
 {
 	AlsaMixer &mixer = *(AlsaMixer *)
 		snd_mixer_elem_get_callback_private(elem);
 
 	if (mask & SND_CTL_EVENT_MASK_VALUE) {
-		try {
-			int volume = mixer.GetVolume();
-			mixer.listener.OnMixerVolumeChanged(mixer, volume);
-		} catch (const std::runtime_error &) {
-		}
+		int volume = mixer.GetPercentVolume();
+
+		if (mixer.resulting_volume >= 0 &&
+		    volume == mixer.resulting_volume)
+			/* still the same volume (this might be a
+			   callback caused by SetVolume()) - switch to
+			   desired_volume */
+			volume = mixer.desired_volume;
+		else
+			/* flush */
+			mixer.desired_volume = mixer.resulting_volume = -1;
+
+		mixer.listener.OnMixerVolumeChanged(mixer, volume);
 	}
 
 	return 0;
@@ -175,11 +226,11 @@ AlsaMixer::Configure(const ConfigBlock &block)
 }
 
 static Mixer *
-alsa_mixer_init(EventLoop &event_loop, gcc_unused AudioOutput &ao,
+alsa_mixer_init(EventLoop &event_loop, [[maybe_unused]] AudioOutput &ao,
 		MixerListener &listener,
 		const ConfigBlock &block)
 {
-	AlsaMixer *am = new AlsaMixer(event_loop, listener);
+	auto *am = new AlsaMixer(event_loop, listener);
 	am->Configure(block);
 
 	return am;
@@ -193,7 +244,8 @@ AlsaMixer::~AlsaMixer()
 
 gcc_pure
 static snd_mixer_elem_t *
-alsa_mixer_lookup_elem(snd_mixer_t *handle, const char *name, unsigned idx)
+alsa_mixer_lookup_elem(snd_mixer_t *handle,
+		       const char *name, unsigned idx) noexcept
 {
 	for (snd_mixer_elem_t *elem = snd_mixer_first_elem(handle);
 	     elem != nullptr; elem = snd_mixer_elem_next(elem)) {
@@ -213,26 +265,22 @@ AlsaMixer::Setup()
 	int err;
 
 	if ((err = snd_mixer_attach(handle, device)) < 0)
-		throw FormatRuntimeError("failed to attach to %s: %s",
-					 device, snd_strerror(err));
+		throw Alsa::MakeError(err,
+				      fmt::format("failed to attach to {}",
+						  device).c_str());
 
 	if ((err = snd_mixer_selem_register(handle, nullptr, nullptr)) < 0)
-		throw FormatRuntimeError("snd_mixer_selem_register() failed: %s",
-					 snd_strerror(err));
+		throw Alsa::MakeError(err, "snd_mixer_selem_register() failed");
 
 	if ((err = snd_mixer_load(handle)) < 0)
-		throw FormatRuntimeError("snd_mixer_load() failed: %s\n",
-					 snd_strerror(err));
+		throw Alsa::MakeError(err, "snd_mixer_load() failed");
 
 	elem = alsa_mixer_lookup_elem(handle, control, index);
 	if (elem == nullptr)
 		throw FormatRuntimeError("no such mixer control: %s", control);
 
-	snd_mixer_selem_get_playback_volume_range(elem, &volume_min,
-						  &volume_max);
-
 	snd_mixer_elem_set_callback_private(elem, this);
-	snd_mixer_elem_set_callback(elem, alsa_mixer_elem_callback);
+	snd_mixer_elem_set_callback(elem, ElemCallback);
 
 	monitor = new AlsaMixerMonitor(event_loop, handle);
 }
@@ -240,14 +288,13 @@ AlsaMixer::Setup()
 void
 AlsaMixer::Open()
 {
-	int err;
+	desired_volume = resulting_volume = -1;
 
-	volume_set = -1;
+	int err;
 
 	err = snd_mixer_open(&handle, 0);
 	if (err < 0)
-		throw FormatRuntimeError("snd_mixer_open() failed: %s",
-					 snd_strerror(err));
+		throw Alsa::MakeError(err, "snd_mixer_open() failed");
 
 	try {
 		Setup();
@@ -258,7 +305,7 @@ AlsaMixer::Open()
 }
 
 void
-AlsaMixer::Close()
+AlsaMixer::Close() noexcept
 {
 	assert(handle != nullptr);
 
@@ -272,56 +319,32 @@ int
 AlsaMixer::GetVolume()
 {
 	int err;
-	int ret;
-	long level;
 
 	assert(handle != nullptr);
 
 	err = snd_mixer_handle_events(handle);
 	if (err < 0)
-		throw FormatRuntimeError("snd_mixer_handle_events() failed: %s",
-					 snd_strerror(err));
+		throw Alsa::MakeError(err, "snd_mixer_handle_events() failed");
 
-	err = snd_mixer_selem_get_playback_volume(elem,
-						  SND_MIXER_SCHN_FRONT_LEFT,
-						  &level);
-	if (err < 0)
-		throw FormatRuntimeError("failed to read ALSA volume: %s",
-					 snd_strerror(err));
+	int volume = GetPercentVolume();
+	if (resulting_volume >= 0 && volume == resulting_volume)
+		/* we're still on the value passed to SetVolume() */
+		volume = desired_volume;
 
-	ret = ((volume_set / 100.0) * (volume_max - volume_min)
-	       + volume_min) + 0.5;
-	if (volume_set > 0 && ret == level) {
-		ret = volume_set;
-	} else {
-		ret = (int)(100 * (((float)(level - volume_min)) /
-				   (volume_max - volume_min)) + 0.5);
-	}
-
-	return ret;
+	return volume;
 }
 
 void
 AlsaMixer::SetVolume(unsigned volume)
 {
-	float vol;
-	long level;
-	int err;
-
 	assert(handle != nullptr);
 
-	vol = volume;
-
-	volume_set = vol + 0.5;
-
-	level = (long)(((vol / 100.0) * (volume_max - volume_min) +
-			volume_min) + 0.5);
-	level = Clamp(level, volume_min, volume_max);
-
-	err = snd_mixer_selem_set_playback_volume_all(elem, level);
+	int err = set_normalized_playback_volume(elem, 0.01*volume, 1);
 	if (err < 0)
-		throw FormatRuntimeError("failed to set ALSA volume: %s",
-					 snd_strerror(err));
+		throw Alsa::MakeError(err, "failed to set ALSA volume");
+
+	desired_volume = volume;
+	resulting_volume = GetPercentVolume();
 }
 
 const MixerPlugin alsa_mixer_plugin = {

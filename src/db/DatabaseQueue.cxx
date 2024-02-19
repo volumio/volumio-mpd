@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,22 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DatabaseQueue.hxx"
 #include "DatabaseSong.hxx"
 #include "Interface.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 
 #include <functional>
 
-static bool
+static void
 AddToQueue(Partition &partition, const LightSong &song)
 {
-	const Storage &storage = *partition.instance.storage;
+	const auto *storage = partition.instance.storage;
 	partition.playlist.AppendSong(partition.pc,
 				      DatabaseDetachSong(storage,
 							 song));
-	return true;
 }
 
 void
@@ -42,7 +40,7 @@ AddFromDatabase(Partition &partition, const DatabaseSelection &selection)
 {
 	const Database &db = partition.instance.GetDatabaseOrThrow();
 
-	using namespace std::placeholders;
-	const auto f = std::bind(AddToQueue, std::ref(partition), _1);
+	const auto f = [&](const auto &song)
+		{ return AddToQueue(partition, song); };
 	db.Visit(selection, f);
 }

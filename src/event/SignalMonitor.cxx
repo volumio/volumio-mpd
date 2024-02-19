@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SignalMonitor.hxx"
+#include "event/Features.h"
 
-#ifndef WIN32
+#ifndef _WIN32
 
-#include "SocketMonitor.hxx"
+#include "SocketEvent.hxx"
 #include "util/Manual.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
 
 #ifdef USE_SIGNALFD
 #include "system/SignalFD.hxx"
@@ -37,62 +37,66 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <cassert>
+#include <csignal>
 
 #ifdef USE_SIGNALFD
 #include <pthread.h>
 #endif
 
-#include <assert.h>
-#include <signal.h>
-
-class SignalMonitor final : private SocketMonitor {
+class SignalMonitor final {
 #ifdef USE_SIGNALFD
 	SignalFD fd;
 #else
 	WakeFD fd;
 #endif
 
+	SocketEvent event;
+
 public:
-	SignalMonitor(EventLoop &_loop)
-		:SocketMonitor(_loop) {
+	explicit SignalMonitor(EventLoop &_loop)
+		:event(_loop, BIND_THIS_METHOD(OnSocketReady)) {
 #ifndef USE_SIGNALFD
-		SocketMonitor::Open(fd.Get());
-		SocketMonitor::ScheduleRead();
+		event.Open(fd.GetSocket());
+		event.ScheduleRead();
 #endif
 	}
 
-	using SocketMonitor::GetEventLoop;
+	[[nodiscard]] auto &GetEventLoop() const noexcept {
+		return event.GetEventLoop();
+	}
 
 #ifdef USE_SIGNALFD
-	void Update(sigset_t &mask) {
-		const bool was_open = SocketMonitor::IsDefined();
+	void Update(sigset_t &mask) noexcept {
+		const bool was_open = event.IsDefined();
 
 		fd.Create(mask);
 
 		if (!was_open) {
-			SocketMonitor::Open(fd.Get());
-			SocketMonitor::ScheduleRead();
+			event.Open(SocketDescriptor(fd.Get()));
+			event.ScheduleRead();
 		}
 	}
 #else
-	void WakeUp() {
+	void WakeUp() noexcept {
 		fd.Write();
 	}
 #endif
 
 private:
-	virtual bool OnSocketReady(unsigned flags) override;
+	void OnSocketReady(unsigned flags) noexcept;
 };
 
 /* this should be enough - is it? */
 static constexpr unsigned MAX_SIGNAL = 64;
 
-static SignalHandler signal_handlers[MAX_SIGNAL];
+static std::array<SignalHandler, MAX_SIGNAL> signal_handlers;
 
 #ifdef USE_SIGNALFD
 static sigset_t signal_mask;
 #else
-static std::atomic_bool signal_pending[MAX_SIGNAL];
+static std::array<std::atomic_bool, MAX_SIGNAL> signal_pending;
 #endif
 
 static Manual<SignalMonitor> monitor;
@@ -105,7 +109,7 @@ static Manual<SignalMonitor> monitor;
  * would inherit the blocked signals.
  */
 static void
-at_fork_child()
+at_fork_child() noexcept
 {
 	sigprocmask(SIG_UNBLOCK, &signal_mask, nullptr);
 }
@@ -113,7 +117,7 @@ at_fork_child()
 #else
 
 static void
-SignalCallback(int signo)
+SignalCallback(int signo) noexcept
 {
 	assert(signal_handlers[signo]);
 
@@ -141,16 +145,16 @@ static void
 x_sigaction(int signum, const struct sigaction &act)
 {
 	if (sigaction(signum, &act, nullptr) < 0)
-		FatalSystemError("sigaction() failed");
+		throw MakeErrno("sigaction() failed");
 }
 
 #endif
 
 void
-SignalMonitorFinish()
+SignalMonitorFinish() noexcept
 {
 #ifdef USE_SIGNALFD
-	std::fill_n(signal_handlers, MAX_SIGNAL, nullptr);
+	signal_handlers = {};
 #else
 	struct sigaction sa;
 	sa.sa_flags = 0;
@@ -159,12 +163,12 @@ SignalMonitorFinish()
 
 	for (unsigned i = 0; i < MAX_SIGNAL; ++i) {
 		if (signal_handlers[i]) {
-			x_sigaction(i, sa);
+			sigaction(i, &sa, nullptr);
 			signal_handlers[i] = nullptr;
 		}
 	}
 
-	std::fill_n(signal_pending, MAX_SIGNAL, false);
+	std::fill(signal_pending.begin(), signal_pending.end(), false);
 #endif
 
 	monitor.Destruct();
@@ -184,7 +188,7 @@ SignalMonitorRegister(int signo, SignalHandler handler)
 	sigaddset(&signal_mask, signo);
 
 	if (sigprocmask(SIG_BLOCK, &signal_mask, nullptr) < 0)
-		FatalSystemError("sigprocmask() failed");
+		throw MakeErrno("sigprocmask() failed");
 
 	monitor->Update(signal_mask);
 #else
@@ -196,8 +200,8 @@ SignalMonitorRegister(int signo, SignalHandler handler)
 #endif
 }
 
-bool
-SignalMonitor::OnSocketReady(unsigned)
+void
+SignalMonitor::OnSocketReady(unsigned) noexcept
 {
 #ifdef USE_SIGNALFD
 	int signo;
@@ -214,8 +218,6 @@ SignalMonitor::OnSocketReady(unsigned)
 		if (signal_pending[i].exchange(false))
 			signal_handlers[i]();
 #endif
-
-	return true;
 }
 
 #endif

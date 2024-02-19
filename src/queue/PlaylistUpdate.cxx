@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Playlist.hxx"
 #include "db/Interface.hxx"
-#include "db/LightSong.hxx"
-#include "DetachedSong.hxx"
-
-#include <stdexcept>
+#include "song/LightSong.hxx"
+#include "song/DetachedSong.hxx"
 
 static bool
 UpdatePlaylistSong(const Database &db, DetachedSong &song)
@@ -36,15 +33,14 @@ UpdatePlaylistSong(const Database &db, DetachedSong &song)
 	const LightSong *original;
 	try {
 		original = db.GetSong(song.GetURI());
-	} catch (const std::runtime_error &e) {
-		return false;
-	}
-
-	if (original == nullptr)
+	} catch (...) {
 		/* not found - shouldn't happen, because the update
 		   thread should ensure that all stale Song instances
 		   have been purged */
 		return false;
+	}
+
+	assert(original != nullptr);
 
 	if (original->mtime == song.GetLastModified()) {
 		/* not modified */
@@ -53,7 +49,7 @@ UpdatePlaylistSong(const Database &db, DetachedSong &song)
 	}
 
 	song.SetLastModified(original->mtime);
-	song.SetTag(*original->tag);
+	song.SetTag(original->tag);
 
 	db.ReturnSong(original);
 	return true;

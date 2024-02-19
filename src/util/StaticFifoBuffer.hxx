@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2014 Max Kellermann <max@duempel.org>
+ * Copyright 2003-2019 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,16 +27,15 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef STATIC_FIFO_BUFFER_HPP
-#define STATIC_FIFO_BUFFER_HPP
+#ifndef STATIC_FIFO_BUFFER_HXX
+#define STATIC_FIFO_BUFFER_HXX
 
 #include "WritableBuffer.hxx"
 
-#include <utility>
 #include <algorithm>
-
-#include <assert.h>
-#include <stddef.h>
+#include <cassert>
+#include <cstddef>
+#include <utility>
 
 /**
  * A first-in-first-out buffer: you can append data at the end, and
@@ -46,20 +45,19 @@
 template<class T, size_t size>
 class StaticFifoBuffer {
 public:
-	typedef size_t size_type;
-
-public:
-	typedef WritableBuffer<T> Range;
+	using size_type = std::size_t;
+	using Range = WritableBuffer<T>;
 
 protected:
-	size_type head, tail;
+	size_type head = 0, tail = 0;
 	T data[size];
 
 public:
-	constexpr
-	StaticFifoBuffer():head(0), tail(0) {}
+	constexpr size_type GetCapacity() const noexcept {
+		return size;
+	}
 
-	void Shift() {
+	void Shift() noexcept {
 		if (head == 0)
 			return;
 
@@ -73,24 +71,24 @@ public:
 		head = 0;
 	}
 
-	void Clear() {
+	void Clear() noexcept {
 		head = tail = 0;
 	}
 
-	bool IsEmpty() const {
+	constexpr bool empty() const noexcept {
 		return head == tail;
 	}
 
-	bool IsFull() const {
+	constexpr bool IsFull() const noexcept {
 		return head == 0 && tail == size;
 	}
 
 	/**
 	 * Prepares writing.  Returns a buffer range which may be written.
-	 * When you are finished, call append().
+	 * When you are finished, call Append().
 	 */
-	Range Write() {
-		if (IsEmpty())
+	Range Write() noexcept {
+		if (empty())
 			Clear();
 		else if (tail == size)
 			Shift();
@@ -100,9 +98,9 @@ public:
 
 	/**
 	 * Expands the tail of the buffer, after data has been written to
-	 * the buffer returned by write().
+	 * the buffer returned by Write().
 	 */
-	void Append(size_type n) {
+	void Append(size_type n) noexcept {
 		assert(tail <= size);
 		assert(n <= size);
 		assert(tail + n <= size);
@@ -110,18 +108,22 @@ public:
 		tail += n;
 	}
 
+	constexpr size_type GetAvailable() const noexcept {
+		return tail - head;
+	}
+
 	/**
 	 * Return a buffer range which may be read.  The buffer pointer is
 	 * writable, to allow modifications while parsing.
 	 */
-	Range Read() {
+	constexpr Range Read() noexcept {
 		return Range(data + head, tail - head);
 	}
 
 	/**
 	 * Marks a chunk as consumed.
 	 */
-	void Consume(size_type n) {
+	void Consume(size_type n) noexcept {
 		assert(tail <= size);
 		assert(head <= tail);
 		assert(n <= tail);

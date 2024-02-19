@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,25 +20,20 @@
 #ifndef MPD_LAZY_RANDOM_ENGINE_HXX
 #define MPD_LAZY_RANDOM_ENGINE_HXX
 
-#include "check.h"
-
+#include <cassert>
+#include <optional>
 #include <random>
-
-#include <assert.h>
 
 /**
  * A random engine that will be created and seeded on demand.
  */
 class LazyRandomEngine {
-	std::mt19937 *engine;
+	std::optional<std::mt19937> engine;
 
 public:
 	typedef std::mt19937::result_type result_type;
 
-	LazyRandomEngine():engine(nullptr) {}
-	~LazyRandomEngine() {
-		delete engine;
-	}
+	LazyRandomEngine() : engine(std::nullopt) {}
 
 	LazyRandomEngine(const LazyRandomEngine &other) = delete;
 	LazyRandomEngine &operator=(const LazyRandomEngine &other) = delete;
@@ -49,16 +44,12 @@ public:
 	 */
 	void AutoCreate();
 
-	static constexpr result_type min() {
-		return std::mt19937::min();
-	}
+	static constexpr result_type min() { return std::mt19937::min(); }
 
-	static constexpr result_type max() {
-		return std::mt19937::max();
-	}
+	static constexpr result_type max() { return std::mt19937::max(); }
 
 	result_type operator()() {
-		assert(engine != nullptr);
+		assert(engine);
 
 		return engine->operator()();
 	}

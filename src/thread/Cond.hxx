@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,15 +30,15 @@
 #ifndef THREAD_COND_HXX
 #define THREAD_COND_HXX
 
-#ifdef WIN32
+#ifdef _WIN32
 
 #include "WindowsCond.hxx"
 class Cond : public WindowsCond {};
 
 #else
 
-#include "PosixCond.hxx"
-class Cond : public PosixCond {};
+#include <condition_variable>
+using Cond = std::condition_variable;
 
 #endif
 

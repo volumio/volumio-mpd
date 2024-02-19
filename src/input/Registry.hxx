@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_INPUT_REGISTRY_HXX
 #define MPD_INPUT_REGISTRY_HXX
 
-#include "check.h"
-
 /**
  * NULL terminated list of all input plugins which were enabled at
  * compile time.
@@ -39,5 +37,9 @@ extern bool input_plugins_enabled[];
 #define input_plugins_for_each_enabled(plugin) \
 	input_plugins_for_each(plugin) \
 		if (input_plugins_enabled[input_plugin_iterator - input_plugins])
+
+[[gnu::pure]]
+bool
+HasRemoteTagScanner(const char *uri) noexcept;
 
 #endif

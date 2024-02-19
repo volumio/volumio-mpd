@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,77 +17,73 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ConvertFilterPlugin.hxx"
-#include "filter/FilterPlugin.hxx"
-#include "filter/FilterInternal.hxx"
-#include "filter/FilterRegistry.hxx"
-#include "pcm/PcmConvert.hxx"
-#include "util/Manual.hxx"
+#include "filter/Filter.hxx"
+#include "filter/Prepared.hxx"
+#include "pcm/AudioFormat.hxx"
+#include "pcm/Convert.hxx"
 #include "util/ConstBuffer.hxx"
-#include "AudioFormat.hxx"
-#include "poison.h"
 
-#include <stdexcept>
+#include <cassert>
 #include <memory>
-
-#include <assert.h>
 
 class ConvertFilter final : public Filter {
 	/**
 	 * The input audio format; PCM data is passed to the filter()
 	 * method in this format.
 	 */
-	AudioFormat in_audio_format;
+	const AudioFormat in_audio_format;
 
 	/**
 	 * This object is only "open" if #in_audio_format !=
 	 * #out_audio_format.
 	 */
-	PcmConvert state;
+	std::unique_ptr<PcmConvert> state;
 
 public:
-	ConvertFilter(const AudioFormat &audio_format);
-	~ConvertFilter();
+	explicit ConvertFilter(const AudioFormat &audio_format);
 
 	void Set(const AudioFormat &_out_audio_format);
 
+	void Reset() noexcept override {
+		if (state)
+			state->Reset();
+	}
+
 	ConstBuffer<void> FilterPCM(ConstBuffer<void> src) override;
+
+	ConstBuffer<void> Flush() override {
+		return state
+			? state->Flush()
+			: nullptr;
+	}
 };
 
 class PreparedConvertFilter final : public PreparedFilter {
 public:
-	void Set(const AudioFormat &_out_audio_format);
-
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
-
-static PreparedFilter *
-convert_filter_init(gcc_unused const ConfigBlock &block)
-{
-	return new PreparedConvertFilter();
-}
 
 void
 ConvertFilter::Set(const AudioFormat &_out_audio_format)
 {
-	assert(in_audio_format.IsValid());
 	assert(_out_audio_format.IsValid());
 
 	if (_out_audio_format == out_audio_format)
 		/* no change */
 		return;
 
-	if (out_audio_format != in_audio_format) {
+	if (state) {
 		out_audio_format = in_audio_format;
-		state.Close();
+		state.reset();
 	}
 
 	if (_out_audio_format == in_audio_format)
 		/* optimized special case: no-op */
 		return;
 
-	state.Open(in_audio_format, _out_audio_format);
+	state = std::make_unique<PcmConvert>(in_audio_format,
+					     _out_audio_format);
 
 	out_audio_format = _out_audio_format;
 }
@@ -95,54 +91,45 @@ ConvertFilter::Set(const AudioFormat &_out_audio_format)
 ConvertFilter::ConvertFilter(const AudioFormat &audio_format)
 	:Filter(audio_format), in_audio_format(audio_format)
 {
+	assert(in_audio_format.IsValid());
 }
 
-Filter *
+std::unique_ptr<Filter>
 PreparedConvertFilter::Open(AudioFormat &audio_format)
 {
 	assert(audio_format.IsValid());
 
-	return new ConvertFilter(audio_format);
-}
-
-ConvertFilter::~ConvertFilter()
-{
-	assert(in_audio_format.IsValid());
-
-	if (out_audio_format != in_audio_format)
-		state.Close();
+	return std::make_unique<ConvertFilter>(audio_format);
 }
 
 ConstBuffer<void>
 ConvertFilter::FilterPCM(ConstBuffer<void> src)
 {
-	assert(in_audio_format.IsValid());
-
-	if (out_audio_format == in_audio_format)
+	return state
+		? state->Convert(src)
 		/* optimized special case: no-op */
-		return src;
-
-	return state.Convert(src);
+		: src;
 }
 
-const FilterPlugin convert_filter_plugin = {
-	"convert",
-	convert_filter_init,
-};
+std::unique_ptr<PreparedFilter>
+convert_filter_prepare() noexcept
+{
+	return std::make_unique<PreparedConvertFilter>();
+}
 
-Filter *
+std::unique_ptr<Filter>
 convert_filter_new(const AudioFormat in_audio_format,
 		   const AudioFormat out_audio_format)
 {
-	std::unique_ptr<ConvertFilter> filter(new ConvertFilter(in_audio_format));
+	auto filter = std::make_unique<ConvertFilter>(in_audio_format);
 	filter->Set(out_audio_format);
-	return filter.release();
+	return filter;
 }
 
 void
 convert_filter_set(Filter *_filter, AudioFormat out_audio_format)
 {
-	ConvertFilter *filter = (ConvertFilter *)_filter;
+	auto *filter = (ConvertFilter *)_filter;
 
 	filter->Set(out_audio_format);
 }

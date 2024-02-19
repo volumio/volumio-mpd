@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,38 +20,15 @@
 #ifndef MPD_CLOCK_H
 #define MPD_CLOCK_H
 
-#include "Compiler.h"
+#ifdef _WIN32
 
-#include <stdint.h>
-
-/**
- * Returns the value of a monotonic clock in seconds.
- */
-gcc_pure
-unsigned
-MonotonicClockS();
-
-/**
- * Returns the value of a monotonic clock in milliseconds.
- */
-gcc_pure
-unsigned
-MonotonicClockMS();
-
-/**
- * Returns the value of a monotonic clock in microseconds.
- */
-gcc_pure
-uint64_t
-MonotonicClockUS();
-
-#ifdef WIN32
+#include <chrono>
 
 /**
  * Returns the uptime of the current process in seconds.
  */
-gcc_pure
-unsigned
+[[gnu::pure]]
+std::chrono::seconds
 GetProcessUptimeS();
 
 #endif

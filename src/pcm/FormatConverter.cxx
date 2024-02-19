@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FormatConverter.hxx"
 #include "PcmFormat.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/RuntimeError.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 void
 PcmFormatConverter::Open(SampleFormat _src_format, SampleFormat _dest_format)
@@ -54,7 +53,7 @@ PcmFormatConverter::Open(SampleFormat _src_format, SampleFormat _dest_format)
 }
 
 void
-PcmFormatConverter::Close()
+PcmFormatConverter::Close() noexcept
 {
 #ifndef NDEBUG
 	src_format = SampleFormat::UNDEFINED;
@@ -63,7 +62,7 @@ PcmFormatConverter::Close()
 }
 
 ConstBuffer<void>
-PcmFormatConverter::Convert(ConstBuffer<void> src)
+PcmFormatConverter::Convert(ConstBuffer<void> src) noexcept
 {
 	switch (dest_format) {
 	case SampleFormat::UNDEFINED:

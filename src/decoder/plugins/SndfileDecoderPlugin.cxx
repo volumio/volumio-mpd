@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,23 +17,24 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SndfileDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "tag/Handler.hxx"
 #include "util/Domain.hxx"
+#include "util/ScopeExit.hxx"
+#include "util/StringView.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 #include <sndfile.h>
 
 static constexpr Domain sndfile_domain("sndfile");
 
 static bool
-sndfile_init(gcc_unused const ConfigBlock &block)
+sndfile_init([[maybe_unused]] const ConfigBlock &block)
 {
        LogDebug(sndfile_domain, sf_version_string());
        return true;
@@ -46,17 +47,15 @@ struct SndfileInputStream {
 	size_t Read(void *buffer, size_t size) {
 		/* libsndfile chokes on partial reads; therefore
 		   always force full reads */
-		return decoder_read_full(client, is, buffer, size)
-			? size
-			: 0;
+		return decoder_read_much(client, is, buffer, size);
 	}
 };
 
 static sf_count_t
 sndfile_vio_get_filelen(void *user_data)
 {
-	SndfileInputStream &sis = *(SndfileInputStream *)user_data;
-	const InputStream &is = sis.is;
+	const auto &sis = *(SndfileInputStream *)user_data;
+	const auto &is = sis.is;
 
 	if (!is.KnownSize())
 		return -1;
@@ -93,8 +92,8 @@ sndfile_vio_seek(sf_count_t _offset, int whence, void *user_data)
 	try {
 		is.LockSeek(offset);
 		return is.GetOffset();
-	} catch (const std::runtime_error &e) {
-		LogError(e, "Seek failed");
+	} catch (...) {
+		LogError(std::current_exception(), "Seek failed");
 		return -1;
 	}
 }
@@ -108,9 +107,9 @@ sndfile_vio_read(void *ptr, sf_count_t count, void *user_data)
 }
 
 static sf_count_t
-sndfile_vio_write(gcc_unused const void *ptr,
-		  gcc_unused sf_count_t count,
-		  gcc_unused void *user_data)
+sndfile_vio_write([[maybe_unused]] const void *ptr,
+		  [[maybe_unused]] sf_count_t count,
+		  [[maybe_unused]] void *user_data)
 {
 	/* no writing! */
 	return -1;
@@ -119,8 +118,8 @@ sndfile_vio_write(gcc_unused const void *ptr,
 static sf_count_t
 sndfile_vio_tell(void *user_data)
 {
-	SndfileInputStream &sis = *(SndfileInputStream *)user_data;
-	const InputStream &is = sis.is;
+	const auto &sis = *(SndfileInputStream *)user_data;
+	const auto &is = sis.is;
 
 	return is.GetOffset();
 }
@@ -129,7 +128,7 @@ sndfile_vio_tell(void *user_data)
  * This SF_VIRTUAL_IO implementation wraps MPD's #InputStream to a
  * libsndfile stream.
  */
-static SF_VIRTUAL_IO vio = {
+static constexpr SF_VIRTUAL_IO vio = {
 	sndfile_vio_get_filelen,
 	sndfile_vio_seek,
 	sndfile_vio_read,
@@ -148,7 +147,7 @@ sndfile_duration(const SF_INFO &info)
 
 gcc_pure
 static SampleFormat
-sndfile_sample_format(const SF_INFO &info)
+sndfile_sample_format(const SF_INFO &info) noexcept
 {
 	switch (info.format & SF_FORMAT_SUBMASK) {
 	case SF_FORMAT_PCM_S8:
@@ -163,6 +162,14 @@ sndfile_sample_format(const SF_INFO &info)
 	default:
 		return SampleFormat::S32;
 	}
+}
+
+static AudioFormat
+CheckAudioFormat(const SF_INFO &info)
+{
+	return CheckAudioFormat(info.samplerate,
+				sndfile_sample_format(info),
+				info.channels);
 }
 
 static sf_count_t
@@ -193,17 +200,17 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 	info.format = 0;
 
 	SndfileInputStream sis{&client, is};
-	SNDFILE *const sf = sf_open_virtual(&vio, SFM_READ, &info, &sis);
+	SNDFILE *const sf = sf_open_virtual(const_cast<SF_VIRTUAL_IO *>(&vio),
+					    SFM_READ, &info, &sis);
 	if (sf == nullptr) {
-		FormatWarning(sndfile_domain, "sf_open_virtual() failed: %s",
-			      sf_strerror(nullptr));
+		FmtWarning(sndfile_domain, "sf_open_virtual() failed: {}",
+			   sf_strerror(nullptr));
 		return;
 	}
 
-	const auto audio_format =
-		CheckAudioFormat(info.samplerate,
-				 sndfile_sample_format(info),
-				 info.channels);
+	AtScopeExit(sf) { sf_close(sf); };
+
+	const auto audio_format = CheckAudioFormat(info);
 
 	client.Ready(audio_format, info.seekable, sndfile_duration(info));
 
@@ -234,17 +241,15 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 			cmd = DecoderCommand::NONE;
 		}
 	} while (cmd == DecoderCommand::NONE);
-
-	sf_close(sf);
 }
 
 static void
 sndfile_handle_tag(SNDFILE *sf, int str, TagType tag,
-		   const TagHandler &handler, void *handler_ctx)
+		   TagHandler &handler) noexcept
 {
 	const char *value = sf_get_string(sf, str);
 	if (value != nullptr)
-		tag_handler_invoke_tag(handler, handler_ctx, tag, value);
+		handler.OnTag(tag, value);
 }
 
 static constexpr struct {
@@ -261,32 +266,35 @@ static constexpr struct {
 };
 
 static bool
-sndfile_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+sndfile_scan_stream(InputStream &is, TagHandler &handler)
 {
 	SF_INFO info;
 
 	info.format = 0;
 
 	SndfileInputStream sis{nullptr, is};
-	SNDFILE *const sf = sf_open_virtual(&vio, SFM_READ, &info, &sis);
+	SNDFILE *const sf = sf_open_virtual(const_cast<SF_VIRTUAL_IO *>(&vio),
+					    SFM_READ, &info, &sis);
 	if (sf == nullptr)
 		return false;
 
+	AtScopeExit(sf) { sf_close(sf); };
+
 	if (!audio_valid_sample_rate(info.samplerate)) {
-		sf_close(sf);
-		FormatWarning(sndfile_domain,
-			      "Invalid sample rate in %s", is.GetURI());
+		FmtWarning(sndfile_domain,
+			   "Invalid sample rate in {}", is.GetURI());
 		return false;
 	}
 
-	tag_handler_invoke_duration(handler, handler_ctx,
-				    sndfile_duration(info));
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(info));
+	} catch (...) {
+	}
+
+	handler.OnDuration(sndfile_duration(info));
 
 	for (auto i : sndfile_tags)
-		sndfile_handle_tag(sf, i.str, i.tag, handler, handler_ctx);
-
-	sf_close(sf);
+		sndfile_handle_tag(sf, i.str, i.tag, handler);
 
 	return true;
 }
@@ -313,6 +321,8 @@ static const char *const sndfile_suffixes[] = {
 };
 
 static const char *const sndfile_mime_types[] = {
+	"audio/wav",
+	"audio/aiff",
 	"audio/x-wav",
 	"audio/x-aiff",
 
@@ -321,15 +331,8 @@ static const char *const sndfile_mime_types[] = {
 	nullptr
 };
 
-const struct DecoderPlugin sndfile_decoder_plugin = {
-	"sndfile",
-	sndfile_init,
-	nullptr,
-	sndfile_stream_decode,
-	nullptr,
-	nullptr,
-	sndfile_scan_stream,
-	nullptr,
-	sndfile_suffixes,
-	sndfile_mime_types,
-};
+constexpr DecoderPlugin sndfile_decoder_plugin =
+	DecoderPlugin("sndfile", sndfile_stream_decode, sndfile_scan_stream)
+	.WithInit(sndfile_init)
+	.WithSuffixes(sndfile_suffixes)
+	.WithMimeTypes(sndfile_mime_types);

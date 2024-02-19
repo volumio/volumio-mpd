@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "OpenALOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "../Wrapper.hxx"
 #include "util/RuntimeError.hxx"
 
 #include <unistd.h>
@@ -31,15 +29,14 @@
 #else
 #include <OpenAL/al.h>
 #include <OpenAL/alc.h>
+/* on macOS, OpenAL is deprecated, but since the user asked to enable
+   this plugin, let's ignore the compiler warnings */
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
-class OpenALOutput {
-	friend struct AudioOutputWrapper<OpenALOutput>;
-
+class OpenALOutput final : AudioOutput {
 	/* should be enough for buffer size = 2048 */
 	static constexpr unsigned NUM_BUFFERS = 16;
-
-	AudioOutput base;
 
 	const char *device_name;
 	ALCdevice *device;
@@ -50,47 +47,51 @@ class OpenALOutput {
 	ALenum format;
 	ALuint frequency;
 
-	OpenALOutput(const ConfigBlock &block);
+	explicit OpenALOutput(const ConfigBlock &block);
 
-	static OpenALOutput *Create(const ConfigBlock &block);
+public:
+	static AudioOutput *Create(EventLoop &,
+				   const ConfigBlock &block) {
+		return new OpenALOutput(block);
+	}
 
-	void Open(AudioFormat &audio_format);
-	void Close();
+private:
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
 
-	gcc_pure
-	unsigned Delay() const {
+	[[nodiscard]] gcc_pure
+	std::chrono::steady_clock::duration Delay() const noexcept override {
 		return filled < NUM_BUFFERS || HasProcessed()
-			? 0
+			? std::chrono::steady_clock::duration::zero()
 			/* we don't know exactly how long we must wait
 			   for the next buffer to finish, so this is a
 			   random guess: */
-			: 50;
+			: std::chrono::milliseconds(50);
 	}
 
-	size_t Play(const void *chunk, size_t size);
+	size_t Play(const void *chunk, size_t size) override;
 
-	void Cancel();
+	void Cancel() noexcept override;
 
-private:
-	gcc_pure
-	ALint GetSourceI(ALenum param) const {
+	[[nodiscard]] gcc_pure
+	ALint GetSourceI(ALenum param) const noexcept {
 		ALint value;
 		alGetSourcei(source, param, &value);
 		return value;
 	}
 
-	gcc_pure
-	bool HasProcessed() const {
+	[[nodiscard]] gcc_pure
+	bool HasProcessed() const noexcept {
 		return GetSourceI(AL_BUFFERS_PROCESSED) > 0;
 	}
 
-	gcc_pure
-	bool IsPlaying() const {
+	[[nodiscard]] gcc_pure
+	bool IsPlaying() const noexcept {
 		return GetSourceI(AL_SOURCE_STATE) == AL_PLAYING;
 	}
 
 	/**
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void SetupContext();
 };
@@ -137,7 +138,7 @@ OpenALOutput::SetupContext()
 }
 
 OpenALOutput::OpenALOutput(const ConfigBlock &block)
-	:base(openal_output_plugin, block),
+	:AudioOutput(0),
 	 device_name(block.GetBlockValue("device"))
 {
 	if (device_name == nullptr)
@@ -145,13 +146,7 @@ OpenALOutput::OpenALOutput(const ConfigBlock &block)
 					   ALC_DEFAULT_DEVICE_SPECIFIER);
 }
 
-inline OpenALOutput *
-OpenALOutput::Create(const ConfigBlock &block)
-{
-	return new OpenALOutput(block);
-}
-
-inline void
+void
 OpenALOutput::Open(AudioFormat &audio_format)
 {
 	format = openal_audio_format(audio_format);
@@ -175,8 +170,8 @@ OpenALOutput::Open(AudioFormat &audio_format)
 	frequency = audio_format.sample_rate;
 }
 
-inline void
-OpenALOutput::Close()
+void
+OpenALOutput::Close() noexcept
 {
 	alcMakeContextCurrent(context);
 	alDeleteSources(1, &source);
@@ -185,7 +180,7 @@ OpenALOutput::Close()
 	alcCloseDevice(device);
 }
 
-inline size_t
+size_t
 OpenALOutput::Play(const void *chunk, size_t size)
 {
 	if (alcGetCurrentContext() != context)
@@ -213,8 +208,8 @@ OpenALOutput::Play(const void *chunk, size_t size)
 	return size;
 }
 
-inline void
-OpenALOutput::Cancel()
+void
+OpenALOutput::Cancel() noexcept
 {
 	filled = 0;
 	alcMakeContextCurrent(context);
@@ -225,22 +220,9 @@ OpenALOutput::Cancel()
 	filled = 0;
 }
 
-typedef AudioOutputWrapper<OpenALOutput> Wrapper;
-
 const struct AudioOutputPlugin openal_output_plugin = {
 	"openal",
 	nullptr,
-	&Wrapper::Init,
-	&Wrapper::Finish,
-	nullptr,
-	nullptr,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	&Wrapper::Delay,
-	nullptr,
-	&Wrapper::Play,
-	nullptr,
-	&Wrapper::Cancel,
-	nullptr,
+	OpenALOutput::Create,
 	nullptr,
 };

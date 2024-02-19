@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,58 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AoOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
+#include "thread/SafeSingleton.hxx"
 #include "system/Error.hxx"
-#include "util/DivideString.hxx"
-#include "util/SplitString.hxx"
+#include "util/IterableSplitString.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
+#include "util/StringAPI.hxx"
 #include "Log.hxx"
 
 #include <ao/ao.h>
 
-#include <string.h>
-
 /* An ao_sample_format, with all fields set to zero: */
 static ao_sample_format OUR_AO_FORMAT_INITIALIZER;
 
-static unsigned ao_output_ref;
+class AoInit {
+public:
+	AoInit() {
+		ao_initialize();
+	}
 
-struct AoOutput {
-	AudioOutput base;
+	~AoInit() noexcept {
+		ao_shutdown();
+	}
 
+	AoInit(const AoInit &) = delete;
+	AoInit &operator=(const AoInit &) = delete;
+};
+
+class AoOutput final : AudioOutput, SafeSingleton<AoInit> {
 	const size_t write_size;
 	int driver;
 	ao_option *options = nullptr;
 	ao_device *device;
 
-	AoOutput(const ConfigBlock &block);
+	size_t frame_size;
+
+	explicit AoOutput(const ConfigBlock &block);
+	~AoOutput() override;
+
+	AoOutput(const AoOutput &) = delete;
+	AoOutput &operator=(const AoOutput &) = delete;
+
+public:
+	static AudioOutput *Create(EventLoop &, const ConfigBlock &block) {
+		return new AoOutput(block);
+	}
+
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
+
+	size_t Play(const void *chunk, size_t size) override;
 };
 
 static constexpr Domain ao_output_domain("ao_output");
@@ -81,16 +105,11 @@ MakeAoError()
 }
 
 AoOutput::AoOutput(const ConfigBlock &block)
-	:base(ao_output_plugin, block),
-	 write_size(block.GetBlockValue("write_size", 1024u))
+	:AudioOutput(0),
+	 write_size(block.GetPositiveValue("write_size", 1024U))
 {
-	if (ao_output_ref == 0) {
-		ao_initialize();
-	}
-	ao_output_ref++;
-
 	const char *value = block.GetBlockValue("driver", "default");
-	if (0 == strcmp(value, "default"))
+	if (StringIsEqual(value, "default"))
 		driver = ao_default_driver_id();
 	else
 		driver = ao_driver_id(value);
@@ -103,56 +122,34 @@ AoOutput::AoOutput(const ConfigBlock &block)
 	if (ai == nullptr)
 		throw std::runtime_error("problems getting driver info");
 
-	FormatDebug(ao_output_domain, "using ao driver \"%s\" for \"%s\"\n",
-		    ai->short_name, block.GetBlockValue("name", nullptr));
+	FmtDebug(ao_output_domain, "using ao driver \"{}\" for \"{}\"\n",
+		 ai->short_name, block.GetBlockValue("name", nullptr));
 
 	value = block.GetBlockValue("options", nullptr);
 	if (value != nullptr) {
-		for (const auto &i : SplitString(value, ';')) {
-			const DivideString ss(i.c_str(), '=', true);
+		for (StringView i : IterableSplitString(value, ';')) {
+			i.Strip();
 
-			if (!ss.IsDefined())
-				throw FormatRuntimeError("problems parsing options \"%s\"",
-					     i.c_str());
+			auto s = i.Split('=');
+			if (s.first.empty() || s.second.IsNull())
+				throw FormatRuntimeError("problems parsing option \"%.*s\"",
+							 int(i.size), i.data);
 
-			ao_append_option(&options, ss.GetFirst(), ss.GetSecond());
+			const std::string n(s.first), v(s.second);
+			ao_append_option(&options, n.c_str(), v.c_str());
 		}
 	}
 }
 
-static AudioOutput *
-ao_output_init(const ConfigBlock &block)
+AoOutput::~AoOutput()
 {
-	return &(new AoOutput(block))->base;
+	ao_free_options(options);
 }
 
-static void
-ao_output_finish(AudioOutput *ao)
-{
-	AoOutput *ad = (AoOutput *)ao;
-
-	ao_free_options(ad->options);
-	delete ad;
-
-	ao_output_ref--;
-
-	if (ao_output_ref == 0)
-		ao_shutdown();
-}
-
-static void
-ao_output_close(AudioOutput *ao)
-{
-	AoOutput *ad = (AoOutput *)ao;
-
-	ao_close(ad->device);
-}
-
-static void
-ao_output_open(AudioOutput *ao, AudioFormat &audio_format)
+void
+AoOutput::Open(AudioFormat &audio_format)
 {
 	ao_sample_format format = OUR_AO_FORMAT_INITIALIZER;
-	AoOutput *ad = (AoOutput *)ao;
 
 	switch (audio_format.format) {
 	case SampleFormat::S8:
@@ -172,42 +169,45 @@ ao_output_open(AudioOutput *ao, AudioFormat &audio_format)
 		break;
 	}
 
+	frame_size = audio_format.GetFrameSize();
+
 	format.rate = audio_format.sample_rate;
 	format.byte_format = AO_FMT_NATIVE;
 	format.channels = audio_format.channels;
 
-	ad->device = ao_open_live(ad->driver, &format, ad->options);
-
-	if (ad->device == nullptr)
+	device = ao_open_live(driver, &format, options);
+	if (device == nullptr)
 		throw MakeAoError();
 }
 
-/**
- * For whatever reason, libao wants a non-const pointer.  Let's hope
- * it does not write to the buffer, and use the union deconst hack to
- * work around this API misdesign.
- */
-static int ao_play_deconst(ao_device *device, const void *output_samples,
-			   uint_32 num_bytes)
+void
+AoOutput::Close() noexcept
 {
-	union {
-		const void *in;
-		char *out;
-	} u;
-
-	u.in = output_samples;
-	return ao_play(device, u.out, num_bytes);
+	ao_close(device);
 }
 
-static size_t
-ao_output_play(AudioOutput *ao, const void *chunk, size_t size)
+size_t
+AoOutput::Play(const void *chunk, size_t size)
 {
-	AoOutput *ad = (AoOutput *)ao;
+	assert(size % frame_size == 0);
 
-	if (size > ad->write_size)
-		size = ad->write_size;
+	if (size > write_size) {
+		/* round down to a multiple of the frame size */
+		size = (write_size / frame_size) * frame_size;
 
-	if (ao_play_deconst(ad->device, chunk, size) == 0)
+		if (size < frame_size)
+			/* no matter how small "write_size" was
+			   configured, we must pass at least one frame
+			   to libao */
+			size = frame_size;
+	}
+
+	/* For whatever reason, libao wants a non-const pointer.
+	   Let's hope it does not write to the buffer, and use the
+	   union deconst hack to * work around this API misdesign. */
+	char *data = const_cast<char *>((const char *)chunk);
+
+	if (ao_play(device, data, size) == 0)
 		throw MakeAoError();
 
 	return size;
@@ -216,17 +216,6 @@ ao_output_play(AudioOutput *ao, const void *chunk, size_t size)
 const struct AudioOutputPlugin ao_output_plugin = {
 	"ao",
 	nullptr,
-	ao_output_init,
-	ao_output_finish,
-	nullptr,
-	nullptr,
-	ao_output_open,
-	ao_output_close,
-	nullptr,
-	nullptr,
-	ao_output_play,
-	nullptr,
-	nullptr,
-	nullptr,
+	&AoOutput::Create,
 	nullptr,
 };

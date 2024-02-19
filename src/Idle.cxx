@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,17 +22,16 @@
  *
  */
 
-#include "config.h"
 #include "Idle.hxx"
 #include "Main.hxx"
 #include "Instance.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 void
 idle_add(unsigned flags)
 {
 	assert(flags != 0);
 
-	instance->EmitIdle(flags);
+	global_instance->EmitIdle(flags);
 }

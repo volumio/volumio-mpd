@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2014-2016 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@
  * Lower the current thread's priority to "idle" (very low).
  */
 void
-SetThreadIdlePriority();
+SetThreadIdlePriority() noexcept;
 
 /**
  * Raise the current thread's priority to "real-time" (very high).

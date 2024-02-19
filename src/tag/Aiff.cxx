@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Aiff.hxx"
 #include "input/InputStream.hxx"
-#include "system/ByteOrder.hxx"
+#include "util/ByteOrder.hxx"
 
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 
-#include <stdint.h>
 #include <string.h>
 
 struct aiff_header {
@@ -40,16 +39,16 @@ struct aiff_chunk_header {
 };
 
 size_t
-aiff_seek_id3(InputStream &is)
+aiff_seek_id3(InputStream &is, std::unique_lock<Mutex> &lock)
 {
 	/* seek to the beginning and read the AIFF header */
 
-	is.Rewind();
+	is.Rewind(lock);
 
 	aiff_header header;
-	is.ReadFull(&header, sizeof(header));
+	is.ReadFull(lock, &header, sizeof(header));
 	if (memcmp(header.id, "FORM", 4) != 0 ||
-	    (is.KnownSize() && FromLE32(header.size) > is.GetSize()) ||
+	    (is.KnownSize() && FromBE32(header.size) > is.GetSize()) ||
 	    (memcmp(header.format, "AIFF", 4) != 0 &&
 	     memcmp(header.format, "AIFC", 4) != 0))
 		throw std::runtime_error("Not an AIFF file");
@@ -58,7 +57,7 @@ aiff_seek_id3(InputStream &is)
 		/* read the chunk header */
 
 		aiff_chunk_header chunk;
-		is.ReadFull(&chunk, sizeof(chunk));
+		is.ReadFull(lock, &chunk, sizeof(chunk));
 
 		size_t size = FromBE32(chunk.size);
 		if (size > size_t(std::numeric_limits<int>::max()))
@@ -74,6 +73,6 @@ aiff_seek_id3(InputStream &is)
 			/* pad byte */
 			++size;
 
-		is.Skip(size);
+		is.Skip(lock, size);
 	}
 }

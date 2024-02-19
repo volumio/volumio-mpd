@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Mpg123DecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "tag/ReplayGain.hxx"
-#include "tag/MixRamp.hxx"
+#include "tag/MixRampParser.hxx"
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
+#include "util/ScopeExit.hxx"
 #include "util/StringView.hxx"
 #include "Log.hxx"
 
@@ -37,7 +37,7 @@
 static constexpr Domain mpg123_domain("mpg123");
 
 static bool
-mpd_mpg123_init(gcc_unused const ConfigBlock &block)
+mpd_mpg123_init([[maybe_unused]] const ConfigBlock &block)
 {
 	mpg123_init();
 
@@ -45,7 +45,7 @@ mpd_mpg123_init(gcc_unused const ConfigBlock &block)
 }
 
 static void
-mpd_mpg123_finish(void)
+mpd_mpg123_finish() noexcept
 {
 	mpg123_exit();
 }
@@ -63,14 +63,11 @@ static bool
 mpd_mpg123_open(mpg123_handle *handle, const char *path_fs,
 		AudioFormat &audio_format)
 {
-	/* mpg123_open() wants a writable string :-( */
-	char *const path2 = const_cast<char *>(path_fs);
-
-	int error = mpg123_open(handle, path2);
+	int error = mpg123_open(handle, path_fs);
 	if (error != MPG123_OK) {
-		FormatWarning(mpg123_domain,
-			      "libmpg123 failed to open %s: %s",
-			      path_fs, mpg123_plain_strerror(error));
+		FmtWarning(mpg123_domain,
+			   "libmpg123 failed to open {}: {}",
+			   path_fs, mpg123_plain_strerror(error));
 		return false;
 	}
 
@@ -80,17 +77,17 @@ mpd_mpg123_open(mpg123_handle *handle, const char *path_fs,
 	int channels, encoding;
 	error = mpg123_getformat(handle, &rate, &channels, &encoding);
 	if (error != MPG123_OK) {
-		FormatWarning(mpg123_domain,
-			      "mpg123_getformat() failed: %s",
-			      mpg123_plain_strerror(error));
+		FmtWarning(mpg123_domain,
+			   "mpg123_getformat() failed: {}",
+			   mpg123_plain_strerror(error));
 		return false;
 	}
 
 	if (encoding != MPG123_ENC_SIGNED_16) {
 		/* other formats not yet implemented */
-		FormatWarning(mpg123_domain,
-			      "expected MPG123_ENC_SIGNED_16, got %d",
-			      encoding);
+		FmtWarning(mpg123_domain,
+			   "expected MPG123_ENC_SIGNED_16, got {}",
+			   encoding);
 		return false;
 	}
 
@@ -190,17 +187,17 @@ mpd_mpg123_file_decode(DecoderClient &client, Path path_fs)
 	int error;
 	mpg123_handle *const handle = mpg123_new(nullptr, &error);
 	if (handle == nullptr) {
-		FormatError(mpg123_domain,
-			    "mpg123_new() failed: %s",
-			    mpg123_plain_strerror(error));
+		FmtError(mpg123_domain,
+			 "mpg123_new() failed: {}",
+			 mpg123_plain_strerror(error));
 		return;
 	}
 
+	AtScopeExit(handle) { mpg123_delete(handle); };
+
 	AudioFormat audio_format;
-	if (!mpd_mpg123_open(handle, path_fs.c_str(), audio_format)) {
-		mpg123_delete(handle);
+	if (!mpd_mpg123_open(handle, path_fs.c_str(), audio_format))
 		return;
-	}
 
 	const off_t num_samples = mpg123_length(handle);
 
@@ -241,9 +238,9 @@ mpd_mpg123_file_decode(DecoderClient &client, Path path_fs)
 		error = mpg123_read(handle, buffer, sizeof(buffer), &nbytes);
 		if (error != MPG123_OK) {
 			if (error != MPG123_DONE)
-				FormatWarning(mpg123_domain,
-					      "mpg123_read() failed: %s",
-					      mpg123_plain_strerror(error));
+				FmtWarning(mpg123_domain,
+					   "mpg123_read() failed: {}",
+					   mpg123_plain_strerror(error));
 			break;
 		}
 
@@ -266,52 +263,51 @@ mpd_mpg123_file_decode(DecoderClient &client, Path path_fs)
 				client.SeekError();
 			else {
 				client.CommandFinished();
-				client.SubmitTimestamp(c / (double)audio_format.sample_rate);
+				client.SubmitTimestamp(audio_format.FramesToTime<FloatDuration>(c));
 			}
 
 			cmd = DecoderCommand::NONE;
 		}
 	} while (cmd == DecoderCommand::NONE);
-
-	/* cleanup */
-
-	mpg123_delete(handle);
 }
 
 static bool
-mpd_mpg123_scan_file(Path path_fs,
-		     const TagHandler &handler, void *handler_ctx)
+mpd_mpg123_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
 	int error;
 	mpg123_handle *const handle = mpg123_new(nullptr, &error);
 	if (handle == nullptr) {
-		FormatError(mpg123_domain,
-			    "mpg123_new() failed: %s",
-			    mpg123_plain_strerror(error));
+		FmtError(mpg123_domain,
+			 "mpg123_new() failed: {}",
+			 mpg123_plain_strerror(error));
 		return false;
 	}
 
+	AtScopeExit(handle) { mpg123_delete(handle); };
+
 	AudioFormat audio_format;
-	if (!mpd_mpg123_open(handle, path_fs.c_str(), audio_format)) {
-		mpg123_delete(handle);
+	try {
+		if (!mpd_mpg123_open(handle, path_fs.c_str(), audio_format)) {
+			return false;
+		}
+	} catch (...) {
 		return false;
 	}
 
 	const off_t num_samples = mpg123_length(handle);
 	if (num_samples <= 0) {
-		mpg123_delete(handle);
 		return false;
 	}
 
-	/* ID3 tag support not yet implemented */
+	handler.OnAudioFormat(audio_format);
 
-	mpg123_delete(handle);
+	/* ID3 tag support not yet implemented */
 
 	const auto duration =
 		SongTime::FromScale<uint64_t>(num_samples,
 					      audio_format.sample_rate);
 
-	tag_handler_invoke_duration(handler, handler_ctx, duration);
+	handler.OnDuration(duration);
 	return true;
 }
 
@@ -320,16 +316,7 @@ static const char *const mpg123_suffixes[] = {
 	nullptr
 };
 
-const struct DecoderPlugin mpg123_decoder_plugin = {
-	"mpg123",
-	mpd_mpg123_init,
-	mpd_mpg123_finish,
-	/* streaming not yet implemented */
-	nullptr,
-	mpd_mpg123_file_decode,
-	mpd_mpg123_scan_file,
-	nullptr,
-	nullptr,
-	mpg123_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin mpg123_decoder_plugin =
+	DecoderPlugin("mpg123", mpd_mpg123_file_decode, mpd_mpg123_scan_file)
+	.WithInit(mpd_mpg123_init, mpd_mpg123_finish)
+	.WithSuffixes(mpg123_suffixes);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PulseOutputPlugin.hxx"
-#include "lib/pulse/Domain.hxx"
 #include "lib/pulse/Error.hxx"
 #include "lib/pulse/LogError.hxx"
 #include "lib/pulse/LockGuard.hxx"
 #include "../OutputAPI.hxx"
-#include "../Wrapper.hxx"
+#include "../Error.hxx"
 #include "mixer/MixerList.hxx"
 #include "mixer/plugins/PulseMixerPlugin.hxx"
-#include "Log.hxx"
+#include "util/ScopeExit.hxx"
 
 #include <pulse/thread-mainloop.h>
 #include <pulse/context.h>
@@ -36,22 +34,19 @@
 #include <pulse/subscribe.h>
 #include <pulse/version.h>
 
+#include <cassert>
+#include <cstddef>
 #include <stdexcept>
 
-#include <assert.h>
-#include <stddef.h>
 #include <stdlib.h>
 
 #define MPD_PULSE_NAME "Music Player Daemon"
 
-class PulseOutput {
-	friend struct AudioOutputWrapper<PulseOutput>;
-
-	AudioOutput base;
-
+class PulseOutput final : AudioOutput {
 	const char *name;
 	const char *server;
 	const char *sink;
+	const char *const media_role;
 
 	PulseMixer *mixer = nullptr;
 
@@ -61,12 +56,21 @@ class PulseOutput {
 
 	size_t writable;
 
+	/**
+	 * Was Interrupt() called?  This will unblock Play().  It will
+	 * be reset by Cancel() and Pause(), as documented by the
+	 * #AudioOutput interface.
+	 *
+	 * Only initialized while the output is open.
+	 */
+	bool interrupted;
+
 	explicit PulseOutput(const ConfigBlock &block);
 
 public:
 	void SetMixer(PulseMixer &_mixer);
 
-	void ClearMixer(gcc_unused PulseMixer &old_mixer) {
+	void ClearMixer([[maybe_unused]] PulseMixer &old_mixer) {
 		assert(mixer == &old_mixer);
 
 		mixer = nullptr;
@@ -90,27 +94,32 @@ public:
 		Signal();
 	}
 
-	gcc_const
 	static bool TestDefaultDevice();
 
-	static PulseOutput *Create(const ConfigBlock &block);
+	static AudioOutput *Create(EventLoop &,
+				   const ConfigBlock &block) {
+		return new PulseOutput(block);
+	}
 
-	void Enable();
-	void Disable();
+	void Enable() override;
+	void Disable() noexcept override;
 
-	void Open(AudioFormat &audio_format);
-	void Close();
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
 
-	unsigned Delay();
-	size_t Play(const void *chunk, size_t size);
-	void Cancel();
-	bool Pause();
+	void Interrupt() noexcept override;
+
+	[[nodiscard]] std::chrono::steady_clock::duration Delay() const noexcept override;
+	size_t Play(const void *chunk, size_t size) override;
+	void Drain() override;
+	void Cancel() noexcept override;
+	bool Pause() override;
 
 private:
 	/**
 	 * Attempt to connect asynchronously to the PulseAudio server.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void Connect();
 
@@ -119,7 +128,7 @@ private:
 	 *
 	 * Caller must lock the main loop.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void SetupContext();
 
@@ -141,7 +150,7 @@ private:
 	 *
 	 * Caller must lock the main loop.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void WaitConnection();
 
@@ -150,7 +159,7 @@ private:
 	 *
 	 * Caller must lock the main loop.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void SetupStream(const pa_sample_spec &ss);
 
@@ -164,23 +173,24 @@ private:
 	 * not.  The mainloop must be locked before calling this
 	 * function.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void WaitStream();
 
 	/**
 	 * Sets cork mode on the stream.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 */
 	void StreamPause(bool pause);
 };
 
 PulseOutput::PulseOutput(const ConfigBlock &block)
-	:base(pulse_output_plugin, block),
+	:AudioOutput(FLAG_ENABLE_DISABLE|FLAG_PAUSE),
 	 name(block.GetBlockValue("name", "mpd_pulse")),
 	 server(block.GetBlockValue("server")),
-	 sink(block.GetBlockValue("sink"))
+	 sink(block.GetBlockValue("sink")),
+	 media_role(block.GetBlockValue("media_role"))
 {
 	setenv("PULSE_PROP_media.role", "music", true);
 	setenv("PULSE_PROP_application.icon_name", "mpd", true);
@@ -278,8 +288,8 @@ pulse_wait_for_operation(struct pa_threaded_mainloop *mainloop,
  * the caller thread, to wake pulse_wait_for_operation() up.
  */
 static void
-pulse_output_stream_success_cb(gcc_unused pa_stream *s,
-			       gcc_unused int success, void *userdata)
+pulse_output_stream_success_cb([[maybe_unused]] pa_stream *s,
+			       [[maybe_unused]] int success, void *userdata)
 {
 	PulseOutput &po = *(PulseOutput *)userdata;
 
@@ -327,9 +337,9 @@ inline void
 PulseOutput::OnServerLayoutChanged(pa_subscription_event_type_t t,
 				   uint32_t idx)
 {
-	pa_subscription_event_type_t facility =
+	auto facility =
 		pa_subscription_event_type_t(t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK);
-	pa_subscription_event_type_t type =
+	auto type =
 		pa_subscription_event_type_t(t & PA_SUBSCRIPTION_EVENT_TYPE_MASK);
 
 	if (mixer != nullptr &&
@@ -343,7 +353,7 @@ PulseOutput::OnServerLayoutChanged(pa_subscription_event_type_t t,
 }
 
 static void
-pulse_output_subscribe_cb(gcc_unused pa_context *context,
+pulse_output_subscribe_cb([[maybe_unused]] pa_context *context,
 			  pa_subscription_event_type_t t,
 			  uint32_t idx, void *userdata)
 {
@@ -396,8 +406,16 @@ PulseOutput::SetupContext()
 {
 	assert(mainloop != nullptr);
 
-	context = pa_context_new(pa_threaded_mainloop_get_api(mainloop),
-				 MPD_PULSE_NAME);
+	pa_proplist *proplist = pa_proplist_new();
+	if (media_role)
+		pa_proplist_sets(proplist, PA_PROP_MEDIA_ROLE, media_role);
+
+	context = pa_context_new_with_proplist(pa_threaded_mainloop_get_api(mainloop),
+					       MPD_PULSE_NAME,
+					       proplist);
+
+	pa_proplist_free(proplist);
+
 	if (context == nullptr)
 		throw std::runtime_error("pa_context_new() has failed");
 
@@ -414,13 +432,7 @@ PulseOutput::SetupContext()
 	}
 }
 
-PulseOutput *
-PulseOutput::Create(const ConfigBlock &block)
-{
-	return new PulseOutput(block);
-}
-
-inline void
+void
 PulseOutput::Enable()
 {
 	assert(mainloop == nullptr);
@@ -456,8 +468,8 @@ PulseOutput::Enable()
 	pa_threaded_mainloop_unlock(mainloop);
 }
 
-inline void
-PulseOutput::Disable()
+void
+PulseOutput::Disable() noexcept
 {
 	assert(mainloop != nullptr);
 
@@ -507,7 +519,7 @@ PulseOutput::WaitConnection()
 }
 
 inline void
-PulseOutput::OnStreamSuspended(gcc_unused pa_stream *_stream)
+PulseOutput::OnStreamSuspended([[maybe_unused]] pa_stream *_stream)
 {
 	assert(_stream == stream || stream == nullptr);
 	assert(mainloop != nullptr);
@@ -573,7 +585,7 @@ PulseOutput::OnStreamWrite(size_t nbytes)
 }
 
 static void
-pulse_output_stream_write_cb(gcc_unused pa_stream *stream, size_t nbytes,
+pulse_output_stream_write_cb([[maybe_unused]] pa_stream *stream, size_t nbytes,
 			     void *userdata)
 {
 	PulseOutput &po = *(PulseOutput *)userdata;
@@ -588,8 +600,8 @@ PulseOutput::SetupStream(const pa_sample_spec &ss)
 
 	/* WAVE-EX is been adopted as the speaker map for most media files */
 	pa_channel_map chan_map;
-	pa_channel_map_init_auto(&chan_map, ss.channels,
-				 PA_CHANNEL_MAP_WAVEEX);
+	pa_channel_map_init_extend(&chan_map, ss.channels,
+				   PA_CHANNEL_MAP_WAVEEX);
 	stream = pa_stream_new(context, name, &ss, &chan_map);
 	if (stream == nullptr)
 		throw MakePulseError(context,
@@ -605,7 +617,7 @@ PulseOutput::SetupStream(const pa_sample_spec &ss)
 				     pulse_output_stream_write_cb, this);
 }
 
-inline void
+void
 PulseOutput::Open(AudioFormat &audio_format)
 {
 	assert(mainloop != nullptr);
@@ -657,7 +669,7 @@ PulseOutput::Open(AudioFormat &audio_format)
 		break;
 	}
 
-	ss.rate = audio_format.sample_rate;
+	ss.rate = std::min(audio_format.sample_rate, PA_RATE_MAX);
 	ss.channels = audio_format.channels;
 
 	/* create a stream .. */
@@ -674,31 +686,37 @@ PulseOutput::Open(AudioFormat &audio_format)
 		throw MakePulseError(context,
 				     "pa_stream_connect_playback() has failed");
 	}
+
+	interrupted = false;
 }
 
-inline void
-PulseOutput::Close()
+void
+PulseOutput::Close() noexcept
 {
 	assert(mainloop != nullptr);
 
 	Pulse::LockGuard lock(mainloop);
-
-	if (pa_stream_get_state(stream) == PA_STREAM_READY) {
-		pa_operation *o =
-			pa_stream_drain(stream,
-					pulse_output_stream_success_cb, this);
-		if (o == nullptr) {
-			LogPulseError(context,
-				      "pa_stream_drain() has failed");
-		} else
-			pulse_wait_for_operation(mainloop, o);
-	}
 
 	DeleteStream();
 
 	if (context != nullptr &&
 	    pa_context_get_state(context) != PA_CONTEXT_READY)
 		DeleteContext();
+}
+
+void
+PulseOutput::Interrupt() noexcept
+{
+	if (mainloop == nullptr)
+		return;
+
+	const Pulse::LockGuard lock(mainloop);
+
+	/* the "interrupted" flag will prevent Play() from blocking,
+	   and will instead throw AudioOutputInterrupted */
+	interrupted = true;
+
+	Signal();
 }
 
 void
@@ -716,6 +734,9 @@ PulseOutput::WaitStream()
 					     "failed to connect the stream");
 
 		case PA_STREAM_CREATING:
+			if (interrupted)
+				throw AudioOutputInterrupted{};
+
 			pa_threaded_mainloop_wait(mainloop);
 			break;
 		}
@@ -723,13 +744,13 @@ PulseOutput::WaitStream()
 }
 
 void
-PulseOutput::StreamPause(bool pause)
+PulseOutput::StreamPause(bool _pause)
 {
 	assert(mainloop != nullptr);
 	assert(context != nullptr);
 	assert(stream != nullptr);
 
-	pa_operation *o = pa_stream_cork(stream, pause,
+	pa_operation *o = pa_stream_cork(stream, _pause,
 					 pulse_output_stream_success_cb, this);
 	if (o == nullptr)
 		throw MakePulseError(context,
@@ -740,21 +761,21 @@ PulseOutput::StreamPause(bool pause)
 				     "pa_stream_cork() has failed");
 }
 
-inline unsigned
-PulseOutput::Delay()
+std::chrono::steady_clock::duration
+PulseOutput::Delay() const noexcept
 {
 	Pulse::LockGuard lock(mainloop);
 
-	unsigned result = 0;
-	if (base.pause && pa_stream_is_corked(stream) &&
+	auto result = std::chrono::steady_clock::duration::zero();
+	if (pa_stream_is_corked(stream) &&
 	    pa_stream_get_state(stream) == PA_STREAM_READY)
 		/* idle while paused */
-		result = 1000;
+		result = std::chrono::seconds(1);
 
 	return result;
 }
 
-inline size_t
+size_t
 PulseOutput::Play(const void *chunk, size_t size)
 {
 	assert(mainloop != nullptr);
@@ -779,6 +800,9 @@ PulseOutput::Play(const void *chunk, size_t size)
 		if (pa_stream_is_suspended(stream))
 			throw std::runtime_error("suspended");
 
+		if (interrupted)
+			throw AudioOutputInterrupted{};
+
 		pa_threaded_mainloop_wait(mainloop);
 
 		if (pa_stream_get_state(stream) != PA_STREAM_READY)
@@ -801,13 +825,33 @@ PulseOutput::Play(const void *chunk, size_t size)
 	return size;
 }
 
-inline void
-PulseOutput::Cancel()
+void
+PulseOutput::Drain()
+{
+	Pulse::LockGuard lock(mainloop);
+
+	if (pa_stream_get_state(stream) != PA_STREAM_READY ||
+	    pa_stream_is_suspended(stream) ||
+	    pa_stream_is_corked(stream))
+		return;
+
+	pa_operation *o =
+		pa_stream_drain(stream,
+				pulse_output_stream_success_cb, this);
+	if (o == nullptr)
+		throw MakePulseError(context, "pa_stream_drain() failed");
+
+	pulse_wait_for_operation(mainloop, o);
+}
+
+void
+PulseOutput::Cancel() noexcept
 {
 	assert(mainloop != nullptr);
 	assert(stream != nullptr);
 
 	Pulse::LockGuard lock(mainloop);
+	interrupted = false;
 
 	if (pa_stream_get_state(stream) != PA_STREAM_READY) {
 		/* no need to flush when the stream isn't connected
@@ -828,13 +872,15 @@ PulseOutput::Cancel()
 	pulse_wait_for_operation(mainloop, o);
 }
 
-inline bool
+bool
 PulseOutput::Pause()
 {
 	assert(mainloop != nullptr);
 	assert(stream != nullptr);
 
 	Pulse::LockGuard lock(mainloop);
+
+	interrupted = false;
 
 	/* check if the stream is (already/still) connected */
 
@@ -855,35 +901,24 @@ PulseOutput::TestDefaultDevice()
 try {
 	const ConfigBlock empty;
 	PulseOutput po(empty);
+	po.Enable();
+	AtScopeExit(&po) { po.Disable(); };
 	po.WaitConnection();
+
 	return true;
-} catch (const std::runtime_error &e) {
+} catch (...) {
 	return false;
 }
 
 static bool
-pulse_output_test_default_device(void)
+pulse_output_test_default_device()
 {
 	return PulseOutput::TestDefaultDevice();
 }
 
-typedef AudioOutputWrapper<PulseOutput> Wrapper;
-
-const struct AudioOutputPlugin pulse_output_plugin = {
+constexpr struct AudioOutputPlugin pulse_output_plugin = {
 	"pulse",
 	pulse_output_test_default_device,
-	&Wrapper::Init,
-	&Wrapper::Finish,
-	&Wrapper::Enable,
-	&Wrapper::Disable,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	&Wrapper::Delay,
-	nullptr,
-	&Wrapper::Play,
-	nullptr,
-	&Wrapper::Cancel,
-	&Wrapper::Pause,
-
+	PulseOutput::Create,
 	&pulse_mixer_plugin,
 };

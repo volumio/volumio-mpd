@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,25 +17,44 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "IcyInputStream.hxx"
+#include "tag/IcyMetaDataParser.hxx"
 #include "tag/Tag.hxx"
+#include "util/UriExtract.hxx"
+#include "util/UriQueryParser.hxx"
+#include "util/StringView.hxx"
 
-IcyInputStream::IcyInputStream(InputStream *_input)
-	:ProxyInputStream(_input),
-	 input_tag(nullptr), icy_tag(nullptr),
-	 override_offset(0)
+#include <string>
+
+IcyInputStream::IcyInputStream(InputStreamPtr _input,
+			       std::shared_ptr<IcyMetaDataParser> _parser)
+	:ProxyInputStream(std::move(_input)), parser(std::move(_parser))
 {
+#ifdef HAVE_ICU_CONVERTER
+	const char *fragment = uri_get_fragment(GetURI());
+	if (fragment != nullptr) {
+		const auto charset = UriFindRawQueryParameter(fragment,
+							      "charset");
+		if (charset != nullptr) {
+			const std::string copy(charset.data, charset.size);
+			parser->SetCharset(copy.c_str());
+		}
+	}
+#endif
 }
 
-IcyInputStream::~IcyInputStream()
+IcyInputStream::~IcyInputStream() noexcept = default;
+
+inline bool
+IcyInputStream::IsEnabled() const noexcept
 {
-	delete input_tag;
-	delete icy_tag;
+	assert(parser);
+
+	return parser->IsDefined();
 }
 
 void
-IcyInputStream::Update()
+IcyInputStream::Update() noexcept
 {
 	ProxyInputStream::Update();
 
@@ -43,53 +62,45 @@ IcyInputStream::Update()
 		offset = override_offset;
 }
 
-Tag *
-IcyInputStream::ReadTag()
+std::unique_ptr<Tag>
+IcyInputStream::ReadTag() noexcept
 {
-	Tag *new_input_tag = ProxyInputStream::ReadTag();
+	auto new_input_tag = ProxyInputStream::ReadTag();
 	if (!IsEnabled())
 		return new_input_tag;
 
-	if (new_input_tag != nullptr) {
-		delete input_tag;
-		input_tag = new_input_tag;
-	}
+	const bool had_new_input_tag = !!new_input_tag;
+	if (new_input_tag != nullptr)
+		input_tag = std::move(new_input_tag);
 
-	Tag *new_icy_tag = parser.ReadTag();
-	if (new_icy_tag != nullptr) {
-		delete icy_tag;
-		icy_tag = new_icy_tag;
-	}
+	auto new_icy_tag = parser->ReadTag();
+	const bool had_new_icy_tag = !!new_icy_tag;
+	if (new_icy_tag != nullptr)
+		icy_tag = std::move(new_icy_tag);
 
-	if (new_input_tag == nullptr && new_icy_tag == nullptr)
+	if (!had_new_input_tag && !had_new_icy_tag)
 		/* no change */
 		return nullptr;
 
-	if (input_tag == nullptr && icy_tag == nullptr)
-		/* no tag */
-		return nullptr;
-
-	if (input_tag == nullptr)
-		return new Tag(*icy_tag);
-
-	if (icy_tag == nullptr)
-		return new Tag(*input_tag);
-
-	return Tag::Merge(*input_tag, *icy_tag);
+	return Tag::Merge(input_tag.get(), icy_tag.get());
 }
 
 size_t
-IcyInputStream::Read(void *ptr, size_t read_size)
+IcyInputStream::Read(std::unique_lock<Mutex> &lock,
+		     void *ptr, size_t read_size)
 {
 	if (!IsEnabled())
-		return ProxyInputStream::Read(ptr, read_size);
+		return ProxyInputStream::Read(lock, ptr, read_size);
 
 	while (true) {
-		size_t nbytes = ProxyInputStream::Read(ptr, read_size);
-		if (nbytes == 0)
+		size_t nbytes = ProxyInputStream::Read(lock, ptr, read_size);
+		if (nbytes == 0) {
+			assert(IsEOF());
+			offset = override_offset;
 			return 0;
+		}
 
-		size_t result = parser.ParseInPlace(ptr, nbytes);
+		size_t result = parser->ParseInPlace(ptr, nbytes);
 		if (result > 0) {
 			override_offset += result;
 			offset = override_offset;

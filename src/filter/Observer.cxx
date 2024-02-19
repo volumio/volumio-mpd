@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,94 +17,109 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Observer.hxx"
-#include "FilterInternal.hxx"
+#include "Filter.hxx"
+#include "Prepared.hxx"
 #include "util/ConstBuffer.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 class FilterObserver::PreparedProxy final : public PreparedFilter {
 	FilterObserver &observer;
 
-	PreparedFilter *const prepared_filter;
+	std::unique_ptr<PreparedFilter> prepared_filter;
 	Proxy *child = nullptr;
 
 public:
 	PreparedProxy(FilterObserver &_observer,
-		      PreparedFilter *_prepared_filter)
+		      std::unique_ptr<PreparedFilter> _prepared_filter) noexcept
 		:observer(_observer),
-		 prepared_filter(_prepared_filter) {}
+		 prepared_filter(std::move(_prepared_filter)) {}
 
-	~PreparedProxy() {
+	~PreparedProxy() noexcept override {
 		assert(child == nullptr);
 		assert(observer.proxy == this);
 
 		observer.proxy = nullptr;
-		delete prepared_filter;
 	}
 
-	void Clear(gcc_unused Proxy *_child) {
+	PreparedProxy(const PreparedProxy &) = delete;
+	PreparedProxy &operator=(const PreparedProxy &) = delete;
+
+	void Clear([[maybe_unused]] Proxy *_child) noexcept {
 		assert(child == _child);
 		child = nullptr;
 	}
 
-	Filter *Get();
+	Filter *Get() noexcept;
 
-	Filter *Open(AudioFormat &af) override;
+	std::unique_ptr<Filter> Open(AudioFormat &af) override;
 };
 
 class FilterObserver::Proxy final : public Filter {
 	PreparedProxy &parent;
 
-	Filter *const filter;
+	std::unique_ptr<Filter> filter;
 
 public:
-	Proxy(PreparedProxy &_parent, Filter *_filter)
+	Proxy(PreparedProxy &_parent, std::unique_ptr<Filter> _filter) noexcept
 		:Filter(_filter->GetOutAudioFormat()),
-		 parent(_parent), filter(_filter) {}
+		 parent(_parent), filter(std::move(_filter)) {}
 
-	~Proxy() {
+	~Proxy() noexcept override {
 		parent.Clear(this);
-		delete filter;
 	}
 
-	Filter *Get() {
-		return filter;
+	Proxy(const Proxy &) = delete;
+	Proxy &operator=(const Proxy &) = delete;
+
+	Filter *Get() noexcept {
+		return filter.get();
+	}
+
+	void Reset() noexcept override {
+		filter->Reset();
 	}
 
 	ConstBuffer<void> FilterPCM(ConstBuffer<void> src) override {
 		return filter->FilterPCM(src);
 	}
+
+	ConstBuffer<void> Flush() override {
+		return filter->Flush();
+	}
 };
 
 Filter *
-FilterObserver::PreparedProxy::Get()
+FilterObserver::PreparedProxy::Get() noexcept
 {
 	return child != nullptr
 		? child->Get()
 		: nullptr;
 }
 
-Filter *
+std::unique_ptr<Filter>
 FilterObserver::PreparedProxy::Open(AudioFormat &af)
 {
 	assert(child == nullptr);
 
-	Filter *f = prepared_filter->Open(af);
-	return child = new Proxy(*this, f);
+	auto c = std::make_unique<Proxy>(*this, prepared_filter->Open(af));
+	child = c.get();
+	return c;
 }
 
-PreparedFilter *
-FilterObserver::Set(PreparedFilter *pf)
+std::unique_ptr<PreparedFilter>
+FilterObserver::Set(std::unique_ptr<PreparedFilter> pf)
 {
 	assert(proxy == nullptr);
 
-	return proxy = new PreparedProxy(*this, pf);
+	auto p = std::make_unique<PreparedProxy>(*this, std::move(pf));
+	proxy = p.get();
+	return p;
 }
 
 Filter *
-FilterObserver::Get()
+FilterObserver::Get() noexcept
 {
 	return proxy != nullptr
 		? proxy->Get()

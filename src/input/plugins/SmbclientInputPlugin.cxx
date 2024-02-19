@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,50 +17,47 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SmbclientInputPlugin.hxx"
 #include "lib/smbclient/Init.hxx"
-#include "lib/smbclient/Mutex.hxx"
+#include "lib/smbclient/Context.hxx"
 #include "../InputStream.hxx"
 #include "../InputPlugin.hxx"
+#include "../MaybeBufferedInputStream.hxx"
 #include "PluginUnavailable.hxx"
 #include "system/Error.hxx"
-#include "util/StringCompare.hxx"
 
 #include <libsmbclient.h>
 
-#include <stdexcept>
-
 class SmbclientInputStream final : public InputStream {
-	SMBCCTX *ctx;
-	int fd;
+	SmbclientContext ctx;
+	SMBCFILE *const handle;
 
 public:
 	SmbclientInputStream(const char *_uri,
-			     Mutex &_mutex, Cond &_cond,
-			     SMBCCTX *_ctx, int _fd, const struct stat &st)
-		:InputStream(_uri, _mutex, _cond),
-		 ctx(_ctx), fd(_fd) {
+			     Mutex &_mutex,
+			     SmbclientContext &&_ctx,
+			     SMBCFILE *_handle, const struct stat &st)
+		:InputStream(_uri, _mutex),
+		 ctx(std::move(_ctx)), handle(_handle)
+	{
 		seekable = true;
 		size = st.st_size;
 		SetReady();
 	}
 
-	~SmbclientInputStream() {
-		smbclient_mutex.lock();
-		smbc_close(fd);
-		smbc_free_context(ctx, 1);
-		smbclient_mutex.unlock();
+	~SmbclientInputStream() override {
+		ctx.Close(handle);
 	}
 
 	/* virtual methods from InputStream */
 
-	bool IsEOF() override {
+	[[nodiscard]] bool IsEOF() const noexcept override {
 		return offset >= size;
 	}
 
-	size_t Read(void *ptr, size_t size) override;
-	void Seek(offset_type offset) override;
+	size_t Read(std::unique_lock<Mutex> &lock,
+		    void *ptr, size_t size) override;
+	void Seek(std::unique_lock<Mutex> &lock, offset_type offset) override;
 };
 
 /*
@@ -69,13 +66,12 @@ public:
  */
 
 static void
-input_smbclient_init(gcc_unused const ConfigBlock &block)
+input_smbclient_init(EventLoop &, const ConfigBlock &)
 {
 	try {
 		SmbclientInit();
-	} catch (const std::runtime_error &e) {
-		// TODO: use std::throw_with_nested()?
-		throw PluginUnavailable(e.what());
+	} catch (...) {
+		std::throw_with_nested(PluginUnavailable("libsmbclient initialization failed"));
 	}
 
 	// TODO: create one global SMBCCTX here?
@@ -83,51 +79,40 @@ input_smbclient_init(gcc_unused const ConfigBlock &block)
 	// TODO: evaluate ConfigBlock, call smbc_setOption*()
 }
 
-static InputStream *
+static InputStreamPtr
 input_smbclient_open(const char *uri,
-		     Mutex &mutex, Cond &cond)
+		     Mutex &mutex)
 {
-	if (!StringStartsWith(uri, "smb://"))
-		return nullptr;
+	auto ctx = SmbclientContext::New();
 
-	const ScopeLock protect(smbclient_mutex);
-
-	SMBCCTX *ctx = smbc_new_context();
-	if (ctx == nullptr)
-		throw MakeErrno("smbc_new_context() failed");
-
-	SMBCCTX *ctx2 = smbc_init_context(ctx);
-	if (ctx2 == nullptr) {
-		int e = errno;
-		smbc_free_context(ctx, 1);
-		throw MakeErrno(e, "smbc_init_context() failed");
-	}
-
-	ctx = ctx2;
-
-	int fd = smbc_open(uri, O_RDONLY, 0);
-	if (fd < 0) {
-		int e = errno;
-		smbc_free_context(ctx, 1);
-		throw MakeErrno(e, "smbc_open() failed");
-	}
+	SMBCFILE *handle = ctx.OpenReadOnly(uri);
+	if (handle == nullptr)
+		throw MakeErrno("smbc_open() failed");
 
 	struct stat st;
-	if (smbc_fstat(fd, &st) < 0) {
-		int e = errno;
-		smbc_free_context(ctx, 1);
+	if (ctx.Stat(handle, st) < 0) {
+		const int e = errno;
+		ctx.Close(handle);
 		throw MakeErrno(e, "smbc_fstat() failed");
 	}
 
-	return new SmbclientInputStream(uri, mutex, cond, ctx, fd, st);
+	return std::make_unique<MaybeBufferedInputStream>
+		(std::make_unique<SmbclientInputStream>(uri, mutex,
+							std::move(ctx),
+							handle, st));
 }
 
 size_t
-SmbclientInputStream::Read(void *ptr, size_t read_size)
+SmbclientInputStream::Read(std::unique_lock<Mutex> &,
+			   void *ptr, size_t read_size)
 {
-	smbclient_mutex.lock();
-	ssize_t nbytes = smbc_read(fd, ptr, read_size);
-	smbclient_mutex.unlock();
+	ssize_t nbytes;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		nbytes = ctx.Read(handle, ptr, read_size);
+	}
+
 	if (nbytes < 0)
 		throw MakeErrno("smbc_read() failed");
 
@@ -136,20 +121,32 @@ SmbclientInputStream::Read(void *ptr, size_t read_size)
 }
 
 void
-SmbclientInputStream::Seek(offset_type new_offset)
+SmbclientInputStream::Seek(std::unique_lock<Mutex> &,
+			   offset_type new_offset)
 {
-	smbclient_mutex.lock();
-	off_t result = smbc_lseek(fd, new_offset, SEEK_SET);
-	smbclient_mutex.unlock();
+	off_t result;
+
+	{
+		const ScopeUnlock unlock(mutex);
+		result = ctx.Seek(handle, new_offset);
+	}
+
 	if (result < 0)
 		throw MakeErrno("smbc_lseek() failed");
 
 	offset = result;
 }
 
+static constexpr const char *smbclient_prefixes[] = {
+	"smb://",
+	nullptr
+};
+
 const InputPlugin input_plugin_smbclient = {
 	"smbclient",
+	smbclient_prefixes,
 	input_smbclient_init,
 	nullptr,
 	input_smbclient_open,
+	nullptr
 };

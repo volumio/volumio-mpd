@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "Internal.hxx"
-#include "OutputPlugin.hxx"
+#include "Filtered.hxx"
+#include "Interface.hxx"
 #include "mixer/MixerControl.hxx"
-#include "filter/FilterInternal.hxx"
+#include "filter/Prepared.hxx"
 
-#include <assert.h>
-
-AudioOutput::~AudioOutput()
+FilteredAudioOutput::~FilteredAudioOutput()
 {
-	assert(!open);
-	assert(!fail_timer.IsDefined());
-	assert(!thread.IsDefined());
-
 	if (mixer != nullptr)
 		mixer_free(mixer);
-
-	delete prepared_replay_gain_filter;
-	delete prepared_other_replay_gain_filter;
-	delete prepared_filter;
-}
-
-void
-audio_output_free(AudioOutput *ao)
-{
-	assert(!ao->open);
-	assert(!ao->fail_timer.IsDefined());
-	assert(!ao->thread.IsDefined());
-
-	ao_plugin_finish(ao);
 }

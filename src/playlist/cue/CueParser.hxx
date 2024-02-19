@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,14 @@
 #ifndef MPD_CUE_PARSER_HXX
 #define MPD_CUE_PARSER_HXX
 
-#include "check.h"
-#include "DetachedSong.hxx"
-#include "tag/TagBuilder.hxx"
-#include "Compiler.h"
+#include "song/DetachedSong.hxx"
+#include "tag/Builder.hxx"
+#include "util/Compiler.h"
 
 #include <string>
 #include <memory>
+
+struct StringView;
 
 class CueParser {
 	enum {
@@ -88,6 +89,13 @@ class CueParser {
 	std::unique_ptr<DetachedSong> finished;
 
 	/**
+	 * Ignore "INDEX" lines?  Only up the first one after "00" is
+	 * used.  If there is a pregap (INDEX 00..01), it is assigned
+	 * to the previous song.
+	 */
+	bool ignore_index;
+
+	/**
 	 * Tracks whether Finish() has been called.  If true, then all
 	 * remaining (partial) results will be delivered by Get().
 	 */
@@ -98,14 +106,14 @@ public:
 	 * Feed a text line from the CUE file into the parser.  Call
 	 * Get() after this to see if a song has been finished.
 	 */
-	void Feed(const char *line);
+	void Feed(StringView line) noexcept;
 
 	/**
 	 * Tell the parser that the end of the file has been reached.  Call
 	 * Get() after this to see if a song has been finished.
 	 * This procedure must be done twice!
 	 */
-	void Finish();
+	void Finish() noexcept;
 
 	/**
 	 * Check if a song was finished by the last Feed() or Finish()
@@ -114,20 +122,18 @@ public:
 	 * @return a song object that must be freed by the caller, or NULL if
 	 * no song was finished at this time
 	 */
-	std::unique_ptr<DetachedSong> Get();
+	std::unique_ptr<DetachedSong> Get() noexcept;
 
 private:
 	gcc_pure
-	TagBuilder *GetCurrentTag();
+	TagBuilder *GetCurrentTag() noexcept;
 
 	/**
 	 * Commit the current song.  It will be moved to "previous",
 	 * so the next song may soon edit its end time (using the next
 	 * song's start time).
 	 */
-	void Commit();
-
-	void Feed2(char *p);
+	void Commit() noexcept;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmFormat.hxx"
-#include "PcmBuffer.hxx"
-#include "PcmUtils.hxx"
+#include "Buffer.hxx"
 #include "Traits.hxx"
 #include "FloatConvert.hxx"
 #include "ShiftConvert.hxx"
 #include "util/ConstBuffer.hxx"
+#include "util/TransformN.hxx"
 
-#include "PcmDither.cxx" // including the .cxx file to get inlined templates
+#include "Dither.cxx" // including the .cxx file to get inlined templates
 
 /**
  * Wrapper for a class that converts one sample at a time into one
@@ -34,14 +33,13 @@
  */
 template<typename C>
 struct PerSampleConvert : C {
-	typedef typename C::SrcTraits SrcTraits;
-	typedef typename C::DstTraits DstTraits;
+	using SrcTraits = typename C::SrcTraits;
+	using DstTraits = typename C::DstTraits;
 
-	void Convert(typename DstTraits::pointer_type gcc_restrict out,
-		     typename SrcTraits::const_pointer_type gcc_restrict in,
+	void Convert(typename DstTraits::pointer gcc_restrict out,
+		     typename SrcTraits::const_pointer gcc_restrict in,
 		     size_t n) const {
-		for (size_t i = 0; i != n; ++i)
-			out[i] = C::Convert(in[i]);
+		transform_n(in, n, out, C::Convert);
 	}
 };
 
@@ -50,12 +48,12 @@ struct Convert8To16
 						  SampleFormat::S16>> {};
 
 struct Convert24To16 {
-	typedef SampleTraits<SampleFormat::S24_P32> SrcTraits;
-	typedef SampleTraits<SampleFormat::S16> DstTraits;
+	using SrcTraits = SampleTraits<SampleFormat::S24_P32>;
+	using DstTraits = SampleTraits<SampleFormat::S16>;
 
 	PcmDither &dither;
 
-	Convert24To16(PcmDither &_dither):dither(_dither) {}
+	explicit Convert24To16(PcmDither &_dither):dither(_dither) {}
 
 	void Convert(int16_t *out, const int32_t *in, size_t n) {
 		dither.Dither24To16(out, in, in + n);
@@ -63,12 +61,12 @@ struct Convert24To16 {
 };
 
 struct Convert32To16 {
-	typedef SampleTraits<SampleFormat::S32> SrcTraits;
-	typedef SampleTraits<SampleFormat::S16> DstTraits;
+	using SrcTraits = SampleTraits<SampleFormat::S32>;
+	using DstTraits = SampleTraits<SampleFormat::S16>;
 
 	PcmDither &dither;
 
-	Convert32To16(PcmDither &_dither):dither(_dither) {}
+	explicit Convert32To16(PcmDither &_dither):dither(_dither) {}
 
 	void Convert(int16_t *out, const int32_t *in, size_t n) {
 		dither.Dither32To16(out, in, in + n);
@@ -90,11 +88,11 @@ struct FloatToInteger : PortableFloatToInteger<F, Traits> {};
 template<typename Optimized, typename Portable>
 class GlueOptimizedConvert : Optimized, Portable {
 public:
-	typedef typename Portable::SrcTraits SrcTraits;
-	typedef typename Portable::DstTraits DstTraits;
+	using SrcTraits = typename Portable::SrcTraits;
+	using DstTraits = typename Portable::DstTraits;
 
-	void Convert(typename DstTraits::pointer_type out,
-		     typename SrcTraits::const_pointer_type in,
+	void Convert(typename DstTraits::pointer out,
+		     typename SrcTraits::const_pointer in,
 		     size_t n) const {
 		Optimized::Convert(out, in, n);
 
@@ -161,7 +159,7 @@ pcm_allocate_float_to_16(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int16_t>
 pcm_convert_to_16(PcmBuffer &buffer, PcmDither &dither,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -229,7 +227,7 @@ pcm_allocate_float_to_24(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int32_t>
 pcm_convert_to_24(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -297,7 +295,7 @@ pcm_allocate_float_to_32(PcmBuffer &buffer, ConstBuffer<float> src)
 
 ConstBuffer<int32_t>
 pcm_convert_to_32(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src)
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:
@@ -365,7 +363,7 @@ pcm_allocate_32_to_float(PcmBuffer &buffer, ConstBuffer<int32_t> src)
 
 ConstBuffer<float>
 pcm_convert_to_float(PcmBuffer &buffer,
-		     SampleFormat src_format, ConstBuffer<void> src)
+		     SampleFormat src_format, ConstBuffer<void> src) noexcept
 {
 	switch (src_format) {
 	case SampleFormat::UNDEFINED:

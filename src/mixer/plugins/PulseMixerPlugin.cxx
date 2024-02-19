@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,38 +17,46 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PulseMixerPlugin.hxx"
-#include "lib/pulse/Domain.hxx"
 #include "lib/pulse/LogError.hxx"
 #include "lib/pulse/LockGuard.hxx"
 #include "mixer/MixerInternal.hxx"
 #include "mixer/Listener.hxx"
 #include "output/plugins/PulseOutputPlugin.hxx"
+#include "util/NumberParser.hxx"
+#include "util/RuntimeError.hxx"
+#include "config/Block.hxx"
 
 #include <pulse/context.h>
 #include <pulse/introspect.h>
 #include <pulse/stream.h>
 #include <pulse/subscribe.h>
 
+#include <cassert>
 #include <stdexcept>
-
-#include <assert.h>
 
 class PulseMixer final : public Mixer {
 	PulseOutput &output;
 
-	bool online;
+	const float volume_scale_factor;
+
+	bool online = false;
+
 	struct pa_cvolume volume;
 
 public:
-	PulseMixer(PulseOutput &_output, MixerListener &_listener)
+	PulseMixer(PulseOutput &_output, MixerListener &_listener,
+		   double _volume_scale_factor)
 		:Mixer(pulse_mixer_plugin, _listener),
-		 output(_output), online(false)
+		 output(_output),
+		 volume_scale_factor(float(_volume_scale_factor))
 	{
 	}
 
-	virtual ~PulseMixer();
+	~PulseMixer() override;
+
+	PulseMixer(const PulseMixer &) = delete;
+	PulseMixer &operator=(const PulseMixer &) = delete;
 
 	void Offline();
 	void VolumeCallback(const pa_sink_input_info *i, int eol);
@@ -59,7 +67,7 @@ public:
 	void Open() override {
 	}
 
-	void Close() override {
+	void Close() noexcept override {
 	}
 
 	int GetVolume() override;
@@ -99,10 +107,10 @@ PulseMixer::VolumeCallback(const pa_sink_input_info *i, int eol)
  * value.
  */
 static void
-pulse_mixer_volume_cb(gcc_unused pa_context *context, const pa_sink_input_info *i,
+pulse_mixer_volume_cb([[maybe_unused]] pa_context *context, const pa_sink_input_info *i,
 		      int eol, void *userdata)
 {
-	PulseMixer *pm = (PulseMixer *)userdata;
+	auto *pm = (PulseMixer *)userdata;
 	pm->VolumeCallback(i, eol);
 }
 
@@ -128,7 +136,7 @@ PulseMixer::Update(pa_context *context, pa_stream *stream)
 }
 
 void
-pulse_mixer_on_connect(gcc_unused PulseMixer &pm,
+pulse_mixer_on_connect([[maybe_unused]] PulseMixer &pm,
 		       struct pa_context *context)
 {
 	pa_operation *o;
@@ -160,13 +168,30 @@ pulse_mixer_on_change(PulseMixer &pm,
 	pm.Update(context, stream);
 }
 
+static float
+parse_volume_scale_factor(const char *value) {
+	if (value == nullptr)
+		return 1.0;
+
+	char *endptr;
+	float factor = ParseFloat(value, &endptr);
+
+	if (endptr == value || *endptr != '\0' || factor < 0.5f || factor > 5.0f)
+		throw FormatRuntimeError("\"%s\" is not a number in the "
+					 "range 0.5 to 5.0",
+					 value);
+
+	return factor;
+}
+
 static Mixer *
-pulse_mixer_init(gcc_unused EventLoop &event_loop, AudioOutput &ao,
+pulse_mixer_init([[maybe_unused]] EventLoop &event_loop, AudioOutput &ao,
 		 MixerListener &listener,
-		 gcc_unused const ConfigBlock &block)
+		 const ConfigBlock &block)
 {
-	PulseOutput &po = (PulseOutput &)ao;
-	PulseMixer *pm = new PulseMixer(po, listener);
+	auto &po = (PulseOutput &)ao;
+	float scale = parse_volume_scale_factor(block.GetBlockValue("scale_volume"));
+	auto *pm = new PulseMixer(po, listener, (double)scale);
 
 	pulse_output_set_mixer(po, *pm);
 
@@ -192,8 +217,9 @@ PulseMixer::GetVolume()
 int
 PulseMixer::GetVolumeInternal()
 {
+	auto max_pa_volume = pa_volume_t(volume_scale_factor * PA_VOLUME_NORM);
 	return online ?
-		(int)((100 * (pa_cvolume_avg(&volume) + 1)) / PA_VOLUME_NORM)
+		(int)((100 * (pa_cvolume_avg(&volume) + 1)) / max_pa_volume)
 		: -1;
 }
 
@@ -205,9 +231,11 @@ PulseMixer::SetVolume(unsigned new_volume)
 	if (!online)
 		throw std::runtime_error("disconnected");
 
+	auto max_pa_volume = pa_volume_t(volume_scale_factor * PA_VOLUME_NORM);
+
 	struct pa_cvolume cvolume;
 	pa_cvolume_set(&cvolume, volume.channels,
-		       (new_volume * PA_VOLUME_NORM + 50) / 100);
+		       (new_volume * max_pa_volume + 50) / 100);
 	pulse_output_set_volume(output, &cvolume);
 	volume = cvolume;
 }

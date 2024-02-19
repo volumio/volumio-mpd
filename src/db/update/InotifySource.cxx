@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,38 +17,44 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "InotifySource.hxx"
 #include "InotifyDomain.hxx"
-#include "system/FileDescriptor.hxx"
-#include "system/FatalError.hxx"
+#include "io/FileDescriptor.hxx"
 #include "system/Error.hxx"
 #include "Log.hxx"
 
-#include <sys/inotify.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdint.h>
-#include <limits.h>
+#include <cerrno>
+#include <climits>
+#include <cstdint>
 
-bool
-InotifySource::OnSocketReady(gcc_unused unsigned flags)
+#include <sys/inotify.h>
+
+void
+InotifySource::OnSocketReady([[maybe_unused]] unsigned flags) noexcept
 {
 	uint8_t buffer[4096];
 	static_assert(sizeof(buffer) >= sizeof(struct inotify_event) + NAME_MAX + 1,
 		      "inotify buffer too small");
 
-	ssize_t nbytes = read(Get(), buffer, sizeof(buffer));
-	if (nbytes < 0)
-		FatalSystemError("Failed to read from inotify");
-	if (nbytes == 0)
-		FatalError("end of file from inotify");
+	auto ifd = socket_event.GetFileDescriptor();
+	ssize_t nbytes = ifd.Read(buffer, sizeof(buffer));
+	if (nbytes <= 0) {
+		if (nbytes < 0)
+			FmtError(inotify_domain,
+				 "Failed to read from inotify: {}",
+				 strerror(errno));
+		else
+			LogError(inotify_domain,
+				 "end of file from inotify");
+		socket_event.Cancel();
+		return;
+	}
 
 	const uint8_t *p = buffer, *const end = p + nbytes;
 
 	while (true) {
 		const size_t remaining = end - p;
-		const struct inotify_event *event =
+		const auto *event =
 			(const struct inotify_event *)p;
 		if (remaining < sizeof(*event) ||
 		    remaining < sizeof(*event) + event->len)
@@ -63,32 +69,32 @@ InotifySource::OnSocketReady(gcc_unused unsigned flags)
 		callback(event->wd, event->mask, name, callback_ctx);
 		p += sizeof(*event) + event->len;
 	}
-
-	return true;
 }
 
-static int
+static FileDescriptor
 InotifyInit()
 {
 	FileDescriptor fd;
 	if (!fd.CreateInotify())
 		throw MakeErrno("inotify_init() has failed");
 
-	return fd.Get();
+	return fd;
 }
 
 InotifySource::InotifySource(EventLoop &_loop,
 			     mpd_inotify_callback_t _callback, void *_ctx)
-	:SocketMonitor(InotifyInit(), _loop),
+	:socket_event(_loop, BIND_THIS_METHOD(OnSocketReady),
+		      InotifyInit()),
 	 callback(_callback), callback_ctx(_ctx)
 {
-	ScheduleRead();
+	socket_event.ScheduleRead();
 }
 
 int
 InotifySource::Add(const char *path_fs, unsigned mask)
 {
-	int wd = inotify_add_watch(Get(), path_fs, mask);
+	auto ifd = socket_event.GetFileDescriptor();
+	int wd = inotify_add_watch(ifd.Get(), path_fs, mask);
 	if (wd < 0)
 		throw MakeErrno("inotify_add_watch() has failed");
 
@@ -96,11 +102,13 @@ InotifySource::Add(const char *path_fs, unsigned mask)
 }
 
 void
-InotifySource::Remove(unsigned wd)
+InotifySource::Remove(unsigned wd) noexcept
 {
-	int ret = inotify_rm_watch(Get(), wd);
+	auto ifd = socket_event.GetFileDescriptor();
+	int ret = inotify_rm_watch(ifd.Get(), wd);
 	if (ret < 0 && errno != EINVAL)
-		LogErrno(inotify_domain, "inotify_rm_watch() has failed");
+		FmtError(inotify_domain, "inotify_rm_watch() has failed: {}",
+			 strerror(errno));
 
 	/* EINVAL may happen here when the file has been deleted; the
 	   kernel seems to auto-unregister deleted files */

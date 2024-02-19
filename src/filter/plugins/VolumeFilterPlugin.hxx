@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,18 @@
 #ifndef MPD_VOLUME_FILTER_PLUGIN_HXX
 #define MPD_VOLUME_FILTER_PLUGIN_HXX
 
+#include <memory>
+
+class PreparedFilter;
 class Filter;
 
+std::unique_ptr<PreparedFilter>
+volume_filter_prepare() noexcept;
+
 unsigned
-volume_filter_get(const Filter *filter);
+volume_filter_get(const Filter *filter) noexcept;
 
 void
-volume_filter_set(Filter *filter, unsigned volume);
+volume_filter_set(Filter *filter, unsigned volume) noexcept;
 
 #endif

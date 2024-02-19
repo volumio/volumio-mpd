@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,27 +20,14 @@
 #ifndef MPD_ARCHIVE_FILE_HXX
 #define MPD_ARCHIVE_FILE_HXX
 
-class Mutex;
-class Cond;
-struct ArchivePlugin;
+#include "input/Ptr.hxx"
+#include "thread/Mutex.hxx"
+
 class ArchiveVisitor;
-class InputStream;
 
 class ArchiveFile {
 public:
-	const ArchivePlugin &plugin;
-
-	ArchiveFile(const ArchivePlugin &_plugin)
-		:plugin(_plugin) {}
-
-protected:
-	/**
-	 * Use Close() instead of delete.
-	 */
-	~ArchiveFile() {}
-
-public:
-	virtual void Close() = 0;
+	virtual ~ArchiveFile() noexcept = default;
 
 	/**
 	 * Visit all entries inside this archive.
@@ -54,8 +41,8 @@ public:
 	 *
 	 * @param path the path within the archive
 	 */
-	virtual InputStream *OpenStream(const char *path,
-					Mutex &mutex, Cond &cond) = 0;
+	virtual InputStreamPtr OpenStream(const char *path,
+					  Mutex &mutex) = 0;
 };
 
 #endif

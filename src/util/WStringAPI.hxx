@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,85 +30,120 @@
 #ifndef WSTRING_API_HXX
 #define WSTRING_API_HXX
 
-#include "Compiler.h"
+#include <cwchar>
 
-#include <wchar.h>
-
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline size_t
-StringLength(const wchar_t *p)
+StringLength(const wchar_t *p) noexcept
 {
 	return wcslen(p);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline const wchar_t *
-StringFind(const wchar_t *haystack, const wchar_t *needle)
+StringFind(const wchar_t *haystack, const wchar_t *needle) noexcept
 {
 	return wcsstr(haystack, needle);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline const wchar_t *
-StringFind(const wchar_t *haystack, wchar_t needle, size_t size)
+StringFind(const wchar_t *haystack, wchar_t needle, size_t size) noexcept
 {
-	return wmemchr(haystack, needle, size);
+	return std::wmemchr(haystack, needle, size);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline wchar_t *
-StringFind(wchar_t *haystack, wchar_t needle, size_t size)
+StringFind(wchar_t *haystack, wchar_t needle, size_t size) noexcept
 {
-	return wmemchr(haystack, needle, size);
+	return std::wmemchr(haystack, needle, size);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline const wchar_t *
-StringFind(const wchar_t *haystack, wchar_t needle)
+StringFind(const wchar_t *haystack, wchar_t needle) noexcept
 {
 	return wcschr(haystack, needle);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline wchar_t *
-StringFind(wchar_t *haystack, wchar_t needle)
+StringFind(wchar_t *haystack, wchar_t needle) noexcept
 {
 	return wcschr(haystack, needle);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline const wchar_t *
-StringFindLast(const wchar_t *haystack, wchar_t needle)
+StringFindLast(const wchar_t *haystack, wchar_t needle) noexcept
 {
 	return wcsrchr(haystack, needle);
 }
 
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline wchar_t *
-StringFindLast(wchar_t *haystack, wchar_t needle)
+StringFindLast(wchar_t *haystack, wchar_t needle) noexcept
 {
 	return wcsrchr(haystack, needle);
 }
 
-gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
+static inline const wchar_t *
+StringFindLast(const wchar_t *haystack, wchar_t needle, size_t size) noexcept
+{
+	/* there's no wmemrchr() unfortunately */
+	const auto *p = haystack + size;
+	while (p > haystack) {
+		--p;
+		if (*p == needle)
+			return p;
+	}
+
+	return nullptr;
+}
+
+[[gnu::pure]] [[gnu::nonnull]]
+static inline const wchar_t *
+StringFindAny(const wchar_t *haystack, const wchar_t *accept) noexcept
+{
+	return wcspbrk(haystack, accept);
+}
+
+[[gnu::nonnull]]
 static inline void
-UnsafeCopyString(wchar_t *dest, const wchar_t *src)
+UnsafeCopyString(wchar_t *dest, const wchar_t *src) noexcept
 {
 	wcscpy(dest, src);
 }
 
-gcc_nonnull_all
+[[gnu::returns_nonnull]] [[gnu::nonnull]]
 static inline wchar_t *
-UnsafeCopyStringP(wchar_t *dest, const wchar_t *src)
+UnsafeCopyStringP(wchar_t *dest, const wchar_t *src) noexcept
 {
-#if defined(WIN32) || defined(__BIONIC__) || defined(__OpenBSD__) || \
-	defined(__NetBSD__)
-  /* emulate wcpcpy() */
-  UnsafeCopyString(dest, src);
-  return dest + StringLength(dest);
+#if defined(_WIN32) || defined(__OpenBSD__) || defined(__NetBSD__)
+	/* emulate wcpcpy() */
+	UnsafeCopyString(dest, src);
+	return dest + StringLength(dest);
+#elif defined(__sun) && defined (__SVR4)
+	return std::wcpcpy(dest, src);
 #else
-  return wcpcpy(dest, src);
+	return wcpcpy(dest, src);
 #endif
+}
+
+[[gnu::pure]] [[gnu::nonnull]]
+static inline int
+StringCompare(const wchar_t *a, const wchar_t *b) noexcept
+{
+	return wcscmp(a, b);
+}
+
+[[gnu::pure]] [[gnu::nonnull]]
+static inline int
+StringCompare(const wchar_t *a, const wchar_t *b, size_t n) noexcept
+{
+	return wcsncmp(a, b, n);
 }
 
 /**
@@ -117,32 +152,62 @@ UnsafeCopyStringP(wchar_t *dest, const wchar_t *src)
  * @param str2 String 2
  * @return True if equal, False otherwise
  */
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline bool
-StringIsEqual(const wchar_t *str1, const wchar_t *str2)
+StringIsEqual(const wchar_t *str1, const wchar_t *str2) noexcept
 {
-	return wcscmp(str1, str2) == 0;
+	return StringCompare(str1, str2) == 0;
 }
 
 /**
  * Checks whether #a and #b are equal.
  */
-gcc_pure gcc_nonnull_all
+[[gnu::pure]] [[gnu::nonnull]]
 static inline bool
-StringIsEqual(const wchar_t *a, const wchar_t *b, size_t length)
+StringIsEqual(const wchar_t *a, const wchar_t *b, size_t length) noexcept
 {
 	return wcsncmp(a, b, length) == 0;
 }
 
-#ifndef __BIONIC__
-
-gcc_malloc gcc_nonnull_all
-static inline wchar_t *
-DuplicateString(const wchar_t *p)
+[[gnu::pure]] [[gnu::nonnull]]
+static inline bool
+StringIsEqualIgnoreCase(const wchar_t *a, const wchar_t *b) noexcept
 {
-	return wcsdup(p);
+#ifdef _WIN32
+	return _wcsicmp(a, b) == 0;
+#else
+	return wcscasecmp(a, b) == 0;
+#endif
 }
 
+[[gnu::pure]] [[gnu::nonnull]]
+static inline bool
+StringIsEqualIgnoreCase(const wchar_t *a, const wchar_t *b,
+			size_t size) noexcept
+{
+#ifdef _WIN32
+	return _wcsnicmp(a, b, size) == 0;
+#else
+	return wcsncasecmp(a, b, size) == 0;
 #endif
+}
+
+[[gnu::pure]] [[gnu::nonnull]]
+static inline int
+StringCollate(const wchar_t *a, const wchar_t *b) noexcept
+{
+	return wcscoll(a, b);
+}
+
+[[gnu::malloc]] [[gnu::returns_nonnull]] [[gnu::nonnull]]
+static inline wchar_t *
+DuplicateString(const wchar_t *p) noexcept
+{
+#if defined(__sun) && defined (__SVR4)
+	return std::wcsdup(p);
+#else
+	return wcsdup(p);
+#endif
+}
 
 #endif

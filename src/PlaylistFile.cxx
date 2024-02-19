@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,31 +23,27 @@
 #include "PlaylistError.hxx"
 #include "db/PlaylistInfo.hxx"
 #include "db/PlaylistVector.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "SongLoader.hxx"
 #include "Mapper.hxx"
+#include "protocol/RangeArg.hxx"
 #include "fs/io/TextFile.hxx"
-#include "fs/io/FileOutputStream.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "config/ConfigDefaults.hxx"
+#include "io/FileOutputStream.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "config/Defaults.hxx"
 #include "Idle.hxx"
 #include "fs/Limits.hxx"
-#include "fs/AllocatedPath.hxx"
 #include "fs/Traits.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/FileInfo.hxx"
 #include "fs/DirectoryReader.hxx"
-#include "util/Macros.hxx"
 #include "util/StringCompare.hxx"
-#include "util/UriUtil.hxx"
+#include "util/UriExtract.hxx"
 
-#include <memory>
-
-#include <assert.h>
-#include <string.h>
-#include <errno.h>
+#include <cassert>
+#include <cstring>
 
 static const char PLAYLIST_COMMENT = '#';
 
@@ -55,15 +51,15 @@ static unsigned playlist_max_length;
 bool playlist_saveAbsolutePaths = DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS;
 
 void
-spl_global_init(void)
+spl_global_init(const ConfigData &config)
 {
 	playlist_max_length =
-		config_get_positive(ConfigOption::MAX_PLAYLIST_LENGTH,
-				    DEFAULT_PLAYLIST_MAX_LENGTH);
+		config.GetPositive(ConfigOption::MAX_PLAYLIST_LENGTH,
+				   DEFAULT_PLAYLIST_MAX_LENGTH);
 
 	playlist_saveAbsolutePaths =
-		config_get_bool(ConfigOption::SAVE_ABSOLUTE_PATHS,
-				DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS);
+		config.GetBool(ConfigOption::SAVE_ABSOLUTE_PATHS,
+			       DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS);
 }
 
 bool
@@ -84,9 +80,12 @@ spl_valid_name(const char *name_utf8)
 	 * filenames isn't going to happen, either.
 	 */
 
-	return strchr(name_utf8, '/') == nullptr &&
-		strchr(name_utf8, '\n') == nullptr &&
-		strchr(name_utf8, '\r') == nullptr;
+	return std::strchr(name_utf8, '/') == nullptr &&
+#ifdef _WIN32
+		std::strchr(name_utf8, '\\') == nullptr &&
+#endif
+		std::strchr(name_utf8, '\n') == nullptr &&
+		std::strchr(name_utf8, '\r') == nullptr;
 }
 
 static const AllocatedPath &
@@ -134,20 +133,24 @@ LoadPlaylistFileInfo(PlaylistInfo &info,
 	const auto *const name_fs_end =
 		FindStringSuffix(name_fs_str,
 				 PATH_LITERAL(PLAYLIST_FILE_SUFFIX));
-	if (name_fs_end == nullptr)
+	if (name_fs_end == nullptr ||
+	    /* no empty playlist names (raw file name = ".m3u") */
+	    name_fs_end == name_fs_str)
 		return false;
 
 	FileInfo fi;
-	if (!GetFileInfo(AllocatedPath::Build(parent_path_fs, name_fs), fi) ||
+	if (!GetFileInfo(parent_path_fs / name_fs, fi) ||
 	    !fi.IsRegular())
 		return false;
 
 	const auto name = AllocatedPath::FromFS(name_fs_str, name_fs_end);
-	std::string name_utf8 = name.ToUTF8();
-	if (name_utf8.empty())
-		return false;
 
-	info.name = std::move(name_utf8);
+	try {
+		info.name = name.ToUTF8Throw();
+	} catch (...) {
+		return false;
+	}
+
 	info.mtime = fi.GetModificationTime();
 	return true;
 }
@@ -173,11 +176,8 @@ ListPlaylistFiles()
 }
 
 static void
-SavePlaylistFile(const PlaylistFileContents &contents, const char *utf8path)
+SavePlaylistFile(Path path_fs, const PlaylistFileContents &contents)
 {
-	assert(utf8path != nullptr);
-
-	const auto path_fs = spl_map_to_fs(utf8path);
 	assert(!path_fs.IsNull());
 
 	FileOutputStream fos(path_fs);
@@ -191,12 +191,11 @@ SavePlaylistFile(const PlaylistFileContents &contents, const char *utf8path)
 	fos.Commit();
 }
 
-PlaylistFileContents
-LoadPlaylistFile(const char *utf8path)
+static PlaylistFileContents
+LoadPlaylistFile(Path path_fs)
 try {
 	PlaylistFileContents contents;
 
-	const auto path_fs = spl_map_to_fs(utf8path);
 	assert(!path_fs.IsNull());
 
 	TextFile file(path_fs);
@@ -207,13 +206,12 @@ try {
 			continue;
 
 #ifdef _UNICODE
-		wchar_t buffer[MAX_PATH];
-		auto result = MultiByteToWideChar(CP_ACP, 0, s, -1,
-						  buffer, ARRAY_SIZE(buffer));
-		if (result <= 0)
+		/* on Windows, playlists always contain UTF-8, because
+		   its "narrow" charset (i.e. CP_ACP) is incapable of
+		   storing all Unicode paths */
+		const auto path = AllocatedPath::FromUTF8(s);
+		if (path.IsNull())
 			continue;
-
-		const Path path = Path::FromFS(buffer);
 #else
 		const Path path = Path::FromFS(s);
 #endif
@@ -252,16 +250,54 @@ try {
 	throw;
 }
 
-void
-spl_move_index(const char *utf8path, unsigned src, unsigned dest)
+static PlaylistFileContents
+MaybeLoadPlaylistFile(Path path_fs, PlaylistFileEditor::LoadMode load_mode)
+try {
+	if (load_mode == PlaylistFileEditor::LoadMode::NO)
+		return {};
+
+	return LoadPlaylistFile(path_fs);
+} catch (const PlaylistError &error) {
+	if (error.GetCode() == PlaylistResult::NO_SUCH_LIST &&
+	    load_mode == PlaylistFileEditor::LoadMode::TRY)
+		return {};
+
+	throw;
+ }
+
+PlaylistFileEditor::PlaylistFileEditor(const char *name_utf8,
+				       LoadMode load_mode)
+	:path(spl_map_to_fs(name_utf8)),
+	 contents(MaybeLoadPlaylistFile(path, load_mode))
 {
-	if (src == dest)
-		/* this doesn't check whether the playlist exists, but
-		   what the hell.. */
-		return;
+}
 
-	auto contents = LoadPlaylistFile(utf8path);
+void
+PlaylistFileEditor::Insert(std::size_t i, const char *uri)
+{
+	if (i > size())
+		throw PlaylistError(PlaylistResult::BAD_RANGE, "Bad position");
 
+	if (size() >= playlist_max_length)
+		throw PlaylistError(PlaylistResult::TOO_LARGE,
+				    "Stored playlist is too large");
+
+	contents.emplace(std::next(contents.begin(), i), uri);
+}
+
+void
+PlaylistFileEditor::Insert(std::size_t i, const DetachedSong &song)
+{
+	const char *uri = playlist_saveAbsolutePaths
+		? song.GetRealURI()
+		: song.GetURI();
+
+	Insert(i, uri);
+}
+
+void
+PlaylistFileEditor::MoveIndex(unsigned src, unsigned dest)
+{
 	if (src >= contents.size() || dest >= contents.size())
 		throw PlaylistError(PlaylistResult::BAD_RANGE, "Bad range");
 
@@ -271,9 +307,31 @@ spl_move_index(const char *utf8path, unsigned src, unsigned dest)
 
 	const auto dest_i = std::next(contents.begin(), dest);
 	contents.insert(dest_i, std::move(value));
+}
 
-	SavePlaylistFile(contents, utf8path);
+void
+PlaylistFileEditor::RemoveIndex(unsigned i)
+{
+	if (i >= contents.size())
+		throw PlaylistError(PlaylistResult::BAD_RANGE, "Bad range");
 
+	contents.erase(std::next(contents.begin(), i));
+}
+
+void
+PlaylistFileEditor::RemoveRange(RangeArg range)
+{
+	if (!range.CheckClip(size()))
+		throw PlaylistError::BadRange();
+
+	contents.erase(std::next(contents.begin(), range.start),
+		       std::next(contents.begin(), range.end));
+}
+
+void
+PlaylistFileEditor::Save()
+{
+	SavePlaylistFile(path, contents);
 	idle_add(IDLE_STORED_PLAYLIST);
 }
 
@@ -316,26 +374,12 @@ spl_delete(const char *name_utf8)
 }
 
 void
-spl_remove_index(const char *utf8path, unsigned pos)
-{
-	auto contents = LoadPlaylistFile(utf8path);
-
-	if (pos >= contents.size())
-		throw PlaylistError(PlaylistResult::BAD_RANGE, "Bad range");
-
-	contents.erase(std::next(contents.begin(), pos));
-
-	SavePlaylistFile(contents, utf8path);
-	idle_add(IDLE_STORED_PLAYLIST);
-}
-
-void
 spl_append_song(const char *utf8path, const DetachedSong &song)
 try {
 	const auto path_fs = spl_map_to_fs(utf8path);
 	assert(!path_fs.IsNull());
 
-	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_EXISTING);
+	FileOutputStream fos(path_fs, FileOutputStream::Mode::APPEND_OR_CREATE);
 
 	if (fos.Tell() / (MPD_PATH_MAX + 1) >= playlist_max_length)
 		throw PlaylistError(PlaylistResult::TOO_LARGE,
@@ -359,8 +403,7 @@ void
 spl_append_uri(const char *utf8file,
 	       const SongLoader &loader, const char *url)
 {
-	std::unique_ptr<DetachedSong> song(loader.LoadSong(url));
-	spl_append_song(utf8file, *song);
+	spl_append_song(utf8file, loader.LoadSong(url));
 }
 
 static void

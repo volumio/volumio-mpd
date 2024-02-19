@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,9 +21,9 @@
 #define MPD_NFS_CONNECTION_HXX
 
 #include "Cancellable.hxx"
-#include "event/SocketMonitor.hxx"
-#include "event/TimeoutMonitor.hxx"
-#include "event/DeferredMonitor.hxx"
+#include "event/SocketEvent.hxx"
+#include "event/CoarseTimerEvent.hxx"
+#include "event/DeferEvent.hxx"
 
 #include <string>
 #include <list>
@@ -39,7 +39,7 @@ class NfsLease;
 /**
  * An asynchronous connection to a NFS server.
  */
-class NfsConnection : SocketMonitor, TimeoutMonitor, DeferredMonitor {
+class NfsConnection {
 	class CancellableCallback : public CancellablePointer<NfsCallback> {
 		NfsConnection &connection;
 
@@ -60,12 +60,13 @@ class NfsConnection : SocketMonitor, TimeoutMonitor, DeferredMonitor {
 	public:
 		explicit CancellableCallback(NfsCallback &_callback,
 					     NfsConnection &_connection,
-					     bool _open)
+					     bool _open) noexcept
 			:CancellablePointer<NfsCallback>(_callback),
 			 connection(_connection),
 			 open(_open), close_fh(nullptr) {}
 
 		void Stat(nfs_context *context, const char *path);
+		void Lstat(nfs_context *context, const char *path);
 		void OpenDirectory(nfs_context *context, const char *path);
 		void Open(nfs_context *context, const char *path, int flags);
 		void Stat(nfs_context *context, struct nfsfh *fh);
@@ -76,20 +77,24 @@ class NfsConnection : SocketMonitor, TimeoutMonitor, DeferredMonitor {
 		 * Cancel the operation and schedule a call to
 		 * nfs_close_async() with the given file handle.
 		 */
-		void CancelAndScheduleClose(struct nfsfh *fh);
+		void CancelAndScheduleClose(struct nfsfh *fh) noexcept;
 
 		/**
 		 * Called by NfsConnection::DestroyContext() right
 		 * before nfs_destroy_context().  This object is given
 		 * a chance to prepare for the latter.
 		 */
-		void PrepareDestroyContext();
+		void PrepareDestroyContext() noexcept;
 
 	private:
 		static void Callback(int err, struct nfs_context *nfs,
-				     void *data, void *private_data);
-		void Callback(int err, void *data);
+				     void *data, void *private_data) noexcept;
+		void Callback(int err, void *data) noexcept;
 	};
+
+	SocketEvent socket_event;
+	DeferEvent defer_new_lease;
+	CoarseTimerEvent mount_timeout_event;
 
 	std::string server, export_name;
 
@@ -133,31 +138,32 @@ class NfsConnection : SocketMonitor, TimeoutMonitor, DeferredMonitor {
 	bool mount_finished;
 
 public:
-	gcc_nonnull_all
+	[[gnu::nonnull]]
 	NfsConnection(EventLoop &_loop,
-		      const char *_server, const char *_export_name)
-		:SocketMonitor(_loop), TimeoutMonitor(_loop),
-		 DeferredMonitor(_loop),
+		      const char *_server, const char *_export_name) noexcept
+		:socket_event(_loop, BIND_THIS_METHOD(OnSocketReady)),
+		 defer_new_lease(_loop, BIND_THIS_METHOD(RunDeferred)),
+		 mount_timeout_event(_loop, BIND_THIS_METHOD(OnMountTimeout)),
 		 server(_server), export_name(_export_name),
 		 context(nullptr) {}
 
 	/**
 	 * Must be run from EventLoop's thread.
 	 */
-	~NfsConnection();
+	~NfsConnection() noexcept;
 
-	gcc_pure
-	const char *GetServer() const {
+	auto &GetEventLoop() const noexcept {
+		return socket_event.GetEventLoop();
+	}
+
+	[[gnu::pure]]
+	const char *GetServer() const noexcept {
 		return server.c_str();
 	}
 
-	gcc_pure
-	const char *GetExportName() const {
+	[[gnu::pure]]
+	const char *GetExportName() const noexcept {
 		return export_name.c_str();
-	}
-
-	EventLoop &GetEventLoop() {
-		return SocketMonitor::GetEventLoop();
 	}
 
 	/**
@@ -167,14 +173,15 @@ public:
 	 * This method is thread-safe.  However, #NfsLease's methods
 	 * will be invoked from within the #EventLoop's thread.
 	 */
-	void AddLease(NfsLease &lease);
-	void RemoveLease(NfsLease &lease);
+	void AddLease(NfsLease &lease) noexcept;
+	void RemoveLease(NfsLease &lease) noexcept;
 
 	void Stat(const char *path, NfsCallback &callback);
+	void Lstat(const char *path, NfsCallback &callback);
 
 	void OpenDirectory(const char *path, NfsCallback &callback);
-	const struct nfsdirent *ReadDirectory(struct nfsdir *dir);
-	void CloseDirectory(struct nfsdir *dir);
+	const struct nfsdirent *ReadDirectory(struct nfsdir *dir) noexcept;
+	void CloseDirectory(struct nfsdir *dir) noexcept;
 
 	/**
 	 * Throws std::runtime_error on error.
@@ -189,51 +196,50 @@ public:
 	void Read(struct nfsfh *fh, uint64_t offset, size_t size,
 		  NfsCallback &callback);
 
-	void Cancel(NfsCallback &callback);
+	void Cancel(NfsCallback &callback) noexcept;
 
-	void Close(struct nfsfh *fh);
-	void CancelAndClose(struct nfsfh *fh, NfsCallback &callback);
+	void Close(struct nfsfh *fh) noexcept;
+	void CancelAndClose(struct nfsfh *fh, NfsCallback &callback) noexcept;
 
 protected:
-	virtual void OnNfsConnectionError(std::exception_ptr &&e) = 0;
+	virtual void OnNfsConnectionError(std::exception_ptr &&e) noexcept = 0;
 
 private:
-	void DestroyContext();
+	void DestroyContext() noexcept;
 
 	/**
 	 * Wrapper for nfs_close_async().
 	 */
-	void InternalClose(struct nfsfh *fh);
+	void InternalClose(struct nfsfh *fh) noexcept;
 
 	/**
 	 * Invoke nfs_close_async() after nfs_service() returns.
 	 */
-	void DeferClose(struct nfsfh *fh);
+	void DeferClose(struct nfsfh *fh) noexcept;
 
 	void MountInternal();
-	void BroadcastMountSuccess();
-	void BroadcastMountError(std::exception_ptr &&e);
-	void BroadcastError(std::exception_ptr &&e);
+	void BroadcastMountSuccess() noexcept;
+	void BroadcastMountError(std::exception_ptr &&e) noexcept;
+	void BroadcastError(std::exception_ptr &&e) noexcept;
 
 	static void MountCallback(int status, nfs_context *nfs, void *data,
-				  void *private_data);
-	void MountCallback(int status, nfs_context *nfs, void *data);
+				  void *private_data) noexcept;
+	void MountCallback(int status, nfs_context *nfs, void *data) noexcept;
 
-	void ScheduleSocket();
+	void ScheduleSocket() noexcept;
 
 	/**
 	 * Wrapper for nfs_service().
 	 */
-	int Service(unsigned flags);
+	int Service(unsigned flags) noexcept;
 
-	/* virtual methods from SocketMonitor */
-	virtual bool OnSocketReady(unsigned flags) override;
+	void OnSocketReady(unsigned flags) noexcept;
 
-	/* virtual methods from TimeoutMonitor */
-	void OnTimeout() final;
+	/* callback for #mount_timeout_event */
+	void OnMountTimeout() noexcept;
 
-	/* virtual methods from DeferredMonitor */
-	virtual void RunDeferred() override;
+	/* DeferEvent callback */
+	void RunDeferred() noexcept;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,15 @@
 #ifndef MPD_THREAD_INPUT_STREAM_HXX
 #define MPD_THREAD_INPUT_STREAM_HXX
 
-#include "check.h"
 #include "InputStream.hxx"
 #include "thread/Thread.hxx"
 #include "thread/Cond.hxx"
+#include "util/HugeAllocator.hxx"
+#include "util/CircularBuffer.hxx"
 
+#include <cassert>
+#include <cstdint>
 #include <exception>
-
-#include <stdint.h>
-
-template<typename T> class CircularBuffer;
 
 /**
  * Helper class for moving InputStream implementations with blocking
@@ -39,6 +38,11 @@ template<typename T> class CircularBuffer;
  * manages the thread and the buffer.
  *
  * This works only for "streams": unknown length, no seeking, no tags.
+ *
+ * The implementation must call Stop() before its destruction
+ * completes.  This cannot be done in ~ThreadInputStream() because at
+ * this point, the class has been morphed back to #ThreadInputStream
+ * and the still-running thread will crash due to pure method call.
  */
 class ThreadInputStream : public InputStream {
 	const char *const plugin;
@@ -54,8 +58,9 @@ class ThreadInputStream : public InputStream {
 
 	std::exception_ptr postponed_exception;
 
-	const size_t buffer_size;
-	CircularBuffer<uint8_t> *buffer = nullptr;
+	HugeArray<uint8_t> allocation;
+
+	CircularBuffer<uint8_t> buffer;
 
 	/**
 	 * Shall the stream be closed?
@@ -69,13 +74,15 @@ class ThreadInputStream : public InputStream {
 
 public:
 	ThreadInputStream(const char *_plugin,
-			  const char *_uri, Mutex &_mutex, Cond &_cond,
-			  size_t _buffer_size)
-		:InputStream(_uri, _mutex, _cond),
-		 plugin(_plugin),
-		 buffer_size(_buffer_size) {}
+			  const char *_uri, Mutex &_mutex,
+			  size_t _buffer_size) noexcept;
 
-	virtual ~ThreadInputStream();
+#ifndef NDEBUG
+	~ThreadInputStream() override {
+		/* Stop() must have been called already */
+		assert(!thread.IsDefined());
+	}
+#endif
 
 	/**
 	 * Initialize the object and start the thread.
@@ -83,13 +90,20 @@ public:
 	void Start();
 
 	/* virtual methods from InputStream */
-	void Check() override final;
-	bool IsEOF() override final;
-	bool IsAvailable() override final;
-	size_t Read(void *ptr, size_t size) override final;
+	void Check() final;
+	bool IsEOF() const noexcept final;
+	bool IsAvailable() const noexcept final;
+	size_t Read(std::unique_lock<Mutex> &lock,
+		    void *ptr, size_t size) override final;
 
 protected:
-	void SetMimeType(const char *_mime) {
+	/**
+	 * Stop the thread and free the buffer.  This must be called
+	 * before destruction of this object completes.
+	 */
+	void Stop() noexcept;
+
+	void SetMimeType(const char *_mime) noexcept {
 		assert(thread.IsInside());
 
 		InputStream::SetMimeType(_mime);
@@ -126,7 +140,7 @@ protected:
 	 *
 	 * The #InputStream is not locked.
 	 */
-	virtual void Close() {}
+	virtual void Close() noexcept {}
 
 	/**
 	 * Called from the client thread to cancel a Read() inside the
@@ -134,11 +148,10 @@ protected:
 	 *
 	 * The #InputStream is not locked.
 	 */
-	virtual void Cancel() {}
+	virtual void Cancel() noexcept {}
 
 private:
-	void ThreadFunc();
-	static void ThreadFunc(void *ctx);
+	void ThreadFunc() noexcept;
 };
 
 #endif

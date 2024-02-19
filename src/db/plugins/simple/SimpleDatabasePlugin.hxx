@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,12 @@
 #ifndef MPD_SIMPLE_DATABASE_PLUGIN_HXX
 #define MPD_SIMPLE_DATABASE_PLUGIN_HXX
 
-#include "check.h"
+#include "ExportedSong.hxx"
 #include "db/Interface.hxx"
+#include "db/Ptr.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "db/LightSong.hxx"
-#include "Compiler.h"
+#include "util/Manual.hxx"
+#include "config.h"
 
 #include <cassert>
 
@@ -43,6 +44,8 @@ class SimpleDatabase : public Database {
 	bool compress;
 #endif
 
+	bool hide_playlist_targets;
+
 	/**
 	 * The path where cache files for Mount() are located.
 	 */
@@ -50,33 +53,34 @@ class SimpleDatabase : public Database {
 
 	Directory *root;
 
-	time_t mtime;
+	std::chrono::system_clock::time_point mtime;
 
 	/**
 	 * A buffer for GetSong() when prefixing the #LightSong
 	 * instance from a mounted #Database.
 	 */
-	mutable PrefixedLightSong *prefixed_light_song;
+	mutable PrefixedLightSong *prefixed_light_song = nullptr;
 
 	/**
 	 * A buffer for GetSong().
 	 */
-	mutable LightSong light_song;
+	mutable Manual<ExportedSong> exported_song;
 
 #ifndef NDEBUG
 	mutable unsigned borrowed_song_count;
 #endif
 
-	SimpleDatabase(const ConfigBlock &block);
-
-	SimpleDatabase(AllocatedPath &&_path, bool _compress);
-
 public:
-	static Database *Create(EventLoop &loop, DatabaseListener &listener,
-				const ConfigBlock &block);
+	SimpleDatabase(const ConfigBlock &block);
+	SimpleDatabase(AllocatedPath &&_path, bool _compress) noexcept;
 
-	gcc_pure
-	Directory &GetRoot() {
+	static DatabasePtr Create(EventLoop &main_event_loop,
+				  EventLoop &io_event_loop,
+				  DatabaseListener &listener,
+				  const ConfigBlock &block);
+
+	[[gnu::pure]]
+	Directory &GetRoot() noexcept {
 		assert(root != NULL);
 
 		return *root;
@@ -88,44 +92,45 @@ public:
 	 * Returns true if there is a valid database file on the disk.
 	 */
 	bool FileExists() const {
-		return mtime > 0;
+		return mtime >= std::chrono::system_clock::time_point(std::chrono::system_clock::duration::zero());
 	}
 
 	/**
 	 * @param db the #Database to be mounted; must be "open"; on
 	 * success, this object gains ownership of the given #Database
 	 */
-	gcc_nonnull_all
-	void Mount(const char *uri, Database *db);
+	[[gnu::nonnull]]
+	void Mount(const char *uri, DatabasePtr db);
 
 	/**
 	 * Throws #std::runtime_error on error.
+	 *
+	 * @return false if the mounted database needs to be updated
 	 */
-	gcc_nonnull_all
-	void Mount(const char *local_uri, const char *storage_uri);
+	[[gnu::nonnull]]
+	bool Mount(const char *local_uri, const char *storage_uri);
 
-	gcc_nonnull_all
-	bool Unmount(const char *uri);
+	[[gnu::nonnull]]
+	bool Unmount(const char *uri) noexcept;
 
 	/* virtual methods from class Database */
-	virtual void Open() override;
-	virtual void Close() override;
+	void Open() override;
+	void Close() noexcept override;
 
-	const LightSong *GetSong(const char *uri_utf8) const override;
-	void ReturnSong(const LightSong *song) const override;
+	const LightSong *GetSong(std::string_view uri_utf8) const override;
+	void ReturnSong(const LightSong *song) const noexcept override;
 
 	void Visit(const DatabaseSelection &selection,
 		   VisitDirectory visit_directory,
 		   VisitSong visit_song,
 		   VisitPlaylist visit_playlist) const override;
 
-	void VisitUniqueTags(const DatabaseSelection &selection,
-			     TagType tag_type, tag_mask_t group_mask,
-			     VisitTag visit_tag) const override;
+	RecursiveMap<std::string> CollectUniqueTags(const DatabaseSelection &selection,
+						    ConstBuffer<TagType> tag_types) const override;
 
 	DatabaseStats GetStats(const DatabaseSelection &selection) const override;
 
-	virtual time_t GetUpdateStamp() const override {
+	std::chrono::system_clock::time_point GetUpdateStamp() const noexcept override {
 		return mtime;
 	}
 
@@ -139,7 +144,7 @@ private:
 	 */
 	void Load();
 
-	Database *LockUmountSteal(const char *uri);
+	DatabasePtr LockUmountSteal(const char *uri) noexcept;
 };
 
 extern const DatabasePlugin simple_db_plugin;

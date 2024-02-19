@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,31 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SlesOutputPlugin.hxx"
 #include "Object.hxx"
 #include "Engine.hxx"
 #include "Play.hxx"
 #include "AndroidSimpleBufferQueue.hxx"
 #include "../../OutputAPI.hxx"
-#include "../../Wrapper.hxx"
-#include "util/Macros.hxx"
+#include "thread/Mutex.hxx"
+#include "thread/Cond.hxx"
 #include "util/Domain.hxx"
-#include "system/ByteOrder.hxx"
+#include "util/ByteOrder.hxx"
+#include "mixer/MixerList.hxx"
 #include "Log.hxx"
 
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 
+#include <cassert>
+#include <iterator>
 #include <stdexcept>
 
-class SlesOutput {
-	friend struct AudioOutputWrapper<SlesOutput>;
-
+class SlesOutput final : AudioOutput  {
 	static constexpr unsigned N_BUFFERS = 3;
 	static constexpr size_t BUFFER_SIZE = 65536;
-
-	AudioOutput base;
 
 	SLES::Object engine_object, mix_object, play_object;
 	SLES::Play play;
@@ -84,27 +82,28 @@ class SlesOutput {
 	 */
 	uint8_t buffers[N_BUFFERS][BUFFER_SIZE];
 
+	SlesOutput():AudioOutput(FLAG_PAUSE) {}
+
 public:
-	SlesOutput(const ConfigBlock &block);
-
-	operator AudioOutput *() {
-		return &base;
+	static AudioOutput *Create(EventLoop &, const ConfigBlock &) {
+		return new SlesOutput();
 	}
 
-	static SlesOutput *Create(const ConfigBlock &block);
+private:
+	void Open(AudioFormat &audio_format) override;
+	void Close() noexcept override;
 
-	void Open(AudioFormat &audio_format);
-	void Close();
-
-	unsigned Delay() {
-		return pause && !cancel ? 100 : 0;
+	std::chrono::steady_clock::duration Delay() const noexcept override {
+		return pause && !cancel
+			? std::chrono::milliseconds(100)
+			: std::chrono::steady_clock::duration::zero();
 	}
 
-	size_t Play(const void *chunk, size_t size);
+	size_t Play(const void *chunk, size_t size) override;
 
-	void Drain();
-	void Cancel();
-	bool Pause();
+	void Drain() override;
+	void Cancel() noexcept override;
+	bool Pause() override;
 
 private:
 	void PlayedCallback();
@@ -114,7 +113,7 @@ private:
 	 * been consumed.  It synthesises and enqueues the next
 	 * buffer.
 	 */
-	static void PlayedCallback(gcc_unused SLAndroidSimpleBufferQueueItf caller,
+	static void PlayedCallback([[maybe_unused]] SLAndroidSimpleBufferQueueItf caller,
 				   void *pContext)
 	{
 		SlesOutput &sles = *(SlesOutput *)pContext;
@@ -124,12 +123,7 @@ private:
 
 static constexpr Domain sles_domain("sles");
 
-SlesOutput::SlesOutput(const ConfigBlock &block)
-	:base(sles_output_plugin, block)
-{
-}
-
-inline void
+void
 SlesOutput::Open(AudioFormat &audio_format)
 {
 	SLresult result;
@@ -180,12 +174,12 @@ SlesOutput::Open(AudioFormat &audio_format)
 	if (audio_format.channels > 2)
 		audio_format.channels = 1;
 
-	SLDataFormat_PCM format_pcm;
+	SLAndroidDataFormat_PCM_EX format_pcm;
 	format_pcm.formatType = SL_DATAFORMAT_PCM;
 	format_pcm.numChannels = audio_format.channels;
 	/* from the Android NDK docs: "Note that the field samplesPerSec is
 	   actually in units of milliHz, despite the misleading name." */
-	format_pcm.samplesPerSec = audio_format.sample_rate * 1000u;
+	format_pcm.sampleRate = audio_format.sample_rate * 1000u;
 	format_pcm.bitsPerSample = SL_PCMSAMPLEFORMAT_FIXED_16;
 	format_pcm.containerSize = SL_PCMSAMPLEFORMAT_FIXED_16;
 	format_pcm.channelMask = audio_format.channels == 1
@@ -194,6 +188,36 @@ SlesOutput::Open(AudioFormat &audio_format)
 	format_pcm.endianness = IsLittleEndian()
 		? SL_BYTEORDER_LITTLEENDIAN
 		: SL_BYTEORDER_BIGENDIAN;
+	format_pcm.representation = SL_ANDROID_PCM_REPRESENTATION_SIGNED_INT;
+
+	switch (audio_format.format) {
+		/* note: Android doesn't support
+		   SL_PCMSAMPLEFORMAT_FIXED_24 and
+		   SL_PCMSAMPLEFORMAT_FIXED_32, so let's not bother
+		   implement it here; SL_PCMSAMPLEFORMAT_FIXED_8
+		   appears to be unsigned, so not usable for us (and
+		   converting S8 to U8 is not worth the trouble) */
+
+	case SampleFormat::S16:
+		/* bitsPerSample and containerSize already set for 16
+		   bit */
+		break;
+
+	case SampleFormat::FLOAT:
+		/* Android has an OpenSLES extension for floating
+		   point samples:
+		   https://developer.android.com/ndk/guides/audio/opensl/android-extensions */
+		format_pcm.formatType = SL_ANDROID_DATAFORMAT_PCM_EX;
+		format_pcm.bitsPerSample = format_pcm.containerSize =
+			SL_PCMSAMPLEFORMAT_FIXED_32;
+		format_pcm.representation = SL_ANDROID_PCM_REPRESENTATION_FLOAT;
+		break;
+
+	default:
+		/* fall back to 16 bit */
+		audio_format.format = SampleFormat::S16;
+		break;
+	}
 
 	SLDataSource audioSrc = { &loc_bufq, &format_pcm };
 
@@ -220,7 +244,7 @@ SlesOutput::Open(AudioFormat &audio_format)
 	};
 
 	result = engine.CreateAudioPlayer(&_object, &audioSrc, &audioSnk,
-					  ARRAY_SIZE(ids2), ids2, req2);
+					  std::size(ids2), ids2, req2);
 	if (result != SL_RESULT_SUCCESS) {
 		mix_object.Destroy();
 		engine_object.Destroy();
@@ -237,6 +261,14 @@ SlesOutput::Open(AudioFormat &audio_format)
 						    SL_ANDROID_KEY_STREAM_TYPE,
 						    &stream_type,
 						    sizeof(stream_type));
+
+		/* MPD doesn't care much about latency, so let's
+		   configure power saving mode */
+		SLuint32 performance_mode = SL_ANDROID_PERFORMANCE_POWER_SAVING;
+		(*android_config)->SetConfiguration(android_config,
+						    SL_ANDROID_KEY_PERFORMANCE_MODE,
+						    &performance_mode,
+						    sizeof(performance_mode));
 	}
 
 	result = play_object.Realize(false);
@@ -290,13 +322,10 @@ SlesOutput::Open(AudioFormat &audio_format)
 	n_queued = 0;
 	next = 0;
 	filled = 0;
-
-	// TODO: support other sample formats
-	audio_format.format = SampleFormat::S16;
 }
 
-inline void
-SlesOutput::Close()
+void
+SlesOutput::Close() noexcept
 {
 	play.SetPlayState(SL_PLAYSTATE_STOPPED);
 	play_object.Destroy();
@@ -304,7 +333,7 @@ SlesOutput::Close()
 	engine_object.Destroy();
 }
 
-inline size_t
+size_t
 SlesOutput::Play(const void *chunk, size_t size)
 {
 	cancel = false;
@@ -317,14 +346,15 @@ SlesOutput::Play(const void *chunk, size_t size)
 		pause = false;
 	}
 
-	const ScopeLock protect(mutex);
+	std::unique_lock<Mutex> lock(mutex);
 
 	assert(filled < BUFFER_SIZE);
 
-	while (n_queued == N_BUFFERS) {
-		assert(filled == 0);
-		cond.wait(mutex);
-	}
+	cond.wait(lock, [this]{
+		bool ret = n_queued != N_BUFFERS;
+		assert(ret || filled == 0);
+		return ret;
+	});
 
 	size_t nbytes = std::min(BUFFER_SIZE - filled, size);
 	memcpy(buffers[next] + filled, chunk, nbytes);
@@ -343,38 +373,37 @@ SlesOutput::Play(const void *chunk, size_t size)
 	return nbytes;
 }
 
-inline void
+void
 SlesOutput::Drain()
 {
-	const ScopeLock protect(mutex);
+	std::unique_lock<Mutex> lock(mutex);
 
 	assert(filled < BUFFER_SIZE);
 
-	while (n_queued > 0)
-		cond.wait(mutex);
+	cond.wait(lock, [this]{ return n_queued == 0; });
 }
 
-inline void
-SlesOutput::Cancel()
+void
+SlesOutput::Cancel() noexcept
 {
 	pause = true;
 	cancel = true;
 
 	SLresult result = play.SetPlayState(SL_PLAYSTATE_PAUSED);
 	if (result != SL_RESULT_SUCCESS)
-		FormatError(sles_domain,  "Play.SetPlayState(PAUSED) failed");
+		LogError(sles_domain,  "Play.SetPlayState(PAUSED) failed");
 
 	result = queue.Clear();
 	if (result != SL_RESULT_SUCCESS)
-		FormatWarning(sles_domain,
-			      "AndroidSimpleBufferQueue.Clear() failed");
+		LogWarning(sles_domain,
+			   "AndroidSimpleBufferQueue.Clear() failed");
 
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	n_queued = 0;
 	filled = 0;
 }
 
-inline bool
+bool
 SlesOutput::Pause()
 {
 	cancel = false;
@@ -385,10 +414,8 @@ SlesOutput::Pause()
 	pause = true;
 
 	SLresult result = play.SetPlayState(SL_PLAYSTATE_PAUSED);
-	if (result != SL_RESULT_SUCCESS) {
-		FormatError(sles_domain, "Play.SetPlayState(PAUSED) failed");
-		return false;
-	}
+	if (result != SL_RESULT_SUCCESS)
+		throw std::runtime_error("Play.SetPlayState(PAUSED) failed");
 
 	return true;
 }
@@ -396,10 +423,10 @@ SlesOutput::Pause()
 inline void
 SlesOutput::PlayedCallback()
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	assert(n_queued > 0);
 	--n_queued;
-	cond.signal();
+	cond.notify_one();
 }
 
 static bool
@@ -410,28 +437,9 @@ sles_test_default_device()
 	return true;
 }
 
-inline SlesOutput *
-SlesOutput::Create(const ConfigBlock &block)
-{
-	return new SlesOutput(block);
-}
-
-typedef AudioOutputWrapper<SlesOutput> Wrapper;
-
 const struct AudioOutputPlugin sles_output_plugin = {
 	"sles",
 	sles_test_default_device,
-	&Wrapper::Init,
-	&Wrapper::Finish,
-	nullptr,
-	nullptr,
-	&Wrapper::Open,
-	&Wrapper::Close,
-	&Wrapper::Delay,
-	nullptr,
-	&Wrapper::Play,
-	&Wrapper::Drain,
-	&Wrapper::Cancel,
-	&Wrapper::Pause,
-	nullptr,
+	SlesOutput::Create,
+	&android_mixer_plugin,
 };
