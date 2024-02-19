@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
-#include "fs/io/GunzipReader.hxx"
-#include "fs/io/FileReader.hxx"
-#include "fs/io/StdioOutputStream.hxx"
-#include "Log.hxx"
+#include "lib/zlib/GunzipReader.hxx"
+#include "io/FileReader.hxx"
+#include "io/StdioOutputStream.hxx"
+#include "fs/NarrowPath.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,20 +56,18 @@ CopyGunzip(FILE *_dest, Path src_path)
 }
 
 int
-main(int argc, gcc_unused char **argv)
-{
+main(int argc, [[maybe_unused]] char **argv)
+try {
 	if (argc != 2) {
 		fprintf(stderr, "Usage: run_gunzip PATH\n");
 		return EXIT_FAILURE;
 	}
 
-	Path path = Path::FromFS(argv[1]);
+	FromNarrowPath path = argv[1];
 
-	try {
-		CopyGunzip(stdout, path);
-		return EXIT_SUCCESS;
-	} catch (const std::exception &e) {
-		LogError(e);
-		return EXIT_FAILURE;
-	}
+	CopyGunzip(stdout, path);
+	return EXIT_SUCCESS;
+} catch (...) {
+	PrintException(std::current_exception());
+	return EXIT_FAILURE;
 }

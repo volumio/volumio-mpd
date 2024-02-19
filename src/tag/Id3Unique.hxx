@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,14 +20,12 @@
 #ifndef MPD_TAG_ID3_UNIQUE_HXX
 #define MPD_TAG_ID3_UNIQUE_HXX
 
-#include "check.h"
-
 #include <id3tag.h>
 
 #include <memory>
 
 struct Id3Delete {
-	void operator()(struct id3_tag *tag) {
+	void operator()(struct id3_tag *tag) noexcept {
 		id3_tag_delete(tag);
 	}
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,58 +17,64 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ThreadInputStream.hxx"
+#include "CondHandler.hxx"
 #include "thread/Name.hxx"
-#include "util/CircularBuffer.hxx"
-#include "util/HugeAllocator.hxx"
 
-#include <assert.h>
+#include <cassert>
+
 #include <string.h>
 
-ThreadInputStream::~ThreadInputStream()
+ThreadInputStream::ThreadInputStream(const char *_plugin,
+				     const char *_uri,
+				     Mutex &_mutex,
+				     size_t _buffer_size) noexcept
+	:InputStream(_uri, _mutex),
+	 plugin(_plugin),
+	 thread(BIND_THIS_METHOD(ThreadFunc)),
+	 allocation(_buffer_size),
+	 buffer(&allocation.front(), allocation.size())
 {
+	allocation.ForkCow(false);
+}
+
+void
+ThreadInputStream::Stop() noexcept
+{
+	if (!thread.IsDefined())
+		return;
+
 	{
-		const ScopeLock lock(mutex);
+		const std::scoped_lock<Mutex> lock(mutex);
 		close = true;
-		wake_cond.signal();
+		wake_cond.notify_one();
 	}
 
 	Cancel();
 
 	thread.Join();
 
-	if (buffer != nullptr) {
-		buffer->Clear();
-		HugeFree(buffer->Write().data, buffer_size);
-		delete buffer;
-	}
+	buffer.Clear();
 }
 
 void
 ThreadInputStream::Start()
 {
-	assert(buffer == nullptr);
-
-	void *p = HugeAllocate(buffer_size);
-	assert(p != nullptr);
-
-	buffer = new CircularBuffer<uint8_t>((uint8_t *)p, buffer_size);
-	thread.Start(ThreadFunc, this);
+	thread.Start();
 }
 
 inline void
-ThreadInputStream::ThreadFunc()
+ThreadInputStream::ThreadFunc() noexcept
 {
 	FormatThreadName("input:%s", plugin);
 
-	const ScopeLock lock(mutex);
+	std::unique_lock<Mutex> lock(mutex);
 
 	try {
 		Open();
 	} catch (...) {
 		postponed_exception = std::current_exception();
-		cond.broadcast();
+		SetReady();
 		return;
 	}
 
@@ -78,9 +84,9 @@ ThreadInputStream::ThreadFunc()
 	while (!close) {
 		assert(!postponed_exception);
 
-		auto w = buffer->Write();
-		if (w.IsEmpty()) {
-			wake_cond.wait(mutex);
+		auto w = buffer.Write();
+		if (w.empty()) {
+			wake_cond.wait(lock);
 		} else {
 			size_t nbytes;
 
@@ -89,29 +95,22 @@ ThreadInputStream::ThreadFunc()
 				nbytes = ThreadRead(w.data, w.size);
 			} catch (...) {
 				postponed_exception = std::current_exception();
-				cond.broadcast();
+				InvokeOnAvailable();
 				break;
 			}
 
-			cond.broadcast();
+			InvokeOnAvailable();
 
 			if (nbytes == 0) {
 				eof = true;
 				break;
 			}
 
-			buffer->Append(nbytes);
+			buffer.Append(nbytes);
 		}
 	}
 
 	Close();
-}
-
-void
-ThreadInputStream::ThreadFunc(void *ctx)
-{
-	ThreadInputStream &tis = *(ThreadInputStream *)ctx;
-	tis.ThreadFunc();
 }
 
 void
@@ -124,28 +123,31 @@ ThreadInputStream::Check()
 }
 
 bool
-ThreadInputStream::IsAvailable()
+ThreadInputStream::IsAvailable() const noexcept
 {
 	assert(!thread.IsInside());
 
-	return !buffer->IsEmpty() || eof || postponed_exception;
+	return !buffer.empty() || eof || postponed_exception;
 }
 
 inline size_t
-ThreadInputStream::Read(void *ptr, size_t read_size)
+ThreadInputStream::Read(std::unique_lock<Mutex> &lock,
+			void *ptr, size_t read_size)
 {
 	assert(!thread.IsInside());
+
+	CondInputStreamHandler cond_handler;
 
 	while (true) {
 		if (postponed_exception)
 			std::rethrow_exception(postponed_exception);
 
-		auto r = buffer->Read();
-		if (!r.IsEmpty()) {
+		auto r = buffer.Read();
+		if (!r.empty()) {
 			size_t nbytes = std::min(read_size, r.size);
 			memcpy(ptr, r.data, nbytes);
-			buffer->Consume(nbytes);
-			wake_cond.broadcast();
+			buffer.Consume(nbytes);
+			wake_cond.notify_all();
 			offset += nbytes;
 			return nbytes;
 		}
@@ -153,12 +155,13 @@ ThreadInputStream::Read(void *ptr, size_t read_size)
 		if (eof)
 			return 0;
 
-		cond.wait(mutex);
+		const ScopeExchangeInputStreamHandler h(*this, &cond_handler);
+		cond_handler.cond.wait(lock);
 	}
 }
 
 bool
-ThreadInputStream::IsEOF()
+ThreadInputStream::IsEOF() const noexcept
 {
 	assert(!thread.IsInside());
 

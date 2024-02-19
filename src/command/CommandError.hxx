@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_COMMAND_ERROR_HXX
 #define MPD_COMMAND_ERROR_HXX
 
-#include "CommandResult.hxx"
-
 #include <exception>
 
 class Response;
@@ -30,6 +28,6 @@ class Response;
  * Send the exception to the client.
  */
 void
-PrintError(Response &r, std::exception_ptr ep);
+PrintError(Response &r, const std::exception_ptr& ep);
 
 #endif

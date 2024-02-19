@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,43 +17,48 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Glue.hxx"
 #include "Manager.hxx"
-#include "IOThread.hxx"
 #include "event/Call.hxx"
 #include "util/Manual.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 static Manual<NfsManager> nfs_glue;
 static unsigned in_use;
 
 void
-nfs_init()
+nfs_init(EventLoop &event_loop)
 {
 	if (in_use++ > 0)
 		return;
 
-	nfs_glue.Construct(io_thread_get());
+	nfs_glue.Construct(event_loop);
 }
 
 void
-nfs_finish()
+nfs_finish() noexcept
 {
 	assert(in_use > 0);
 
 	if (--in_use > 0)
 		return;
 
-	BlockingCall(io_thread_get(), [](){ nfs_glue.Destruct(); });
+	BlockingCall(nfs_glue->GetEventLoop(), [](){ nfs_glue.Destruct(); });
+}
+
+EventLoop &
+nfs_get_event_loop() noexcept
+{
+	assert(in_use > 0);
+
+	return nfs_glue->GetEventLoop();
 }
 
 NfsConnection &
-nfs_get_connection(const char *server, const char *export_name)
+nfs_get_connection(const char *server, const char *export_name) noexcept
 {
 	assert(in_use > 0);
-	assert(io_thread_inside());
 
 	return nfs_glue->GetConnection(server, export_name);
 }

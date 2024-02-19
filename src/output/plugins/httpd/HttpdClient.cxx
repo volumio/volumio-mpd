@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "HttpdClient.hxx"
 #include "HttpdInternal.hxx"
 #include "util/ASCII.hxx"
@@ -25,47 +24,39 @@
 #include "Page.hxx"
 #include "IcyMetaDataServer.hxx"
 #include "net/SocketError.hxx"
+#include "net/UniqueSocketDescriptor.hxx"
 #include "Log.hxx"
 
-#include <assert.h>
-#include <string.h>
+#include <cassert>
+#include <cstring>
+
 #include <stdio.h>
 
-HttpdClient::~HttpdClient()
+HttpdClient::~HttpdClient() noexcept
 {
-	if (state == RESPONSE) {
-		if (current_page != nullptr)
-			current_page->Unref();
-
-		ClearQueue();
-	}
-
-	if (metadata)
-		metadata->Unref();
-
 	if (IsDefined())
 		BufferedSocket::Close();
 }
 
 void
-HttpdClient::Close()
+HttpdClient::Close() noexcept
 {
 	httpd.RemoveClient(*this);
 }
 
 void
-HttpdClient::LockClose()
+HttpdClient::LockClose() noexcept
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::scoped_lock<Mutex> protect(httpd.mutex);
 	Close();
 }
 
 void
-HttpdClient::BeginResponse()
+HttpdClient::BeginResponse() noexcept
 {
-	assert(state != RESPONSE);
+	assert(state != State::RESPONSE);
 
-	state = RESPONSE;
+	state = State::RESPONSE;
 	current_page = nullptr;
 
 	if (!head_method)
@@ -76,15 +67,15 @@ HttpdClient::BeginResponse()
  * Handle a line of the HTTP request.
  */
 bool
-HttpdClient::HandleLine(const char *line)
+HttpdClient::HandleLine(const char *line) noexcept
 {
-	assert(state != RESPONSE);
+	assert(state != State::RESPONSE);
 
-	if (state == REQUEST) {
-		if (memcmp(line, "HEAD /", 6) == 0) {
+	if (state == State::REQUEST) {
+		if (strncmp(line, "HEAD /", 6) == 0) {
 			line += 6;
 			head_method = true;
-		} else if (memcmp(line, "GET /", 5) == 0) {
+		} else if (strncmp(line, "GET /", 5) == 0) {
 			line += 5;
 		} else {
 			/* only GET is supported */
@@ -93,8 +84,19 @@ HttpdClient::HandleLine(const char *line)
 			return false;
 		}
 
-		line = strchr(line, ' ');
-		if (line == nullptr || memcmp(line + 1, "HTTP/", 5) != 0) {
+		/* blacklist some well-known request paths */
+		if ((strncmp(line, "favicon.ico", 11) == 0 &&
+		     (line[11] == '\0' || line[11] == ' ')) ||
+		    (strncmp(line, "robots.txt", 10) == 0 &&
+		     (line[10] == '\0' || line[10] == ' ')) ||
+		    (strncmp(line, "sitemap.xml", 11) == 0 &&
+		     (line[11] == '\0' || line[11] == ' ')) ||
+		    (strncmp(line, ".well-known/", 12) == 0)) {
+			should_reject = true;
+		}
+
+		line = std::strchr(line, ' ');
+		if (line == nullptr || strncmp(line + 1, "HTTP/", 5) != 0) {
 			/* HTTP/0.9 without request headers */
 
 			if (head_method)
@@ -105,7 +107,7 @@ HttpdClient::HandleLine(const char *line)
 		}
 
 		/* after the request line, request headers follow */
-		state = HEADERS;
+		state = State::HEADERS;
 		return true;
 	} else {
 		if (*line == 0) {
@@ -122,15 +124,6 @@ HttpdClient::HandleLine(const char *line)
 			return true;
 		}
 
-		if (StringEqualsCaseASCII(line, "transferMode.dlna.org: Streaming", 32)) {
-			/* Send as dlna */
-			dlna_streaming_requested = true;
-			/* metadata is not supported by dlna streaming, so disable it */
-			metadata_supported = false;
-			metadata_requested = false;
-			return true;
-		}
-
 		/* expect more request headers */
 		return true;
 	}
@@ -140,29 +133,21 @@ HttpdClient::HandleLine(const char *line)
  * Sends the status line and response headers to the client.
  */
 bool
-HttpdClient::SendResponse()
+HttpdClient::SendResponse() noexcept
 {
 	char buffer[1024];
-	AllocatedString<> allocated = nullptr;
+	AllocatedString allocated;
 	const char *response;
 
-	assert(state == RESPONSE);
+	assert(state == State::RESPONSE);
 
-	if (dlna_streaming_requested) {
-		snprintf(buffer, sizeof(buffer),
-			 "HTTP/1.1 206 OK\r\n"
-			 "Content-Type: %s\r\n"
-			 "Content-Length: 10000\r\n"
-			 "Content-RangeX: 0-1000000/1000000\r\n"
-			 "transferMode.dlna.org: Streaming\r\n"
-			 "Accept-Ranges: bytes\r\n"
-			 "Connection: close\r\n"
-			 "realTimeInfo.dlna.org: DLNA.ORG_TLAG=*\r\n"
-			 "contentFeatures.dlna.org: DLNA.ORG_OP=01;DLNA.ORG_CI=0\r\n"
-			 "\r\n",
-			 httpd.content_type);
-		response = buffer;
-
+	if (should_reject) {
+		response =
+			"HTTP/1.1 404 not found\r\n"
+			"Content-Type: text/plain\r\n"
+			"Connection: close\r\n"
+			"\r\n"
+			"404 not found";
 	} else if (metadata_requested) {
 		allocated =
 			icy_server_metadata_header(httpd.name, httpd.genre,
@@ -170,118 +155,112 @@ HttpdClient::SendResponse()
 						   httpd.content_type,
 						   metaint);
 		response = allocated.c_str();
-       } else { /* revert to a normal HTTP request */
+	} else { /* revert to a normal HTTP request */
 		snprintf(buffer, sizeof(buffer),
 			 "HTTP/1.1 200 OK\r\n"
 			 "Content-Type: %s\r\n"
 			 "Connection: close\r\n"
 			 "Pragma: no-cache\r\n"
 			 "Cache-Control: no-cache, no-store\r\n"
+			 "Access-Control-Allow-Origin: *\r\n"
 			 "\r\n",
 			 httpd.content_type);
 		response = buffer;
 	}
 
-	ssize_t nbytes = SocketMonitor::Write(response, strlen(response));
+	ssize_t nbytes = GetSocket().Write(response, strlen(response));
 	if (gcc_unlikely(nbytes < 0)) {
 		const SocketErrorMessage msg;
-		FormatWarning(httpd_output_domain,
-			      "failed to write to client: %s",
-			      (const char *)msg);
-		Close();
+		FmtWarning(httpd_output_domain,
+			   "failed to write to client: {}",
+			   (const char *)msg);
+		LockClose();
 		return false;
 	}
 
 	return true;
 }
 
-HttpdClient::HttpdClient(HttpdOutput &_httpd, int _fd, EventLoop &_loop,
+HttpdClient::HttpdClient(HttpdOutput &_httpd, UniqueSocketDescriptor _fd,
+			 EventLoop &_loop,
 			 bool _metadata_supported)
-	:BufferedSocket(_fd, _loop),
+	:BufferedSocket(_fd.Release(), _loop),
 	 httpd(_httpd),
-	 state(REQUEST),
-	 queue_size(0),
-	 head_method(false),
-	 dlna_streaming_requested(false),
-	 metadata_supported(_metadata_supported),
-	 metadata_requested(false), metadata_sent(true),
-	 metaint(8192), /*TODO: just a std value */
-	 metadata(nullptr),
-	 metadata_current_position(0), metadata_fill(0)
+	 metadata_supported(_metadata_supported)
 {
 }
 
 void
-HttpdClient::ClearQueue()
+HttpdClient::ClearQueue() noexcept
 {
-	assert(state == RESPONSE);
+	assert(state == State::RESPONSE);
 
 	while (!pages.empty()) {
-		Page *page = pages.front();
-		pages.pop();
-
 #ifndef NDEBUG
-		assert(queue_size >= page->size);
-		queue_size -= page->size;
+		auto &page = pages.front();
+		assert(queue_size >= page->size());
+		queue_size -= page->size();
 #endif
 
-		page->Unref();
+		pages.pop();
 	}
 
 	assert(queue_size == 0);
 }
 
 void
-HttpdClient::CancelQueue()
+HttpdClient::CancelQueue() noexcept
 {
-	if (state != RESPONSE)
+	if (state != State::RESPONSE)
 		return;
 
 	ClearQueue();
 
 	if (current_page == nullptr)
-		CancelWrite();
+		event.CancelWrite();
 }
 
 ssize_t
-HttpdClient::TryWritePage(const Page &page, size_t position)
+HttpdClient::TryWritePage(const Page &page, size_t position) noexcept
 {
-	assert(position < page.size);
+	assert(position < page.size());
 
-	return Write(page.data + position, page.size - position);
+	return GetSocket().Write(page.data() + position,
+				 page.size() - position);
 }
 
 ssize_t
-HttpdClient::TryWritePageN(const Page &page, size_t position, ssize_t n)
+HttpdClient::TryWritePageN(const Page &page,
+			   size_t position, ssize_t n) noexcept
 {
 	return n >= 0
-		? Write(page.data + position, n)
+		? GetSocket().Write(page.data() + position, n)
 		: TryWritePage(page, position);
 }
 
 ssize_t
-HttpdClient::GetBytesTillMetaData() const
+HttpdClient::GetBytesTillMetaData() const noexcept
 {
 	if (metadata_requested &&
-	    current_page->size - current_position > metaint - metadata_fill)
+	    current_page->size() - current_position > metaint - metadata_fill)
 		return metaint - metadata_fill;
 
 	return -1;
 }
 
 inline bool
-HttpdClient::TryWrite()
+HttpdClient::TryWrite() noexcept
 {
-	const ScopeLock protect(httpd.mutex);
+	const std::scoped_lock<Mutex> protect(httpd.mutex);
 
-	assert(state == RESPONSE);
+	assert(state == State::RESPONSE);
 
 	if (current_page == nullptr) {
 		if (pages.empty()) {
 			/* another thread has removed the event source
 			   while this thread was waiting for
 			   httpd.mutex */
-			CancelWrite();
+			event.CancelWrite();
 			return true;
 		}
 
@@ -289,8 +268,8 @@ HttpdClient::TryWrite()
 		pages.pop();
 		current_position = 0;
 
-		assert(queue_size >= current_page->size);
-		queue_size -= current_page->size;
+		assert(queue_size >= current_page->size());
+		queue_size -= current_page->size();
 	}
 
 	const ssize_t bytes_to_write = GetBytesTillMetaData();
@@ -300,14 +279,14 @@ HttpdClient::TryWrite()
 						      metadata_current_position);
 			if (nbytes < 0) {
 				auto e = GetSocketError();
-				if (IsSocketErrorAgain(e))
+				if (IsSocketErrorSendWouldBlock(e))
 					return true;
 
 				if (!IsSocketErrorClosed(e)) {
 					SocketErrorMessage msg(e);
-					FormatWarning(httpd_output_domain,
-						      "failed to write to client: %s",
-						      (const char *)msg);
+					FmtWarning(httpd_output_domain,
+						   "failed to write to client: {}",
+						   (const char *)msg);
 				}
 
 				Close();
@@ -316,7 +295,7 @@ HttpdClient::TryWrite()
 
 			metadata_current_position += nbytes;
 
-			if (metadata->size - metadata_current_position == 0) {
+			if (metadata->size() - metadata_current_position == 0) {
 				metadata_fill = 0;
 				metadata_current_position = 0;
 				metadata_sent = true;
@@ -324,17 +303,17 @@ HttpdClient::TryWrite()
 		} else {
 			char empty_data = 0;
 
-			ssize_t nbytes = Write(&empty_data, 1);
+			ssize_t nbytes = GetSocket().Write(&empty_data, 1);
 			if (nbytes < 0) {
 				auto e = GetSocketError();
-				if (IsSocketErrorAgain(e))
+				if (IsSocketErrorSendWouldBlock(e))
 					return true;
 
 				if (!IsSocketErrorClosed(e)) {
 					SocketErrorMessage msg(e);
-					FormatWarning(httpd_output_domain,
-						      "failed to write to client: %s",
-						      (const char *)msg);
+					FmtWarning(httpd_output_domain,
+						   "failed to write to client: {}",
+						   (const char *)msg);
 				}
 
 				Close();
@@ -350,14 +329,14 @@ HttpdClient::TryWrite()
 				      bytes_to_write);
 		if (nbytes < 0) {
 			auto e = GetSocketError();
-			if (IsSocketErrorAgain(e))
+			if (IsSocketErrorSendWouldBlock(e))
 				return true;
 
 			if (!IsSocketErrorClosed(e)) {
 				SocketErrorMessage msg(e);
-				FormatWarning(httpd_output_domain,
-					      "failed to write to client: %s",
-					      (const char *)msg);
+				FmtWarning(httpd_output_domain,
+					   "failed to write to client: {}",
+					   (const char *)msg);
 			}
 
 			Close();
@@ -365,19 +344,18 @@ HttpdClient::TryWrite()
 		}
 
 		current_position += nbytes;
-		assert(current_position <= current_page->size);
+		assert(current_position <= current_page->size());
 
 		if (metadata_requested)
 			metadata_fill += nbytes;
 
-		if (current_position >= current_page->size) {
-			current_page->Unref();
-			current_page = nullptr;
+		if (current_position >= current_page->size()) {
+			current_page.reset();
 
 			if (pages.empty())
 				/* all pages are sent: remove the
 				   event source */
-				CancelWrite();
+				event.CancelWrite();
 		}
 	}
 
@@ -385,57 +363,47 @@ HttpdClient::TryWrite()
 }
 
 void
-HttpdClient::PushPage(Page *page)
+HttpdClient::PushPage(PagePtr page) noexcept
 {
-	if (state != RESPONSE)
+	if (state != State::RESPONSE)
 		/* the client is still writing the HTTP request */
 		return;
 
 	if (queue_size > 256 * 1024) {
-		FormatDebug(httpd_output_domain,
-			    "client is too slow, flushing its queue");
+		LogDebug(httpd_output_domain,
+			 "client is too slow, flushing its queue");
 		ClearQueue();
 	}
 
-	page->Ref();
-	pages.push(page);
-	queue_size += page->size;
+	queue_size += page->size();
+	pages.emplace(std::move(page));
 
-	ScheduleWrite();
+	event.ScheduleWrite();
 }
 
 void
-HttpdClient::PushMetaData(Page *page)
+HttpdClient::PushMetaData(PagePtr page) noexcept
 {
 	assert(page != nullptr);
 
-	if (metadata) {
-		metadata->Unref();
-		metadata = nullptr;
-	}
-
-	page->Ref();
-	metadata = page;
+	metadata = std::move(page);
 	metadata_sent = false;
 }
 
-bool
-HttpdClient::OnSocketReady(unsigned flags)
+void
+HttpdClient::OnSocketReady(unsigned flags) noexcept
 {
-	if (!BufferedSocket::OnSocketReady(flags))
-		return false;
-
-	if (flags & WRITE)
+	if (flags & SocketEvent::WRITE)
 		if (!TryWrite())
-			return false;
+			return;
 
-	return true;
+	BufferedSocket::OnSocketReady(flags);
 }
 
 BufferedSocket::InputResult
-HttpdClient::OnSocketInput(void *data, size_t length)
+HttpdClient::OnSocketInput(void *data, size_t length) noexcept
 {
-	if (state == RESPONSE) {
+	if (state == State::RESPONSE) {
 		LogWarning(httpd_output_domain,
 			   "unexpected input from client");
 		LockClose();
@@ -443,7 +411,7 @@ HttpdClient::OnSocketInput(void *data, size_t length)
 	}
 
 	char *line = (char *)data;
-	char *newline = (char *)memchr(line, '\n', length);
+	char *newline = (char *)std::memchr(line, '\n', length);
 	if (newline == nullptr)
 		return InputResult::MORE;
 
@@ -460,11 +428,11 @@ HttpdClient::OnSocketInput(void *data, size_t length)
 		return InputResult::CLOSED;
 	}
 
-	if (state == RESPONSE) {
+	if (state == State::RESPONSE) {
 		if (!SendResponse())
 			return InputResult::CLOSED;
 
-		if (head_method) {
+		if (head_method || should_reject) {
 			LockClose();
 			return InputResult::CLOSED;
 		}
@@ -474,13 +442,14 @@ HttpdClient::OnSocketInput(void *data, size_t length)
 }
 
 void
-HttpdClient::OnSocketError(std::exception_ptr ep)
+HttpdClient::OnSocketError(std::exception_ptr ep) noexcept
 {
 	LogError(ep);
+	LockClose();
 }
 
 void
-HttpdClient::OnSocketClosed()
+HttpdClient::OnSocketClosed() noexcept
 {
 	LockClose();
 }

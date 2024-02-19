@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,18 +20,18 @@
 #ifndef MPD_ICY_META_DATA_SERVER_HXX
 #define MPD_ICY_META_DATA_SERVER_HXX
 
-#include "tag/TagType.h"
+#include "Page.hxx"
+#include "tag/Type.h"
 
 struct Tag;
-class Page;
-template<typename T> class AllocatedString;
+class AllocatedString;
 
-AllocatedString<char>
+AllocatedString
 icy_server_metadata_header(const char *name,
 			   const char *genre, const char *url,
-			   const char *content_type, int metaint);
+			   const char *content_type, int metaint) noexcept;
 
-Page *
-icy_server_metadata_page(const Tag &tag, const TagType *types);
+PagePtr
+icy_server_metadata_page(const Tag &tag, const TagType *types) noexcept;
 
 #endif

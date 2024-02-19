@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #ifndef MPD_DB_COUNT_HXX
 #define MPD_DB_COUNT_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 enum TagType : uint8_t;
 struct Partition;

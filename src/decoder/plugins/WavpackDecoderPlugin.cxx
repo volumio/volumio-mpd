@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,20 +21,23 @@
 #include "WavpackDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "tag/Handler.hxx"
 #include "fs/Path.hxx"
-#include "util/Macros.hxx"
-#include "util/Alloc.hxx"
+#include "util/AllocatedString.hxx"
+#include "util/Math.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/RuntimeError.hxx"
 
 #include <wavpack/wavpack.h>
 
-#include <stdexcept>
+#include <algorithm>
+#include <cassert>
+#include <cstdlib>
+#include <iterator>
 #include <memory>
 
-#include <assert.h>
+using std::string_view_literals::operator""sv;
 
 #define ERRORLEN 80
 
@@ -99,7 +102,7 @@ WavpackOpenInput(WavpackStreamReader *reader, void *wv_id, void *wvc_id,
 
 gcc_pure
 static SignedSongTime
-GetDuration(WavpackContext *wpc)
+GetDuration(WavpackContext *wpc) noexcept
 {
 #ifdef OPEN_DSD_AS_PCM
 	/* libWavPack 5 */
@@ -125,7 +128,7 @@ template<typename T>
 static void
 format_samples_int(void *buffer, uint32_t count)
 {
-	int32_t *src = (int32_t *)buffer;
+	auto *src = (int32_t *)buffer;
 	T *dst = (T *)buffer;
 	/*
 	 * The asserts like the following one are because we do the
@@ -143,7 +146,7 @@ format_samples_int(void *buffer, uint32_t count)
  * No conversion necessary.
  */
 static void
-format_samples_nop(gcc_unused void *buffer, gcc_unused uint32_t count)
+format_samples_nop([[maybe_unused]] void *buffer, [[maybe_unused]] uint32_t count)
 {
 	/* do nothing */
 }
@@ -184,18 +187,12 @@ wavpack_bits_to_sample_format(bool is_float,
 	}
 }
 
-/*
- * This does the main decoding thing.
- * Requires an already opened WavpackContext.
- */
-static void
-wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
+static AudioFormat
+CheckAudioFormat(WavpackContext *wpc)
 {
 	const bool is_float = (WavpackGetMode(wpc) & MODE_FLOAT) != 0;
 #if defined(OPEN_DSD_AS_PCM) && defined(ENABLE_DSD)
 	const bool is_dsd = (WavpackGetQualifyMode(wpc) & QMODE_DSD_AUDIO) != 0;
-#else
-	constexpr bool is_dsd = false;
 #endif
 	SampleFormat sample_format =
 		wavpack_bits_to_sample_format(is_float,
@@ -204,14 +201,24 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 #endif
 					      WavpackGetBytesPerSample(wpc));
 
-	auto audio_format = CheckAudioFormat(WavpackGetSampleRate(wpc),
-					     sample_format,
-					     WavpackGetReducedChannels(wpc));
+	return CheckAudioFormat(WavpackGetSampleRate(wpc),
+				sample_format,
+				WavpackGetReducedChannels(wpc));
+}
+
+/*
+ * This does the main decoding thing.
+ * Requires an already opened WavpackContext.
+ */
+static void
+wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
+{
+	const auto audio_format = CheckAudioFormat(wpc);
 
 	auto *format_samples = format_samples_nop;
-	if (is_dsd)
+	if (audio_format.format == SampleFormat::DSD)
 		format_samples = format_samples_int<uint8_t>;
-	else if (!is_float) {
+	else if (audio_format.format != SampleFormat::FLOAT) {
 		switch (WavpackGetBytesPerSample(wpc)) {
 		case 1:
 			format_samples = format_samples_int<int8_t>;
@@ -229,7 +236,7 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 
 	/* wavpack gives us all kind of samples in a 32-bit space */
 	int32_t chunk[1024];
-	const uint32_t samples_requested = ARRAY_SIZE(chunk) /
+	const uint32_t samples_requested = std::size(chunk) /
 		audio_format.channels;
 
 	DecoderCommand cmd = client.GetCommand();
@@ -259,8 +266,7 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 		if (samples_got == 0)
 			break;
 
-		int bitrate = (int)(WavpackGetInstantBitrate(wpc) / 1000 +
-				    0.5);
+		int bitrate = lround(WavpackGetInstantBitrate(wpc) / 1000);
 		format_samples(chunk, samples_got * audio_format.channels);
 
 		cmd = client.SubmitData(nullptr, chunk,
@@ -285,7 +291,7 @@ struct WavpackInput {
 
 	int32_t ReadBytes(void *data, size_t bcount);
 
-	InputStream::offset_type GetPos() const {
+	[[nodiscard]] InputStream::offset_type GetPos() const {
 		return is.GetOffset();
 	}
 
@@ -293,7 +299,7 @@ struct WavpackInput {
 		try {
 			is.LockSeek(pos);
 			return 0;
-		} catch (const std::runtime_error &) {
+		} catch (...) {
 			return -1;
 		}
 	}
@@ -331,14 +337,14 @@ struct WavpackInput {
 		}
 	}
 
-	InputStream::offset_type GetLength() const {
+	[[nodiscard]] InputStream::offset_type GetLength() const {
 		if (!is.KnownSize())
 			return 0;
 
 		return is.GetSize();
 	}
 
-	bool CanSeek() const {
+	[[nodiscard]] bool CanSeek() const {
 		return is.IsSeekable();
 	}
 };
@@ -362,7 +368,7 @@ wavpack_input_read_bytes(void *id, void *data, int32_t bcount)
 int32_t
 WavpackInput::ReadBytes(void *data, size_t bcount)
 {
-	uint8_t *buf = (uint8_t *)data;
+	auto *buf = (uint8_t *)data;
 	int32_t i = 0;
 
 	if (last_byte != EOF) {
@@ -394,21 +400,21 @@ WavpackInput::ReadBytes(void *data, size_t bcount)
 static int64_t
 wavpack_input_get_pos(void *id)
 {
-	WavpackInput &wpi = *wpin(id);
+	const auto &wpi = *wpin(id);
 	return wpi.GetPos();
 }
 
 static int
 wavpack_input_set_pos_abs(void *id, int64_t pos)
 {
-	WavpackInput &wpi = *wpin(id);
+	auto &wpi = *wpin(id);
 	return wpi.SetPosAbs(pos);
 }
 
 static int
 wavpack_input_set_pos_rel(void *id, int64_t delta, int mode)
 {
-	WavpackInput &wpi = *wpin(id);
+	auto &wpi = *wpin(id);
 	return wpi.SetPosRel(delta, mode);
 }
 
@@ -417,21 +423,21 @@ wavpack_input_set_pos_rel(void *id, int64_t delta, int mode)
 static uint32_t
 wavpack_input_get_pos(void *id)
 {
-	WavpackInput &wpi = *wpin(id);
+	const auto &wpi = *wpin(id);
 	return wpi.GetPos();
 }
 
 static int
 wavpack_input_set_pos_abs(void *id, uint32_t pos)
 {
-	WavpackInput &wpi = *wpin(id);
+	auto &wpi = *wpin(id);
 	return wpi.SetPosAbs(pos);
 }
 
 static int
 wavpack_input_set_pos_rel(void *id, int32_t delta, int mode)
 {
-	WavpackInput &wpi = *wpin(id);
+	auto &wpi = *wpin(id);
 	return wpi.SetPosRel(delta, mode);
 }
 
@@ -440,7 +446,7 @@ wavpack_input_set_pos_rel(void *id, int32_t delta, int mode)
 static int
 wavpack_input_push_back_byte(void *id, int c)
 {
-	WavpackInput &wpi = *wpin(id);
+	auto &wpi = *wpin(id);
 	return wpi.PushBackByte(c);
 }
 
@@ -449,7 +455,7 @@ wavpack_input_push_back_byte(void *id, int c)
 static int64_t
 wavpack_input_get_length(void *id)
 {
-	WavpackInput &wpi = *wpin(id);
+	const auto &wpi = *wpin(id);
 	return wpi.GetLength();
 }
 
@@ -458,7 +464,7 @@ wavpack_input_get_length(void *id)
 static uint32_t
 wavpack_input_get_length(void *id)
 {
-	WavpackInput &wpi = *wpin(id);
+	const auto &wpi = *wpin(id);
 	return wpi.GetLength();
 }
 
@@ -467,7 +473,7 @@ wavpack_input_get_length(void *id)
 static int
 wavpack_input_can_seek(void *id)
 {
-	WavpackInput &wpi = *wpin(id);
+	const auto &wpi = *wpin(id);
 	return wpi.CanSeek();
 }
 
@@ -502,23 +508,13 @@ static WavpackStreamReader mpd_is_reader = {
 #endif
 
 static InputStreamPtr
-wavpack_open_wvc(DecoderClient &client, const char *uri)
+wavpack_open_wvc(DecoderClient &client, std::string_view uri)
 {
-	/*
-	 * As we use dc->utf8url, this function will be bad for
-	 * single files. utf8url is not absolute file path :/
-	 */
-	if (uri == nullptr)
-		return nullptr;
-
-	char *wvc_url = xstrcatdup(uri, "c");
-	AtScopeExit(wvc_url) {
-		free(wvc_url);
-	};
+	const AllocatedString wvc_url{uri, "c"sv};
 
 	try {
-		return client.OpenUri(uri);
-	} catch (const std::runtime_error &) {
+		return client.OpenUri(wvc_url.c_str());
+	} catch (...) {
 		return nullptr;
 	}
 }
@@ -536,9 +532,9 @@ wavpack_streamdecode(DecoderClient &client, InputStream &is)
 	auto is_wvc = wavpack_open_wvc(client, is.GetURI());
 	if (is_wvc) {
 		open_flags |= OPEN_WVC;
-		can_seek &= wvc->is.IsSeekable();
+		can_seek &= is_wvc->IsSeekable();
 
-		wvc.reset(new WavpackInput(&client, *is_wvc));
+		wvc = std::make_unique<WavpackInput>(&client, *is_wvc);
 	}
 
 	if (!can_seek) {
@@ -572,62 +568,74 @@ wavpack_filedecode(DecoderClient &client, Path path_fs)
 	wavpack_decode(client, wpc, true);
 }
 
+static void
+Scan(WavpackContext *wpc,TagHandler &handler) noexcept
+{
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(wpc));
+	} catch (...) {
+	}
+
+	const auto duration = GetDuration(wpc);
+	if (!duration.IsNegative())
+		handler.OnDuration(SongTime(duration));
+}
+
 /*
  * Reads metainfo from the specified file.
  */
 static bool
-wavpack_scan_file(Path path_fs,
-		  const TagHandler &handler, void *handler_ctx)
+wavpack_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
-	auto *wpc = WavpackOpenInput(path_fs, OPEN_DSD_FLAG, 0);
+	WavpackContext *wpc;
+
+	try {
+		wpc = WavpackOpenInput(path_fs, OPEN_DSD_FLAG, 0);
+	} catch (...) {
+		return false;
+	}
+
 	AtScopeExit(wpc) {
 		WavpackCloseFile(wpc);
 	};
 
-	const auto duration = GetDuration(wpc);
-	if (!duration.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
-
+	Scan(wpc, handler);
 	return true;
 }
 
 static bool
-wavpack_scan_stream(InputStream &is,
-		    const TagHandler &handler, void *handler_ctx)
+wavpack_scan_stream(InputStream &is, TagHandler &handler)
 {
 	WavpackInput isp(nullptr, is);
-	auto *wpc = WavpackOpenInput(&mpd_is_reader, &isp, nullptr,
-				     OPEN_DSD_FLAG, 0);
+
+	WavpackContext *wpc;
+	try {
+		wpc = WavpackOpenInput(&mpd_is_reader, &isp, nullptr,
+					     OPEN_DSD_FLAG, 0);
+	} catch (...) {
+		return false;
+	}
+
 	AtScopeExit(wpc) {
 		WavpackCloseFile(wpc);
 	};
 
-	const auto duration = GetDuration(wpc);
-	if (!duration.IsNegative())
-		tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
-
+	Scan(wpc, handler);
 	return true;
 }
 
-static char const *const wavpack_suffixes[] = {
+static constexpr const char *wavpack_suffixes[] = {
 	"wv",
 	nullptr
 };
 
-static char const *const wavpack_mime_types[] = {
+static constexpr const char *wavpack_mime_types[] = {
 	"audio/x-wavpack",
 	nullptr
 };
 
-const struct DecoderPlugin wavpack_decoder_plugin = {
-	"wavpack",
-	nullptr,
-	nullptr,
-	wavpack_streamdecode,
-	wavpack_filedecode,
-	wavpack_scan_file,
-	wavpack_scan_stream,
-	nullptr,
-	wavpack_suffixes,
-	wavpack_mime_types
-};
+constexpr DecoderPlugin wavpack_decoder_plugin =
+	DecoderPlugin("wavpack", wavpack_streamdecode, wavpack_scan_stream,
+		      wavpack_filedecode, wavpack_scan_file)
+	.WithSuffixes(wavpack_suffixes)
+	.WithMimeTypes(wavpack_mime_types);

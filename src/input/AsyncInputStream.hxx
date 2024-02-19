@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,7 @@
 #define MPD_ASYNC_INPUT_STREAM_HXX
 
 #include "InputStream.hxx"
-#include "event/DeferredCall.hxx"
+#include "event/InjectEvent.hxx"
 #include "util/HugeAllocator.hxx"
 #include "util/CircularBuffer.hxx"
 
@@ -38,30 +38,30 @@ class AsyncInputStream : public InputStream {
 		NONE, SCHEDULED, PENDING
 	};
 
-	DeferredCall deferred_resume;
-	DeferredCall deferred_seek;
+	InjectEvent deferred_resume;
+	InjectEvent deferred_seek;
 
-	HugeAllocation allocation;
+	HugeArray<uint8_t> allocation;
 
 	CircularBuffer<uint8_t> buffer;
 	const size_t resume_at;
 
-	bool open;
+	bool open = true;
 
 	/**
 	 * Is the connection currently paused?  That happens when the
 	 * buffer was getting too large.  It will be unpaused when the
 	 * buffer is below the threshold again.
 	 */
-	bool paused;
+	bool paused = false;
 
-	SeekState seek_state;
+	SeekState seek_state = SeekState::NONE;
 
 	/**
 	 * The #Tag object ready to be requested via
 	 * InputStream::ReadTag().
 	 */
-	Tag *tag;
+	std::unique_ptr<Tag> tag;
 
 	offset_type seek_offset;
 
@@ -69,38 +69,37 @@ protected:
 	std::exception_ptr postponed_exception;
 
 public:
-	/**
-	 * @param _buffer a buffer allocated with HugeAllocate(); the
-	 * destructor will free it using HugeFree()
-	 */
-	AsyncInputStream(const char *_url,
-			 Mutex &_mutex, Cond &_cond,
+	AsyncInputStream(EventLoop &event_loop, const char *_url,
+			 Mutex &_mutex,
 			 size_t _buffer_size,
-			 size_t _resume_at);
+			 size_t _resume_at) noexcept;
 
-	virtual ~AsyncInputStream();
+	~AsyncInputStream() noexcept override;
+
+	auto &GetEventLoop() const noexcept {
+		return deferred_resume.GetEventLoop();
+	}
 
 	/* virtual methods from InputStream */
 	void Check() final;
-	bool IsEOF() final;
-	void Seek(offset_type new_offset) final;
-	Tag *ReadTag() final;
-	bool IsAvailable() final;
-	size_t Read(void *ptr, size_t read_size) final;
+	bool IsEOF() const noexcept final;
+	void Seek(std::unique_lock<Mutex> &lock,
+		  offset_type new_offset) final;
+	std::unique_ptr<Tag> ReadTag() noexcept final;
+	bool IsAvailable() const noexcept final;
+	size_t Read(std::unique_lock<Mutex> &lock,
+		    void *ptr, size_t read_size) final;
 
 protected:
 	/**
 	 * Pass an tag from the I/O thread to the client thread.
 	 */
-	void SetTag(Tag *_tag);
+	void SetTag(std::unique_ptr<Tag> _tag) noexcept;
+	void ClearTag() noexcept;
 
-	void ClearTag() {
-		SetTag(nullptr);
-	}
+	void Pause() noexcept;
 
-	void Pause();
-
-	bool IsPaused() const {
+	bool IsPaused() const noexcept {
 		return paused;
 	}
 
@@ -109,37 +108,37 @@ protected:
 	 * continue feeding Read() calls from the buffer until it runs
 	 * empty.
 	 */
-	void SetClosed() {
+	void SetClosed() noexcept {
 		open = false;
 	}
 
-	bool IsBufferEmpty() const {
-		return buffer.IsEmpty();
+	bool IsBufferEmpty() const noexcept {
+		return buffer.empty();
 	}
 
-	bool IsBufferFull() const {
+	bool IsBufferFull() const noexcept {
 		return buffer.IsFull();
 	}
 
 	/**
 	 * Determine how many bytes can be added to the buffer.
 	 */
-	gcc_pure
-	size_t GetBufferSpace() const {
+	[[gnu::pure]]
+	size_t GetBufferSpace() const noexcept {
 		return buffer.GetSpace();
 	}
 
-	CircularBuffer<uint8_t>::Range PrepareWriteBuffer() {
+	CircularBuffer<uint8_t>::Range PrepareWriteBuffer() noexcept {
 		return buffer.Write();
 	}
 
-	void CommitWriteBuffer(size_t nbytes);
+	void CommitWriteBuffer(size_t nbytes) noexcept;
 
 	/**
 	 * Append data to the buffer.  The size must fit into the
 	 * buffer; see GetBufferSpace().
 	 */
-	void AppendToBuffer(const void *data, size_t append_size);
+	void AppendToBuffer(const void *data, size_t append_size) noexcept;
 
 	/**
 	 * Implement code here that will resume the stream after it
@@ -154,7 +153,7 @@ protected:
 	 */
 	virtual void DoSeek(offset_type new_offset) = 0;
 
-	bool IsSeekPending() const {
+	bool IsSeekPending() const noexcept {
 		return seek_state == SeekState::PENDING;
 	}
 
@@ -162,14 +161,14 @@ protected:
 	 * Call this after seeking has finished.  It will notify the
 	 * client thread.
 	 */
-	void SeekDone();
+	void SeekDone() noexcept;
 
 private:
 	void Resume();
 
-	/* for DeferredCall */
-	void DeferredResume();
-	void DeferredSeek();
+	/* for InjectEvent */
+	void DeferredResume() noexcept;
+	void DeferredSeek() noexcept;
 };
 
 #endif

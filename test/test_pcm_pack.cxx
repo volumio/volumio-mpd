@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,13 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "test_pcm_all.hxx"
 #include "test_pcm_util.hxx"
-#include "pcm/PcmPack.hxx"
-#include "system/ByteOrder.hxx"
+#include "pcm/Pack.hxx"
+#include "util/ByteOrder.hxx"
 
-void
-PcmPackTest::TestPack24()
+#include <gtest/gtest.h>
+
+TEST(PcmTest, Pack24)
 {
 	constexpr unsigned N = 509;
 	const auto src = TestDataBuffer<int32_t, N>(RandomInt24());
@@ -42,12 +42,11 @@ PcmPackTest::TestPack24()
 		if (d & 0x800000)
 			d |= 0xff000000;
 
-		CPPUNIT_ASSERT_EQUAL(d, src[i]);
+		EXPECT_EQ(d, src[i]);
 	}
 }
 
-void
-PcmPackTest::TestUnpack24()
+TEST(PcmTest, Unpack24)
 {
 	constexpr unsigned N = 509;
 	const auto src = TestDataBuffer<uint8_t, N * 3>();
@@ -66,6 +65,25 @@ PcmPackTest::TestUnpack24()
 		if (s & 0x800000)
 			s |= 0xff000000;
 
-		CPPUNIT_ASSERT_EQUAL(s, dest[i]);
+		EXPECT_EQ(s, dest[i]);
+	}
+}
+
+TEST(PcmTest, Unpack24BE)
+{
+	constexpr unsigned N = 509;
+	const auto src = TestDataBuffer<uint8_t, N * 3>();
+
+	int32_t dest[N];
+	pcm_unpack_24be(dest, src.begin(), src.end());
+
+	for (unsigned i = 0; i < N; ++i) {
+		int32_t s;
+		s = (src[i * 3] << 16) | (src[i * 3 + 1] << 8)
+			| src[i * 3 + 2];
+		if (s & 0x800000)
+			s |= 0xff000000;
+
+		EXPECT_EQ(s, dest[i]);
 	}
 }

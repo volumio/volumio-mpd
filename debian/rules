@@ -1,0 +1,150 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/architecture.mk
+
+WITH_SHINE_VORBIS_TREMOR=-Dshine=disabled -Dvorbis=enabled -Dvorbisenc=enabled -Dtremor=disabled
+ifeq ($(DEB_HOST_ARCH), armel)
+WITH_SHINE_VORBIS_TREMOR=-Dshine=enabled -Dvorbis=disabled -Dvorbisenc=disabled -Dtremor=enabled
+endif
+
+# systemd, alsa and io_uring on linux arches only
+WITH_LINUX=-Dsystemd=disabled -Dalsa=enabled -Dio_uring=disabled
+
+# no smbclient on hurd-i386 (#815441)
+ENABLE_SMBCLIENT=-Dsmbclient=enabled
+
+
+###############################################################
+## Define Debian feature set (in configure summary order)
+RUN_TESTS=-Dtest=true
+
+# Archive support
+ENABLE_ARCHIVES=-Dbzip2=enabled \
+		-Diso9660=enabled \
+		-Dzlib=enabled \
+		-Dzzip=enabled
+
+# Autodiscovery support
+ENABLE_AUTODISCOVERY=-Dneighbor=true \
+		-Dupnp=pupnp \
+		-Dzeroconf=avahi
+
+# Client support
+ENABLE_CLIENTS=-Dipv6=enabled \
+		-Dtcp=true \
+		-Dlocal_socket=true
+
+# Storage support
+ENABLE_STORAGE=-Dnfs=enabled \
+		-Dsmbclient='enabled' \
+		-Dwebdav=enabled
+
+# File format support
+ENABLE_FILEFORMATS=-Dfaad=enabled \
+		-Dadplug=enabled \
+		-Daudiofile=enabled \
+		-Dffmpeg=enabled \
+		-Dflac=enabled \
+		-Dfluidsynth=enabled \
+		-Dgme=enabled \
+		-Dmad=enabled \
+		-Dmikmod=enabled \
+		-Dmodplug=enabled \
+		-Dmpcdec=enabled \
+		-Dmpg123=enabled \
+		-Dopenmpt=enabled \
+		-Dopus=enabled \
+		-Dsidplay=enabled \
+		-Dsndfile=enabled \
+		-Dwavpack=enabled \
+		-Dwildmidi=enabled
+
+# Other features
+ENABLE_OTHER=-Dcue=true \
+		-Ddatabase=true \
+		-Dexpat=enabled \
+		-Dicu=enabled \
+		-Dlibmpdclient=enabled \
+		-Dinotify=true \
+		-Dsoxr=enabled \
+		-Dlibsamplerate=enabled \
+		-Dsqlite=enabled \
+		-Dsyslog=enabled \
+		-Dyajl=enabled \
+		-Dpcre=enabled
+
+# Metadata support
+ENABLE_METADATA=-Did3tag=enabled \
+		-Dchromaprint=enabled
+
+# Playback support
+# Note: ALSA is in WITH_LINUX
+ENABLE_PLAYBACKS=-Dsystemd=enabled \
+		-Dalsa=enabled \
+		-Dio_uring=disabled \
+		-Dfifo=true \
+		-Dsndio=enabled \
+		-Drecorder=true \
+		-Dhttpd=true \
+		-Djack=enabled \
+		-Dao=enabled \
+		-Doss=enabled \
+		-Dopenal=enabled \
+		-Dpipe=true \
+		-Dpipewire=disabled \
+		-Dpulse=enabled \
+		-Dshout=enabled \
+		-Dsnapcast=true
+
+# Streaming encoder support
+# Note: FLAC and Opus enabled under file formats, vorbisenc at top (!tremor)
+ENABLE_ENCODERS=-Dlame=enabled \
+		-Dtwolame=disabled \
+		-Dwave_encoder=true \
+
+# Streaming support
+ENABLE_STREAMING=-Dcdio_paranoia=enabled \
+		-Dcurl=enabled \
+		-Dsoundcloud=enabled \
+		-Dqobuz=disabled \
+		-Dmms=enabled
+
+# Sphinx documentation
+ENABLE_DOCUMENTATION=-Ddocumentation=enabled
+
+###############################################################
+
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --with sphinxdoc
+
+override_dh_auto_configure:
+	dh_auto_configure -- -Db_ndebug=true $(WITH_SHINE_VORBIS_TREMOR) $(WITH_LINUX) \
+		$(RUN_TESTS) \
+		$(ENABLE_ARCHIVES) \
+		$(ENABLE_AUTODISCOVERY) \
+		$(ENABLE_CLIENTS) \
+		$(ENABLE_STORAGE) \
+		$(ENABLE_FILEFORMATS) \
+		$(ENABLE_OTHER) \
+		$(ENABLE_METADATA) \
+		$(ENABLE_PLAYBACKS) \
+		$(ENABLE_ENCODERS) \
+		$(ENABLE_STREAMING) \
+		$(ENABLE_DOCUMENTATION)
+
+override_dh_installchangelogs:
+	dh_installchangelogs NEWS
+	rm debian/mpd/usr/share/doc/mpd/COPYING debian/mpd/usr/share/doc/mpd/NEWS debian/mpd/usr/share/doc/mpd/README.md
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+	    --wrap-mode=default
+

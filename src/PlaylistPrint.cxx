@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,50 +17,40 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlaylistPrint.hxx"
 #include "PlaylistFile.hxx"
 #include "PlaylistError.hxx"
 #include "queue/Playlist.hxx"
 #include "queue/QueuePrint.hxx"
-#include "SongPrint.hxx"
-#include "Partition.hxx"
-#include "Instance.hxx"
-#include "db/Interface.hxx"
-#include "client/Response.hxx"
+#include "protocol/RangeArg.hxx"
 
 #define SONG_FILE "file: "
 #define SONG_TIME "Time: "
 
 void
-playlist_print_uris(Response &r, Partition &partition,
-		    const playlist &playlist)
+playlist_print_uris(Response &r, const playlist &playlist)
 {
 	const Queue &queue = playlist.queue;
 
-	queue_print_uris(r, partition, queue, 0, queue.GetLength());
+	queue_print_uris(r, queue, 0, queue.GetLength());
 }
 
 void
-playlist_print_info(Response &r, Partition &partition,
-		    const playlist &playlist,
-		    unsigned start, unsigned end)
+playlist_print_info(Response &r, const playlist &playlist, RangeArg range)
 {
 	const Queue &queue = playlist.queue;
 
-	if (end > queue.GetLength())
-		/* correct the "end" offset */
-		end = queue.GetLength();
-
-	if (start > end)
-		/* an invalid "start" offset is fatal */
+	if (!range.CheckClip(queue.GetLength()))
 		throw PlaylistError::BadRange();
 
-	queue_print_info(r, partition, queue, start, end);
+	if (range.IsEmpty())
+		return;
+
+	queue_print_info(r, queue, range.start, range.end);
 }
 
 void
-playlist_print_id(Response &r, Partition &partition, const playlist &playlist,
+playlist_print_id(Response &r, const playlist &playlist,
 		  unsigned id)
 {
 	int position;
@@ -70,47 +60,49 @@ playlist_print_id(Response &r, Partition &partition, const playlist &playlist,
 		/* no such song */
 		throw PlaylistError::NoSuchSong();
 
-	playlist_print_info(r, partition,
-			    playlist, position, position + 1);
+	playlist_print_info(r, playlist, {unsigned(position), position + 1U});
 }
 
 bool
-playlist_print_current(Response &r, Partition &partition,
-		       const playlist &playlist)
+playlist_print_current(Response &r, const playlist &playlist)
 {
 	int current_position = playlist.GetCurrentPosition();
 	if (current_position < 0)
 		return false;
 
-	queue_print_info(r, partition, playlist.queue,
+	queue_print_info(r, playlist.queue,
 			 current_position, current_position + 1);
 	return true;
 }
 
 void
-playlist_print_find(Response &r, Partition &partition,
-		    const playlist &playlist,
+playlist_print_find(Response &r, const playlist &playlist,
 		    const SongFilter &filter)
 {
-	queue_find(r, partition, playlist.queue, filter);
+	queue_find(r, playlist.queue, filter);
 }
 
 void
-playlist_print_changes_info(Response &r, Partition &partition,
-			    const playlist &playlist,
+playlist_print_changes_info(Response &r, const playlist &playlist,
 			    uint32_t version,
-			    unsigned start, unsigned end)
+			    RangeArg range)
 {
-	queue_print_changes_info(r, partition, playlist.queue, version,
-				 start, end);
+	const Queue &queue = playlist.queue;
+	range.ClipRelaxed(queue.GetLength());
+
+	queue_print_changes_info(r, queue, version,
+				 range.start, range.end);
 }
 
 void
 playlist_print_changes_position(Response &r,
 				const playlist &playlist,
 				uint32_t version,
-				unsigned start, unsigned end)
+				RangeArg range)
 {
+	const Queue &queue = playlist.queue;
+	range.ClipRelaxed(queue.GetLength());
+
 	queue_print_changes_position(r, playlist.queue, version,
-				     start, end);
+				     range.start, range.end);
 }

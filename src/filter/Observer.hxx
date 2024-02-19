@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_FILTER_OBSERVER_HXX
 #define MPD_FILTER_OBSERVER_HXX
 
-#include "check.h"
+#include <memory>
 
 class PreparedFilter;
 class Filter;
@@ -39,9 +39,9 @@ public:
 	/**
 	 * @return a proxy object
 	 */
-	PreparedFilter *Set(PreparedFilter *pf);
+	std::unique_ptr<PreparedFilter> Set(std::unique_ptr<PreparedFilter> pf);
 
-	Filter *Get();
+	Filter *Get() noexcept;
 };
 
 #endif

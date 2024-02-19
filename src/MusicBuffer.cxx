@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MusicBuffer.hxx"
 #include "MusicChunk.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 MusicBuffer::MusicBuffer(unsigned num_chunks)
 	:buffer(num_chunks) {
 }
 
-MusicChunk *
-MusicBuffer::Allocate()
+MusicChunkPtr
+MusicBuffer::Allocate() noexcept
 {
-	const ScopeLock protect(mutex);
-	return buffer.Allocate();
+	const std::scoped_lock<Mutex> protect(mutex);
+	return {buffer.Allocate(), MusicChunkDeleter(*this)};
 }
 
 void
-MusicBuffer::Return(MusicChunk *chunk)
+MusicBuffer::Return(MusicChunk *chunk) noexcept
 {
 	assert(chunk != nullptr);
 
-	const ScopeLock protect(mutex);
+	/* these attributes need to be cleared before locking the
+	   mutex, because they might recursively call this method,
+	   causing a deadlock */
+	chunk->next.reset();
+	chunk->other.reset();
 
-	if (chunk->other != nullptr) {
-		assert(chunk->other->other == nullptr);
-		buffer.Free(chunk->other);
-	}
+	const std::scoped_lock<Mutex> protect(mutex);
+
+	assert(!chunk->other || !chunk->other->other);
 
 	buffer.Free(chunk);
 }

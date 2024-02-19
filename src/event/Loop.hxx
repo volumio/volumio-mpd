@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,26 +17,37 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_EVENT_LOOP_HXX
-#define MPD_EVENT_LOOP_HXX
+#ifndef EVENT_LOOP_HXX
+#define EVENT_LOOP_HXX
 
-#include "check.h"
-#include "thread/Id.hxx"
-#include "Compiler.h"
+#include "Chrono.hxx"
+#include "TimerWheel.hxx"
+#include "TimerList.hxx"
+#include "Backend.hxx"
+#include "SocketEvent.hxx"
+#include "event/Features.h"
+#include "time/ClockCache.hxx"
+#include "util/IntrusiveList.hxx"
 
-#include "PollGroup.hxx"
-#include "thread/Mutex.hxx"
+#ifdef HAVE_THREADED_EVENT_LOOP
 #include "WakeFD.hxx"
-#include "SocketMonitor.hxx"
+#include "thread/Id.hxx"
+#include "thread/Mutex.hxx"
 
-#include <list>
-#include <set>
+#include <boost/intrusive/list.hpp>
+#endif
 
-class TimeoutMonitor;
-class IdleMonitor;
-class DeferredMonitor;
+#include <atomic>
+#include <cassert>
 
-#include <assert.h>
+#include "io/uring/Features.h"
+#ifdef HAVE_URING
+#include <memory>
+namespace Uring { class Queue; class Manager; }
+#endif
+
+class DeferEvent;
+class InjectEvent;
 
 /**
  * An event loop that polls for events on file/socket descriptors.
@@ -45,177 +56,247 @@ class DeferredMonitor;
  * thread that runs it, except where explicitly documented as
  * thread-safe.
  *
- * @see SocketMonitor, MultiSocketMonitor, TimeoutMonitor, IdleMonitor
+ * @see SocketEvent, MultiSocketMonitor, TimerEvent, DeferEvent, InjectEvent
  */
-class EventLoop final : SocketMonitor
+class EventLoop final
 {
-	struct TimerRecord {
-		/**
-		 * Projected monotonic_clock_ms() value when this
-		 * timer is due.
-		 */
-		const unsigned due_ms;
-
-		TimeoutMonitor &timer;
-
-		constexpr TimerRecord(TimeoutMonitor &_timer,
-				      unsigned _due_ms)
-			:due_ms(_due_ms), timer(_timer) {}
-
-		bool operator<(const TimerRecord &other) const {
-			return due_ms < other.due_ms;
-		}
-
-		bool IsDue(unsigned _now_ms) const {
-			return _now_ms >= due_ms;
-		}
-	};
-
+#ifdef HAVE_THREADED_EVENT_LOOP
 	WakeFD wake_fd;
+	SocketEvent wake_event{*this, BIND_THIS_METHOD(OnSocketReady), wake_fd.GetSocket()};
+#endif
 
-	std::multiset<TimerRecord> timers;
-	std::list<IdleMonitor *> idle;
+	TimerWheel coarse_timers;
+	TimerList timers;
 
+	using DeferList = IntrusiveList<DeferEvent>;
+
+	DeferList defer;
+
+	/**
+	 * This is like #defer, but gets invoked when the loop is idle.
+	 */
+	DeferList idle;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
 	Mutex mutex;
-	std::list<DeferredMonitor *> deferred;
 
-	unsigned now_ms;
+	using InjectList =
+		boost::intrusive::list<InjectEvent,
+				       boost::intrusive::base_hook<boost::intrusive::list_base_hook<>>,
+				       boost::intrusive::constant_time_size<false>>;
+	InjectList inject;
+#endif
 
-	bool quit;
+	using SocketList = IntrusiveList<SocketEvent>;
+
+	/**
+	 * A list of scheduled #SocketEvent instances, without those
+	 * which are ready (these are in #ready_sockets).
+	 */
+	SocketList sockets;
+
+	/**
+	 * A linked list of #SocketEvent instances which have a
+	 * non-zero "ready_flags" field, and need to be dispatched.
+	 */
+	SocketList ready_sockets;
+
+#ifdef HAVE_URING
+	std::unique_ptr<Uring::Manager> uring;
+#endif
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	/**
+	 * A reference to the thread that is currently inside Run().
+	 */
+	ThreadId thread = ThreadId::Null();
+
+	/**
+	 * Is this #EventLoop alive, i.e. can events be scheduled?
+	 * This is used by BlockingCall() to determine whether
+	 * schedule in the #EventThread or to call directly (if
+	 * there's no #EventThread yet/anymore).
+	 */
+	bool alive;
+#endif
+
+	std::atomic_bool quit{false};
 
 	/**
 	 * True when the object has been modified and another check is
-	 * necessary before going to sleep via PollGroup::ReadEvents().
+	 * necessary before going to sleep via EventPollBackend::ReadEvents().
 	 */
 	bool again;
 
+#ifdef HAVE_THREADED_EVENT_LOOP
 	/**
 	 * True when handling callbacks, false when waiting for I/O or
 	 * timeout.
 	 *
 	 * Protected with #mutex.
 	 */
-	bool busy;
-
-#ifndef NDEBUG
-	/**
-	 * True if Run() was never called.  This is used for assert()
-	 * calls.
-	 */
-	bool virgin;
+	bool busy = true;
 #endif
 
-	PollGroup poll_group;
-	PollResult poll_result;
+#ifdef HAVE_URING
+	bool uring_initialized = false;
+#endif
 
-	/**
-	 * A reference to the thread that is currently inside Run().
-	 */
-	ThreadId thread;
+	EventPollBackend poll_backend;
+
+	ClockCache<std::chrono::steady_clock> steady_clock_cache;
 
 public:
+	/**
+	 * Throws on error.
+	 */
+#ifdef HAVE_THREADED_EVENT_LOOP
+	explicit EventLoop(ThreadId _thread);
+
+	EventLoop():EventLoop(ThreadId::GetCurrent()) {}
+#else
 	EventLoop();
-	~EventLoop();
+#endif
+
+	~EventLoop() noexcept;
+
+	EventLoop(const EventLoop &other) = delete;
+	EventLoop &operator=(const EventLoop &other) = delete;
+
+	const auto &GetSteadyClockCache() const noexcept {
+		return steady_clock_cache;
+	}
 
 	/**
-	 * A caching wrapper for MonotonicClockMS().
+	 * Caching wrapper for std::chrono::steady_clock::now().  The
+	 * real clock is queried at most once per event loop
+	 * iteration, because it is assumed that the event loop runs
+	 * for a negligible duration.
 	 */
-	unsigned GetTimeMS() const {
+	[[gnu::pure]]
+	const auto &SteadyNow() const noexcept {
+#ifdef HAVE_THREADED_EVENT_LOOP
 		assert(IsInside());
+#endif
 
-		return now_ms;
+		return steady_clock_cache.now();
 	}
+
+#ifdef HAVE_URING
+	[[gnu::pure]]
+	Uring::Queue *GetUring() noexcept;
+#endif
 
 	/**
 	 * Stop execution of this #EventLoop at the next chance.  This
 	 * method is thread-safe and non-blocking: after returning, it
 	 * is not guaranteed that the EventLoop has really stopped.
 	 */
-	void Break();
+	void Break() noexcept;
 
-	bool AddFD(int _fd, unsigned flags, SocketMonitor &m) {
-		assert(thread.IsNull() || thread.IsInside());
-
-		return poll_group.Add(_fd, flags, &m);
-	}
-
-	bool ModifyFD(int _fd, unsigned flags, SocketMonitor &m) {
-		assert(IsInside());
-
-		return poll_group.Modify(_fd, flags, &m);
-	}
+	bool AddFD(int fd, unsigned events, SocketEvent &event) noexcept;
+	bool ModifyFD(int fd, unsigned events, SocketEvent &event) noexcept;
+	bool RemoveFD(int fd, SocketEvent &event) noexcept;
 
 	/**
-	 * Remove the given #SocketMonitor after the file descriptor
+	 * Remove the given #SocketEvent after the file descriptor
 	 * has been closed.  This is like RemoveFD(), but does not
 	 * attempt to use #EPOLL_CTL_DEL.
 	 */
-	bool Abandon(int fd, SocketMonitor &m);
+	bool AbandonFD(SocketEvent &event) noexcept;
 
-	bool RemoveFD(int fd, SocketMonitor &m);
-
-	void AddIdle(IdleMonitor &i);
-	void RemoveIdle(IdleMonitor &i);
-
-	void AddTimer(TimeoutMonitor &t, unsigned ms);
-	void CancelTimer(TimeoutMonitor &t);
+	void Insert(CoarseTimerEvent &t) noexcept;
+	void Insert(FineTimerEvent &t) noexcept;
 
 	/**
-	 * Schedule a call to DeferredMonitor::RunDeferred().
+	 * Schedule a call to DeferEvent::RunDeferred().
+	 */
+	void AddDefer(DeferEvent &d) noexcept;
+	void AddIdle(DeferEvent &e) noexcept;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	/**
+	 * Schedule a call to the InjectEvent.
 	 *
 	 * This method is thread-safe.
 	 */
-	void AddDeferred(DeferredMonitor &d);
+	void AddInject(InjectEvent &d) noexcept;
 
 	/**
-	 * Cancel a pending call to DeferredMonitor::RunDeferred().
+	 * Cancel a pending call to the InjectEvent.
 	 * However after returning, the call may still be running.
 	 *
 	 * This method is thread-safe.
 	 */
-	void RemoveDeferred(DeferredMonitor &d);
+	void RemoveInject(InjectEvent &d) noexcept;
+#endif
 
 	/**
 	 * The main function of this class.  It will loop until
 	 * Break() gets called.  Can be called only once.
 	 */
-	void Run();
+	void Run() noexcept;
 
 private:
+	void RunDeferred() noexcept;
+
 	/**
-	 * Invoke all pending DeferredMonitors.
+	 * Invoke one "idle" #DeferEvent.
+	 *
+	 * @return false if there was no such event
+	 */
+	bool RunOneIdle() noexcept;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	/**
+	 * Invoke all pending InjectEvents.
 	 *
 	 * Caller must lock the mutex.
 	 */
-	void HandleDeferred();
+	void HandleInject() noexcept;
+#endif
 
-	virtual bool OnSocketReady(unsigned flags) override;
+	/**
+	 * Invoke all expired #TimerEvent instances and return the
+	 * duration until the next timer expires.  Returns a negative
+	 * duration if there is no timeout.
+	 */
+	Event::Duration HandleTimers() noexcept;
+
+	/**
+	 * Call epoll_wait() and pass all returned events to
+	 * SocketEvent::SetReadyFlags().
+	 *
+	 * @return true if one or more sockets have become ready
+	 */
+	bool Wait(Event::Duration timeout) noexcept;
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	void OnSocketReady(unsigned flags) noexcept;
+#endif
 
 public:
+#ifdef HAVE_THREADED_EVENT_LOOP
+	void SetAlive(bool _alive) noexcept {
+		alive = _alive;
+	}
+
+	bool IsAlive() const noexcept {
+		return alive;
+	}
+#endif
 
 	/**
 	 * Are we currently running inside this EventLoop's thread?
 	 */
-	gcc_pure
-	bool IsInside() const {
-		assert(!thread.IsNull());
-
+	[[gnu::pure]]
+	bool IsInside() const noexcept {
+#ifdef HAVE_THREADED_EVENT_LOOP
 		return thread.IsInside();
-	}
-
-#ifndef NDEBUG
-	gcc_pure
-	bool IsInsideOrVirgin() const {
-		return virgin || IsInside();
-	}
+#else
+		return true;
 #endif
-
-#ifndef NDEBUG
-	gcc_pure
-	bool IsInsideOrNull() const {
-		return thread.IsNull() || thread.IsInside();
 	}
-#endif
 };
 
 #endif /* MAIN_NOTIFY_H */

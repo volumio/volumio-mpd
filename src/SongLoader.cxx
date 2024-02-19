@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,16 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SongLoader.hxx"
 #include "LocateUri.hxx"
 #include "client/Client.hxx"
 #include "db/DatabaseSong.hxx"
 #include "storage/StorageInterface.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "PlaylistError.hxx"
+#include "config.h"
 
-#include <assert.h>
+#include <cassert>
 
 #ifdef ENABLE_DATABASE
 
@@ -36,12 +36,12 @@ SongLoader::SongLoader(const Client &_client)
 
 #endif
 
-DetachedSong *
+DetachedSong
 SongLoader::LoadFromDatabase(const char *uri) const
 {
 #ifdef ENABLE_DATABASE
 	if (db != nullptr)
-		return DatabaseDetachSong(*db, *storage, uri);
+		return DatabaseDetachSong(*db, storage, uri);
 #else
 	(void)uri;
 #endif
@@ -49,16 +49,16 @@ SongLoader::LoadFromDatabase(const char *uri) const
 	throw PlaylistError(PlaylistResult::NO_SUCH_SONG, "No database");
 }
 
-DetachedSong *
+DetachedSong
 SongLoader::LoadFile(const char *path_utf8, Path path_fs) const
 {
 #ifdef ENABLE_DATABASE
 	if (storage != nullptr) {
-		const char *suffix = storage->MapToRelativeUTF8(path_utf8);
-		if (suffix != nullptr)
+		const auto suffix = storage->MapToRelativeUTF8(path_utf8);
+		if (suffix.data() != nullptr)
 			/* this path was relative to the music
 			   directory - obtain it from the database */
-			return LoadFromDatabase(suffix);
+			return LoadFromDatabase(std::string(suffix).c_str());
 	}
 #endif
 
@@ -66,15 +66,15 @@ SongLoader::LoadFile(const char *path_utf8, Path path_fs) const
 	if (!song.LoadFile(path_fs))
 		throw PlaylistError::NoSuchSong();
 
-	return new DetachedSong(std::move(song));
+	return song;
 }
 
-DetachedSong *
+DetachedSong
 SongLoader::LoadSong(const LocatedUri &located_uri) const
 {
 	switch (located_uri.type) {
 	case LocatedUri::Type::ABSOLUTE:
-		return new DetachedSong(located_uri.canonical_uri);
+		return DetachedSong(located_uri.canonical_uri);
 
 	case LocatedUri::Type::RELATIVE:
 		return LoadFromDatabase(located_uri.canonical_uri);
@@ -86,7 +86,7 @@ SongLoader::LoadSong(const LocatedUri &located_uri) const
 	gcc_unreachable();
 }
 
-DetachedSong *
+DetachedSong
 SongLoader::LoadSong(const char *uri_utf8) const
 {
 #if !CLANG_CHECK_VERSION(3,6)
@@ -94,7 +94,8 @@ SongLoader::LoadSong(const char *uri_utf8) const
 	assert(uri_utf8 != nullptr);
 #endif
 
-	const auto located_uri = LocateUri(uri_utf8, client
+	const auto located_uri = LocateUri(UriPluginKind::INPUT,
+					   uri_utf8, client
 #ifdef ENABLE_DATABASE
 					   , storage
 #endif

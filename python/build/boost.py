@@ -12,7 +12,7 @@ class BoostProject(Project):
                          name='boost', version=version,
                          **kwargs)
 
-    def build(self, toolchain):
+    def _build(self, toolchain):
         src = self.unpack(toolchain)
 
         # install the headers manually; don't build any library
@@ -21,3 +21,8 @@ class BoostProject(Project):
         dest = os.path.join(includedir, 'boost')
         shutil.rmtree(dest, ignore_errors=True)
         shutil.copytree(os.path.join(src, 'boost'), dest)
+
+        # touch the boost/version.hpp file to ensure it's newer than
+        # the downloaded Boost tarball, to avoid reinstalling Boost on
+        # every run
+        os.utime(os.path.join(toolchain.install_prefix, self.installed))

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,42 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "TagFile.hxx"
 #include "tag/Generic.hxx"
-#include "tag/TagHandler.hxx"
-#include "tag/TagBuilder.hxx"
+#include "tag/Handler.hxx"
+#include "tag/Builder.hxx"
 #include "fs/Path.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
-#include "thread/Cond.hxx"
 
-#include <stdexcept>
-
-#include <assert.h>
+#include <cassert>
 
 class TagFileScan {
 	const Path path_fs;
 	const char *const suffix;
 
-	const TagHandler &handler;
-	void *handler_ctx;
+	TagHandler &handler;
 
 	Mutex mutex;
-	Cond cond;
 	InputStreamPtr is;
 
 public:
 	TagFileScan(Path _path_fs, const char *_suffix,
-		    const TagHandler &_handler, void *_handler_ctx)
+		    TagHandler &_handler) noexcept
 		:path_fs(_path_fs), suffix(_suffix),
-		 handler(_handler), handler_ctx(_handler_ctx) ,
+		 handler(_handler),
 		 is(nullptr) {}
 
-	bool ScanFile(const DecoderPlugin &plugin) {
-		return plugin.ScanFile(path_fs, handler, handler_ctx);
+	bool ScanFile(const DecoderPlugin &plugin) noexcept {
+		return plugin.ScanFile(path_fs, handler);
 	}
 
 	bool ScanStream(const DecoderPlugin &plugin) {
@@ -61,21 +55,13 @@ public:
 
 		/* open the InputStream (if not already open) */
 		if (is == nullptr) {
-			try {
-				is = OpenLocalInputStream(path_fs,
-							  mutex, cond);
-			} catch (const std::runtime_error &) {
-				return false;
-			}
+			is = OpenLocalInputStream(path_fs, mutex);
 		} else {
-			try {
-				is->LockRewind();
-			} catch (const std::runtime_error &) {
-			}
+			is->LockRewind();
 		}
 
 		/* now try the stream_tag() method */
-		return plugin.ScanStream(*is, handler, handler_ctx);
+		return plugin.ScanStream(*is, handler);
 	}
 
 	bool Scan(const DecoderPlugin &plugin) {
@@ -85,7 +71,7 @@ public:
 };
 
 bool
-tag_file_scan(Path path_fs, const TagHandler &handler, void *handler_ctx)
+ScanFileTagsNoGeneric(Path path_fs, TagHandler &handler)
 {
 	assert(!path_fs.IsNull());
 
@@ -97,20 +83,23 @@ tag_file_scan(Path path_fs, const TagHandler &handler, void *handler_ctx)
 
 	const auto suffix_utf8 = Path::FromFS(suffix).ToUTF8();
 
-	TagFileScan tfs(path_fs, suffix_utf8.c_str(), handler, handler_ctx);
+	TagFileScan tfs(path_fs, suffix_utf8.c_str(), handler);
 	return decoder_plugins_try([&](const DecoderPlugin &plugin){
 			return tfs.Scan(plugin);
 		});
 }
 
 bool
-tag_file_scan(Path path, TagBuilder &builder)
+ScanFileTagsWithGeneric(Path path, TagBuilder &builder,
+			AudioFormat *audio_format)
 {
-	if (!tag_file_scan(path, full_tag_handler, &builder))
+	FullTagHandler h(builder, audio_format);
+
+	if (!ScanFileTagsNoGeneric(path, h))
 		return false;
 
-	if (builder.IsEmpty())
-		ScanGenericTags(path, full_tag_handler, &builder);
+	if (builder.empty())
+		ScanGenericTags(path, h);
 
 	return true;
 }

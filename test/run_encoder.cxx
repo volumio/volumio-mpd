@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,26 +17,25 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "encoder/EncoderList.hxx"
 #include "encoder/EncoderPlugin.hxx"
 #include "encoder/EncoderInterface.hxx"
 #include "encoder/ToOutputStream.hxx"
-#include "AudioFormat.hxx"
-#include "AudioParser.hxx"
+#include "pcm/AudioFormat.hxx"
+#include "pcm/AudioParser.hxx"
 #include "config/Block.hxx"
-#include "fs/io/StdioOutputStream.hxx"
-#include "Log.hxx"
+#include "io/StdioOutputStream.hxx"
+#include "util/PrintException.hxx"
 
+#include <exception>
 #include <memory>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <unistd.h>
 
 int main(int argc, char **argv)
-{
+try {
 	const char *encoder_name;
 	static char buffer[32768];
 
@@ -56,7 +55,7 @@ int main(int argc, char **argv)
 	/* create the encoder */
 
 	const auto plugin = encoder_plugin_get(encoder_name);
-	if (plugin == NULL) {
+	if (plugin == nullptr) {
 		fprintf(stderr, "No such encoder: %s\n", encoder_name);
 		return EXIT_FAILURE;
 	}
@@ -64,35 +63,33 @@ int main(int argc, char **argv)
 	ConfigBlock block;
 	block.AddBlockParam("quality", "5.0", -1);
 
-	try {
-		std::unique_ptr<PreparedEncoder> p_encoder(encoder_init(*plugin, block));
+	std::unique_ptr<PreparedEncoder> p_encoder(encoder_init(*plugin, block));
 
-		/* open the encoder */
+	/* open the encoder */
 
-		AudioFormat audio_format(44100, SampleFormat::S16, 2);
-		if (argc > 2)
-			audio_format = ParseAudioFormat(argv[2], false);
+	AudioFormat audio_format(44100, SampleFormat::S16, 2);
+	if (argc > 2)
+		audio_format = ParseAudioFormat(argv[2], false);
 
-		std::unique_ptr<Encoder> encoder(p_encoder->Open(audio_format));
+	std::unique_ptr<Encoder> encoder(p_encoder->Open(audio_format));
 
-		StdioOutputStream os(stdout);
+	StdioOutputStream os(stdout);
 
+	EncoderToOutputStream(os, *encoder);
+
+	/* do it */
+
+	ssize_t nbytes;
+	while ((nbytes = read(0, buffer, sizeof(buffer))) > 0) {
+		encoder->Write(buffer, nbytes);
 		EncoderToOutputStream(os, *encoder);
-
-		/* do it */
-
-		ssize_t nbytes;
-		while ((nbytes = read(0, buffer, sizeof(buffer))) > 0) {
-			encoder->Write(buffer, nbytes);
-			EncoderToOutputStream(os, *encoder);
-		}
-
-		encoder->End();
-		EncoderToOutputStream(os, *encoder);
-
-		return EXIT_SUCCESS;
-	} catch (const std::exception &e) {
-		LogError(e);
-		return EXIT_FAILURE;
 	}
+
+	encoder->End();
+	EncoderToOutputStream(os, *encoder);
+
+	return EXIT_SUCCESS;
+} catch (...) {
+	PrintException(std::current_exception());
+	return EXIT_FAILURE;
 }

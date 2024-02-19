@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,15 +26,25 @@
 #include "db/Selection.hxx"
 #include "db/Interface.hxx"
 #include "db/Stats.hxx"
-#include "system/Clock.hxx"
 #include "Log.hxx"
+#include "time/ChronoUtil.hxx"
+#include "util/Math.hxx"
 
-#ifndef WIN32
+#ifdef _WIN32
+#include "system/Clock.hxx"
+#endif
+
+#include <fmt/format.h>
+
+#include <chrono>
+
+#ifndef _WIN32
 /**
  * The monotonic time stamp when MPD was started.  It is used to
  * calculate the uptime.
  */
-static unsigned start_time;
+static const std::chrono::steady_clock::time_point start_time =
+	std::chrono::steady_clock::now();
 #endif
 
 #ifdef ENABLE_DATABASE
@@ -46,17 +56,6 @@ enum class StatsValidity : uint8_t {
 };
 
 static StatsValidity stats_validity = StatsValidity::INVALID;
-
-#endif
-
-void stats_global_init(void)
-{
-#ifndef WIN32
-	start_time = MonotonicClockS();
-#endif
-}
-
-#ifdef ENABLE_DATABASE
 
 void
 stats_invalidate()
@@ -84,8 +83,8 @@ stats_update(const Database &db)
 		stats = db.GetStats(selection);
 		stats_validity = StatsValidity::VALID;
 		return true;
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		stats_validity = StatsValidity::FAILED;
 		return false;
 	}
@@ -100,19 +99,19 @@ db_stats_print(Response &r, const Database &db)
 	unsigned total_duration_s =
 		std::chrono::duration_cast<std::chrono::seconds>(stats.total_duration).count();
 
-	r.Format("artists: %u\n"
-		 "albums: %u\n"
-		 "songs: %u\n"
-		 "db_playtime: %u\n",
-		 stats.artist_count,
-		 stats.album_count,
-		 stats.song_count,
-		 total_duration_s);
+	r.Fmt(FMT_STRING("artists: {}\n"
+			 "albums: {}\n"
+			 "songs: {}\n"
+			 "db_playtime: {}\n"),
+	      stats.artist_count,
+	      stats.album_count,
+	      stats.song_count,
+	      total_duration_s);
 
-	const time_t update_stamp = db.GetUpdateStamp();
-	if (update_stamp > 0)
-		r.Format("db_update: %lu\n",
-			 (unsigned long)update_stamp);
+	const auto update_stamp = db.GetUpdateStamp();
+	if (!IsNegative(update_stamp))
+		r.Fmt(FMT_STRING("db_update: {}\n"),
+		      std::chrono::system_clock::to_time_t(update_stamp));
 }
 
 #endif
@@ -120,17 +119,19 @@ db_stats_print(Response &r, const Database &db)
 void
 stats_print(Response &r, const Partition &partition)
 {
-	r.Format("uptime: %u\n"
-		 "playtime: %lu\n",
-#ifdef WIN32
-		 GetProcessUptimeS(),
+#ifdef _WIN32
+	const auto uptime = GetProcessUptimeS();
 #else
-		 MonotonicClockS() - start_time,
+	const auto uptime = std::chrono::steady_clock::now() - start_time;
 #endif
-		 (unsigned long)(partition.pc.GetTotalPlayTime() + 0.5));
+
+	r.Fmt(FMT_STRING("uptime: {}\n"
+			 "playtime: {}\n"),
+	      std::chrono::duration_cast<std::chrono::seconds>(uptime).count(),
+	      lround(partition.pc.GetTotalPlayTime().count()));
 
 #ifdef ENABLE_DATABASE
-	const Database *db = partition.instance.database;
+	const Database *db = partition.instance.GetDatabase();
 	if (db != nullptr)
 		db_stats_print(r, *db);
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,25 +20,23 @@
 #ifndef MPD_ICU_WIN32_HXX
 #define MPD_ICU_WIN32_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include <string_view>
 
-#include <wchar.h>
-
-template<typename T> class AllocatedString;
+class AllocatedString;
+template<typename T> class BasicAllocatedString;
 
 /**
  * Throws std::system_error on error.
  */
-gcc_pure gcc_nonnull_all
-AllocatedString<char>
-WideCharToMultiByte(unsigned code_page, const wchar_t *src);
+[[gnu::pure]]
+AllocatedString
+WideCharToMultiByte(unsigned code_page, std::wstring_view src);
 
 /**
  * Throws std::system_error on error.
  */
-gcc_pure gcc_nonnull_all
-AllocatedString<wchar_t>
-MultiByteToWideChar(unsigned code_page, const char *src);
+[[gnu::pure]]
+BasicAllocatedString<wchar_t>
+MultiByteToWideChar(unsigned code_page, std::string_view src);
 
 #endif

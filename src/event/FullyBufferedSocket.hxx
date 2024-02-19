@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,33 +20,45 @@
 #ifndef MPD_FULLY_BUFFERED_SOCKET_HXX
 #define MPD_FULLY_BUFFERED_SOCKET_HXX
 
-#include "check.h"
 #include "BufferedSocket.hxx"
-#include "IdleMonitor.hxx"
+#include "IdleEvent.hxx"
 #include "util/PeakBuffer.hxx"
 
 /**
  * A #BufferedSocket specialization that adds an output buffer.
  */
-class FullyBufferedSocket : protected BufferedSocket, private IdleMonitor {
+class FullyBufferedSocket : protected BufferedSocket {
+	IdleEvent idle_event;
+
 	PeakBuffer output;
 
 public:
-	FullyBufferedSocket(int _fd, EventLoop &_loop,
-			    size_t normal_size, size_t peak_size=0)
-		:BufferedSocket(_fd, _loop), IdleMonitor(_loop),
+	FullyBufferedSocket(SocketDescriptor _fd, EventLoop &_loop,
+			    size_t normal_size, size_t peak_size=0) noexcept
+		:BufferedSocket(_fd, _loop),
+		 idle_event(_loop, BIND_THIS_METHOD(OnIdle)),
 		 output(normal_size, peak_size) {
 	}
 
+	using BufferedSocket::GetEventLoop;
 	using BufferedSocket::IsDefined;
 
-	void Close() {
-		IdleMonitor::Cancel();
+	void Close() noexcept {
+		idle_event.Cancel();
 		BufferedSocket::Close();
 	}
 
+	std::size_t GetOutputMaxSize() const noexcept {
+		return output.max_size();
+	}
+
 private:
-	ssize_t DirectWrite(const void *data, size_t length);
+	/**
+	 * @return the number of bytes written to the socket, 0 if the
+	 * socket isn't ready for writing, -1 on error (the socket has
+	 * been closed and probably destructed)
+	 */
+	ssize_t DirectWrite(const void *data, size_t length) noexcept;
 
 protected:
 	/**
@@ -54,15 +66,17 @@ protected:
 	 *
 	 * @return false if the socket has been closed
 	 */
-	bool Flush();
+	bool Flush() noexcept;
 
 	/**
 	 * @return false if the socket has been closed
 	 */
-	bool Write(const void *data, size_t length);
+	bool Write(const void *data, size_t length) noexcept;
 
-	virtual bool OnSocketReady(unsigned flags) override;
-	virtual void OnIdle() override;
+	void OnIdle() noexcept;
+
+	/* virtual methods from class BufferedSocket */
+	void OnSocketReady(unsigned flags) noexcept override;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MpcdecDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
+#include "pcm/CheckAudioFormat.hxx"
 #include "pcm/Traits.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "util/Domain.hxx"
-#include "util/Macros.hxx"
 #include "util/Clamp.hxx"
 #include "util/ScopeExit.hxx"
 #include "Log.hxx"
 
 #include <mpc/mpcdec.h>
 
-#include <stdexcept>
-
-#include <math.h>
+#include <cmath>
+#include <iterator>
 
 struct mpc_decoder_data {
 	InputStream &is;
@@ -47,12 +44,12 @@ struct mpc_decoder_data {
 static constexpr Domain mpcdec_domain("mpcdec");
 
 static constexpr SampleFormat mpcdec_sample_format = SampleFormat::S24_P32;
-typedef SampleTraits<mpcdec_sample_format> MpcdecSampleTraits;
+using MpcdecSampleTraits = SampleTraits<mpcdec_sample_format>;
 
 static mpc_int32_t
 mpc_read_cb(mpc_reader *reader, void *ptr, mpc_int32_t size)
 {
-	struct mpc_decoder_data *data =
+	auto *data =
 		(struct mpc_decoder_data *)reader->data;
 
 	return decoder_read(data->client, data->is, ptr, size);
@@ -61,13 +58,13 @@ mpc_read_cb(mpc_reader *reader, void *ptr, mpc_int32_t size)
 static mpc_bool_t
 mpc_seek_cb(mpc_reader *reader, mpc_int32_t offset)
 {
-	struct mpc_decoder_data *data =
+	auto *data =
 		(struct mpc_decoder_data *)reader->data;
 
 	try {
 		data->is.LockSeek(offset);
 		return true;
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 }
@@ -75,7 +72,7 @@ mpc_seek_cb(mpc_reader *reader, mpc_int32_t offset)
 static mpc_int32_t
 mpc_tell_cb(mpc_reader *reader)
 {
-	struct mpc_decoder_data *data =
+	auto *data =
 		(struct mpc_decoder_data *)reader->data;
 
 	return (long)data->is.GetOffset();
@@ -84,7 +81,7 @@ mpc_tell_cb(mpc_reader *reader)
 static mpc_bool_t
 mpc_canseek_cb(mpc_reader *reader)
 {
-	struct mpc_decoder_data *data =
+	auto *data =
 		(struct mpc_decoder_data *)reader->data;
 
 	return data->is.IsSeekable();
@@ -93,7 +90,7 @@ mpc_canseek_cb(mpc_reader *reader)
 static mpc_int32_t
 mpc_getsize_cb(mpc_reader *reader)
 {
-	struct mpc_decoder_data *data =
+	auto *data =
 		(struct mpc_decoder_data *)reader->data;
 
 	if (!data->is.KnownSize())
@@ -130,12 +127,34 @@ mpc_to_mpd_sample(MPC_SAMPLE_FORMAT sample)
 }
 
 static void
-mpc_to_mpd_buffer(MpcdecSampleTraits::pointer_type dest,
+mpc_to_mpd_buffer(MpcdecSampleTraits::pointer dest,
 		  const MPC_SAMPLE_FORMAT *src,
 		  unsigned num_samples)
 {
 	while (num_samples-- > 0)
 		*dest++ = mpc_to_mpd_sample(*src++);
+}
+
+static constexpr ReplayGainTuple
+ImportMpcdecReplayGain(mpc_uint16_t gain, mpc_uint16_t peak) noexcept
+{
+	auto t = ReplayGainTuple::Undefined();
+
+	if (gain != 0 && peak != 0) {
+		t.gain = MPC_OLD_GAIN_REF - (gain  / 256.);
+		t.peak = std::pow(10, peak / 256. / 20) / 32767;
+	}
+
+	return t;
+}
+
+static constexpr ReplayGainInfo
+ImportMpcdecReplayGain(const mpc_streaminfo &info) noexcept
+{
+	auto rgi = ReplayGainInfo::Undefined();
+	rgi.album = ImportMpcdecReplayGain(info.gain_album, info.peak_album);
+	rgi.track = ImportMpcdecReplayGain(info.gain_title, info.peak_title);
+	return rgi;
 }
 
 static void
@@ -168,14 +187,11 @@ mpcdec_decode(DecoderClient &client, InputStream &is)
 					     mpcdec_sample_format,
 					     info.channels);
 
-	ReplayGainInfo rgi;
-	rgi.Clear();
-	rgi.album.gain = MPC_OLD_GAIN_REF  - (info.gain_album  / 256.);
-	rgi.album.peak = pow(10, info.peak_album / 256. / 20) / 32767;
-	rgi.track.gain = MPC_OLD_GAIN_REF  - (info.gain_title  / 256.);
-	rgi.track.peak = pow(10, info.peak_title / 256. / 20) / 32767;
-
-	client.SubmitReplayGain(&rgi);
+	{
+		const auto rgi = ImportMpcdecReplayGain(info);
+		if (rgi.IsDefined())
+			client.SubmitReplayGain(&rgi);
+	}
 
 	client.Ready(audio_format, is.IsSeekable(),
 		     SongTime::FromS(mpc_streaminfo_get_length(&info)));
@@ -207,10 +223,19 @@ mpcdec_decode(DecoderClient &client, InputStream &is)
 		if (frame.bits == -1)
 			break;
 
+		if (frame.samples <= 0) {
+			/* empty frame - this has been observed to
+			   happen spuriously after seeking; skip this
+			   obscure frame, and hope libmpcdec
+			   recovers */
+			cmd = client.GetCommand();
+			continue;
+		}
+
 		mpc_uint32_t ret = frame.samples;
 		ret *= info.channels;
 
-		MpcdecSampleTraits::value_type chunk[ARRAY_SIZE(sample_buffer)];
+		MpcdecSampleTraits::value_type chunk[std::size(sample_buffer)];
 		mpc_to_mpd_buffer(chunk, sample_buffer, ret);
 
 		long bit_rate = unsigned(frame.bits) * audio_format.sample_rate
@@ -248,28 +273,18 @@ mpcdec_get_file_duration(InputStream &is)
 }
 
 static bool
-mpcdec_scan_stream(InputStream &is,
-		   const TagHandler &handler, void *handler_ctx)
+mpcdec_scan_stream(InputStream &is, TagHandler &handler)
 {
 	const auto duration = mpcdec_get_file_duration(is);
 	if (duration.IsNegative())
 		return false;
 
-	tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
+	handler.OnDuration(SongTime(duration));
 	return true;
 }
 
 static const char *const mpcdec_suffixes[] = { "mpc", nullptr };
 
-const struct DecoderPlugin mpcdec_decoder_plugin = {
-	"mpcdec",
-	nullptr,
-	nullptr,
-	mpcdec_decode,
-	nullptr,
-	nullptr,
-	mpcdec_scan_stream,
-	nullptr,
-	mpcdec_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin mpcdec_decoder_plugin =
+	DecoderPlugin("mpcdec", mpcdec_decode, mpcdec_scan_stream)
+	.WithSuffixes(mpcdec_suffixes);

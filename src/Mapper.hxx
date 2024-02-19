@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,9 +24,9 @@
 #ifndef MPD_MAPPER_HXX
 #define MPD_MAPPER_HXX
 
-#include <string>
+#include "config.h"
 
-#include "Compiler.h"
+#include <string>
 
 #define PLAYLIST_FILE_SUFFIX ".m3u"
 
@@ -36,9 +36,6 @@ class AllocatedPath;
 void
 mapper_init(AllocatedPath &&playlist_dir);
 
-void
-mapper_finish();
-
 #ifdef ENABLE_DATABASE
 
 /**
@@ -46,9 +43,9 @@ mapper_finish();
  * is basically done by converting the URI to the file system charset
  * and prepending the music directory.
  */
-gcc_pure
+[[gnu::pure]]
 AllocatedPath
-map_uri_fs(const char *uri);
+map_uri_fs(const char *uri) noexcept;
 
 /**
  * Maps a file system path (relative to the music directory or
@@ -58,18 +55,18 @@ map_uri_fs(const char *uri);
  * @return the relative path in UTF-8, or an empty string if mapping
  * failed
  */
-gcc_pure
+[[gnu::pure]]
 std::string
-map_fs_to_utf8(Path path_fs);
+map_fs_to_utf8(Path path_fs) noexcept;
 
 #endif
 
 /**
  * Returns the playlist directory.
  */
-gcc_const
+[[gnu::const]]
 const AllocatedPath &
-map_spl_path();
+map_spl_path() noexcept;
 
 /**
  * Maps a playlist name (without the ".m3u" suffix) to a file system
@@ -77,8 +74,8 @@ map_spl_path();
  *
  * @return the path in file system encoding, or nullptr if mapping failed
  */
-gcc_pure
+[[gnu::pure]]
 AllocatedPath
-map_spl_utf8_to_fs(const char *name);
+map_spl_utf8_to_fs(const char *name) noexcept;
 
 #endif

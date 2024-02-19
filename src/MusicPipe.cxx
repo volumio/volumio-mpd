@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,19 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MusicPipe.hxx"
-#include "MusicBuffer.hxx"
 #include "MusicChunk.hxx"
+
+#include <cassert>
 
 #ifndef NDEBUG
 
 bool
-MusicPipe::Contains(const MusicChunk *chunk) const
+MusicPipe::Contains(const MusicChunk *chunk) const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
-	for (const MusicChunk *i = head; i != nullptr; i = i->next)
+	for (const MusicChunk *i = head.get(); i != nullptr; i = i->next.get())
 		if (i == chunk)
 			return true;
 
@@ -38,16 +38,16 @@ MusicPipe::Contains(const MusicChunk *chunk) const
 
 #endif
 
-MusicChunk *
-MusicPipe::Shift()
+MusicChunkPtr
+MusicPipe::Shift() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
-	MusicChunk *chunk = head;
+	auto chunk = std::move(head);
 	if (chunk != nullptr) {
 		assert(!chunk->IsEmpty());
 
-		head = chunk->next;
+		head = std::move(chunk->next);
 		--size;
 
 		if (head == nullptr) {
@@ -61,9 +61,6 @@ MusicPipe::Shift()
 		}
 
 #ifndef NDEBUG
-		/* poison the "next" reference */
-		chunk->next = (MusicChunk *)(void *)0x01010101;
-
 		if (size == 0)
 			audio_format.Clear();
 #endif
@@ -73,21 +70,18 @@ MusicPipe::Shift()
 }
 
 void
-MusicPipe::Clear(MusicBuffer &buffer)
+MusicPipe::Clear() noexcept
 {
-	MusicChunk *chunk;
-
-	while ((chunk = Shift()) != nullptr)
-		buffer.Return(chunk);
+	while (Shift()) {}
 }
 
 void
-MusicPipe::Push(MusicChunk *chunk)
+MusicPipe::Push(MusicChunkPtr chunk) noexcept
 {
 	assert(!chunk->IsEmpty());
 	assert(chunk->length == 0 || chunk->audio_format.IsValid());
 
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	assert(size > 0 || !audio_format.IsDefined());
 	assert(!audio_format.IsDefined() ||
@@ -98,9 +92,9 @@ MusicPipe::Push(MusicChunk *chunk)
 		audio_format = chunk->audio_format;
 #endif
 
-	chunk->next = nullptr;
-	*tail_r = chunk;
-	tail_r = &chunk->next;
+	chunk->next.reset();
+	*tail_r = std::move(chunk);
+	tail_r = &(*tail_r)->next;
 
 	++size;
 }

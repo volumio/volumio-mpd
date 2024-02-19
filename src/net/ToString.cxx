@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2011-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,14 +27,16 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "ToString.hxx"
 #include "Features.hxx"
 #include "SocketAddress.hxx"
+#include "IPv4Address.hxx"
 
 #include <algorithm>
+#include <cassert>
+#include <cstring>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <ws2tcpip.h>
 #else
 #include <netdb.h>
@@ -47,15 +49,12 @@
 #include <sys/un.h>
 #endif
 
-#include <assert.h>
-#include <string.h>
-
 #ifdef HAVE_UN
 
 static std::string
-LocalAddressToString(const struct sockaddr_un &s_un, size_t size)
+LocalAddressToString(const struct sockaddr_un &s_un, size_t size) noexcept
 {
-	const size_t prefix_size = (size_t)
+	const auto prefix_size = (size_t)
 		((struct sockaddr_un *)nullptr)->sun_path;
 	assert(size >= prefix_size);
 
@@ -79,53 +78,20 @@ LocalAddressToString(const struct sockaddr_un &s_un, size_t size)
 
 #endif
 
-#if defined(HAVE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
-
-gcc_pure
-static bool
-IsV4Mapped(SocketAddress address)
-{
-	if (address.GetFamily() != AF_INET6)
-		return false;
-
-	const auto &a6 = *(const struct sockaddr_in6 *)address.GetAddress();
-	return IN6_IS_ADDR_V4MAPPED(&a6.sin6_addr);
-}
-
-/**
- * Convert "::ffff:127.0.0.1" to "127.0.0.1".
- */
-static SocketAddress
-UnmapV4(SocketAddress src, struct sockaddr_in &buffer)
-{
-	assert(IsV4Mapped(src));
-
-	const auto &src6 = *(const struct sockaddr_in6 *)src.GetAddress();
-	memset(&buffer, 0, sizeof(buffer));
-	buffer.sin_family = AF_INET;
-	memcpy(&buffer.sin_addr, ((const char *)&src6.sin6_addr) + 12,
-	       sizeof(buffer.sin_addr));
-	buffer.sin_port = src6.sin6_port;
-
-	return { (const struct sockaddr *)&buffer, sizeof(buffer) };
-}
-
-#endif
-
 std::string
-ToString(SocketAddress address)
+ToString(SocketAddress address) noexcept
 {
 #ifdef HAVE_UN
-	if (address.GetFamily() == AF_UNIX)
-		/* return path of UNIX domain sockets */
-		return LocalAddressToString(*(const sockaddr_un *)address.GetAddress(),
+	if (address.GetFamily() == AF_LOCAL)
+		/* return path of local socket */
+		return LocalAddressToString(address.CastTo<struct sockaddr_un>(),
 					    address.GetSize());
 #endif
 
 #if defined(HAVE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
-	struct sockaddr_in in_buffer;
-	if (IsV4Mapped(address))
-		address = UnmapV4(address, in_buffer);
+	IPv4Address ipv4_buffer;
+	if (address.IsV4Mapped())
+		address = ipv4_buffer = address.UnmapV4();
 #endif
 
 	char host[NI_MAXHOST], serv[NI_MAXSERV];
@@ -136,7 +102,7 @@ ToString(SocketAddress address)
 		return "unknown";
 
 #ifdef HAVE_IPV6
-	if (strchr(host, ':') != nullptr) {
+	if (std::strchr(host, ':') != nullptr) {
 		std::string result("[");
 		result.append(host);
 		result.append("]:");
@@ -149,4 +115,33 @@ ToString(SocketAddress address)
 	result.push_back(':');
 	result.append(serv);
 	return result;
+}
+
+std::string
+HostToString(SocketAddress address) noexcept
+{
+	if (address.IsNull())
+		return "null";
+
+#ifdef HAVE_UN
+	if (address.GetFamily() == AF_LOCAL)
+		/* return path of local socket */
+		return LocalAddressToString(address.CastTo<struct sockaddr_un>(),
+					    address.GetSize());
+#endif
+
+#if defined(HAVE_IPV6) && defined(IN6_IS_ADDR_V4MAPPED)
+	IPv4Address ipv4_buffer;
+	if (address.IsV4Mapped())
+		address = ipv4_buffer = address.UnmapV4();
+#endif
+
+	char host[NI_MAXHOST], serv[NI_MAXSERV];
+	int ret = getnameinfo(address.GetAddress(), address.GetSize(),
+			      host, sizeof(host), serv, sizeof(serv),
+			      NI_NUMERICHOST|NI_NUMERICSERV);
+	if (ret != 0)
+		return "unknown";
+
+	return host;
 }

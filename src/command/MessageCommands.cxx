@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,20 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MessageCommands.hxx"
 #include "Request.hxx"
 #include "client/Client.hxx"
-#include "client/ClientList.hxx"
+#include "client/List.hxx"
 #include "client/Response.hxx"
-#include "Instance.hxx"
-#include "Partition.hxx"
 #include "util/ConstBuffer.hxx"
+#include "Partition.hxx"
 
+#include <fmt/format.h>
+
+#include <cassert>
 #include <set>
 #include <string>
-
-#include <assert.h>
 
 CommandResult
 handle_subscribe(Client &client, Request args, Response &r)
@@ -75,34 +74,34 @@ handle_unsubscribe(Client &client, Request args, Response &r)
 }
 
 CommandResult
-handle_channels(Client &client, gcc_unused Request args, Response &r)
+handle_channels(Client &client, [[maybe_unused]] Request args, Response &r)
 {
-	assert(args.IsEmpty());
+	assert(args.empty());
 
 	std::set<std::string> channels;
-	for (const auto &c : *client.partition.instance.client_list)
-		channels.insert(c.subscriptions.begin(),
-				c.subscriptions.end());
+
+	for (const auto &c : client.GetPartition().clients) {
+		const auto &subscriptions = c.GetSubscriptions();
+		channels.insert(subscriptions.begin(),
+				subscriptions.end());
+	}
 
 	for (const auto &channel : channels)
-		r.Format("channel: %s\n", channel.c_str());
+		r.Fmt(FMT_STRING("channel: {}\n"), channel);
 
 	return CommandResult::OK;
 }
 
 CommandResult
 handle_read_messages(Client &client,
-		     gcc_unused Request args, Response &r)
+		     [[maybe_unused]] Request args, Response &r)
 {
-	assert(args.IsEmpty());
+	assert(args.empty());
 
-	while (!client.messages.empty()) {
-		const ClientMessage &msg = client.messages.front();
-
-		r.Format("channel: %s\nmessage: %s\n",
-			 msg.GetChannel(), msg.GetMessage());
-		client.messages.pop_front();
-	}
+	client.ConsumeMessages([&r](const auto &msg){
+		r.Fmt(FMT_STRING("channel: {}\nmessage: {}\n"),
+		      msg.GetChannel(), msg.GetMessage());
+	});
 
 	return CommandResult::OK;
 }
@@ -122,7 +121,8 @@ handle_send_message(Client &client, Request args, Response &r)
 
 	bool sent = false;
 	const ClientMessage msg(channel_name, message_text);
-	for (auto &c : *client.partition.instance.client_list)
+
+	for (auto &c : client.GetPartition().clients)
 		if (c.PushMessage(msg))
 			sent = true;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,29 +17,28 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "M3uPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../SongEnumerator.hxx"
-#include "DetachedSong.hxx"
-#include "util/StringUtil.hxx"
+#include "song/DetachedSong.hxx"
 #include "input/TextInputStream.hxx"
+#include "util/StringStrip.hxx"
 
 class M3uPlaylist final : public SongEnumerator {
 	TextInputStream tis;
 
 public:
-	M3uPlaylist(InputStreamPtr &&is)
+	explicit M3uPlaylist(InputStreamPtr &&is)
 		:tis(std::move(is)) {
 	}
 
-	virtual std::unique_ptr<DetachedSong> NextSong() override;
+	std::unique_ptr<DetachedSong> NextSong() override;
 };
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 m3u_open_stream(InputStreamPtr &&is)
 {
-	return new M3uPlaylist(std::move(is));
+	return std::make_unique<M3uPlaylist>(std::move(is));
 }
 
 std::unique_ptr<DetachedSong>
@@ -55,7 +54,7 @@ M3uPlaylist::NextSong()
 		line_s = Strip(line_s);
 	} while (line_s[0] == '#' || *line_s == 0);
 
-	return std::unique_ptr<DetachedSong>(new DetachedSong(line_s));
+	return std::make_unique<DetachedSong>(line_s);
 }
 
 static const char *const m3u_suffixes[] = {
@@ -66,18 +65,11 @@ static const char *const m3u_suffixes[] = {
 
 static const char *const m3u_mime_types[] = {
 	"audio/x-mpegurl",
+	"audio/mpegurl",
 	nullptr
 };
 
-const struct playlist_plugin m3u_playlist_plugin = {
-	"m3u",
-
-	nullptr,
-	nullptr,
-	nullptr,
-	m3u_open_stream,
-
-	nullptr,
-	m3u_suffixes,
-	m3u_mime_types,
-};
+const PlaylistPlugin m3u_playlist_plugin =
+	PlaylistPlugin("m3u", m3u_open_stream)
+	.WithSuffixes(m3u_suffixes)
+	.WithMimeTypes(m3u_mime_types);

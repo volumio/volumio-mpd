@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ExtM3uPlaylistPlugin.hxx"
 #include "../PlaylistPlugin.hxx"
 #include "../SongEnumerator.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
-#include "util/StringUtil.hxx"
+#include "tag/Builder.hxx"
+#include "util/StringStrip.hxx"
 #include "util/StringCompare.hxx"
 #include "input/TextInputStream.hxx"
 #include "input/InputStream.hxx"
@@ -36,7 +35,7 @@ class ExtM3uPlaylist final : public SongEnumerator {
 	TextInputStream tis;
 
 public:
-	ExtM3uPlaylist(InputStreamPtr &&is)
+	explicit ExtM3uPlaylist(InputStreamPtr &&is)
 		:tis(std::move(is)) {
 	}
 
@@ -56,21 +55,19 @@ public:
 		return nullptr;
 	}
 
-	virtual std::unique_ptr<DetachedSong> NextSong() override;
+	std::unique_ptr<DetachedSong> NextSong() override;
 };
 
-static SongEnumerator *
+static std::unique_ptr<SongEnumerator>
 extm3u_open_stream(InputStreamPtr &&is)
 {
-	ExtM3uPlaylist *playlist = new ExtM3uPlaylist(std::move(is));
+	auto playlist = std::make_unique<ExtM3uPlaylist>(std::move(is));
 
 	is = playlist->CheckFirstLine();
-	if (is) {
+	if (is)
 		/* no EXTM3U header: fall back to the plain m3u
 		   plugin */
-		delete playlist;
-		return nullptr;
-	}
+		playlist.reset();
 
 	return playlist;
 }
@@ -90,7 +87,7 @@ extm3u_parse_tag(const char *line)
 	duration = strtol(line, &endptr, 10);
 	if (endptr[0] != ',')
 		/* malformed line */
-		return Tag();
+		return {};
 
 	if (duration < 0)
 		/* 0 means unknown duration */
@@ -100,7 +97,7 @@ extm3u_parse_tag(const char *line)
 	if (*name == 0 && duration == 0)
 		/* no information available; don't allocate a tag
 		   object */
-		return Tag();
+		return {};
 
 	TagBuilder tag;
 	tag.SetDuration(SignedSongTime::FromS(unsigned(duration)));
@@ -135,7 +132,7 @@ ExtM3uPlaylist::NextSong()
 		line_s = StripLeft(line_s);
 	} while (line_s[0] == '#' || *line_s == 0);
 
-	return std::unique_ptr<DetachedSong>(new DetachedSong(line_s, std::move(tag)));
+	return std::make_unique<DetachedSong>(line_s, std::move(tag));
 }
 
 static const char *const extm3u_suffixes[] = {
@@ -146,18 +143,11 @@ static const char *const extm3u_suffixes[] = {
 
 static const char *const extm3u_mime_types[] = {
 	"audio/x-mpegurl",
+	"audio/mpegurl",
 	nullptr
 };
 
-const struct playlist_plugin extm3u_playlist_plugin = {
-	"extm3u",
-
-	nullptr,
-	nullptr,
-	nullptr,
-	extm3u_open_stream,
-
-	nullptr,
-	extm3u_suffixes,
-	extm3u_mime_types,
-};
+constexpr PlaylistPlugin extm3u_playlist_plugin =
+	PlaylistPlugin("extm3u", extm3u_open_stream)
+	.WithSuffixes(extm3u_suffixes)
+	.WithMimeTypes(extm3u_mime_types);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,53 +31,52 @@
 #define JAVA_CLASS_HXX
 
 #include "Ref.hxx"
+#include "Exception.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 namespace Java {
-	/**
-	 * Wrapper for a local "jclass" reference.
-	 */
-	class Class : public Java::LocalRef<jclass> {
-	public:
-		Class(JNIEnv *env, jclass cls)
-			:LocalRef<jclass>(env, cls) {}
 
-		Class(JNIEnv *env, const char *name)
-			:LocalRef<jclass>(env, env->FindClass(name)) {}
-	};
+/**
+ * Wrapper for a local "jclass" reference.
+ */
+class Class : public LocalRef<jclass> {
+public:
+	Class(JNIEnv *env, jclass cls) noexcept
+		:LocalRef<jclass>(env, cls) {}
 
-	/**
-	 * Wrapper for a global "jclass" reference.
-	 */
-	class TrivialClass : public TrivialRef<jclass> {
-	public:
-		void Find(JNIEnv *env, const char *name) {
-			assert(env != nullptr);
-			assert(name != nullptr);
+	Class(JNIEnv *env, const char *name) noexcept
+		:LocalRef<jclass>(env, env->FindClass(name)) {}
+};
 
-			jclass cls = env->FindClass(name);
-			assert(cls != nullptr);
+/**
+ * Wrapper for a global "jclass" reference.
+ */
+class TrivialClass : public TrivialRef<jclass> {
+public:
+	void Find(JNIEnv *env, const char *name) noexcept {
+		assert(env != nullptr);
+		assert(name != nullptr);
 
-			Set(env, cls);
-			env->DeleteLocalRef(cls);
-		}
+		const Java::Class cls{env, env->FindClass(name)};
+		assert(cls != nullptr);
 
-		bool FindOptional(JNIEnv *env, const char *name) {
-			assert(env != nullptr);
-			assert(name != nullptr);
+		Set(env, cls);
+	}
 
-			jclass cls = env->FindClass(name);
-			if (cls == nullptr) {
-				env->ExceptionClear();
-				return false;
-			}
+	bool FindOptional(JNIEnv *env, const char *name) noexcept {
+		assert(env != nullptr);
+		assert(name != nullptr);
 
-			Set(env, cls);
-			env->DeleteLocalRef(cls);
-			return true;
-		}
-	};
-}
+		const Java::Class cls{env, env->FindClass(name)};
+		if (DiscardException(env))
+			return false;
+
+		Set(env, cls);
+		return true;
+	}
+};
+
+} // namespace Java
 
 #endif

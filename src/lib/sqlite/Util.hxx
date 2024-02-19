@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,11 +20,26 @@
 #ifndef MPD_SQLITE_UTIL_HXX
 #define MPD_SQLITE_UTIL_HXX
 
+#include "util/Compiler.h"
 #include "Error.hxx"
 
 #include <sqlite3.h>
 
-#include <assert.h>
+#include <cassert>
+
+namespace Sqlite {
+
+static inline sqlite3_stmt *
+Prepare(sqlite3 *db, const char *sql)
+{
+	sqlite3_stmt *stmt;
+	int ret = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+	if (ret != SQLITE_OK)
+		throw SqliteError(db, ret,
+				  "sqlite3_prepare_v2() failed");
+
+	return stmt;
+}
 
 /**
  * Throws #SqliteError on error.
@@ -39,7 +54,7 @@ Bind(sqlite3_stmt *stmt, unsigned i, const char *value)
 
 template<typename... Args>
 static void
-BindAll2(gcc_unused sqlite3_stmt *stmt, gcc_unused unsigned i)
+BindAll2([[maybe_unused]] sqlite3_stmt *stmt, [[maybe_unused]] unsigned i)
 {
 	assert(int(i - 1) == sqlite3_bind_parameter_count(stmt));
 }
@@ -157,5 +172,7 @@ ExecuteForEach(sqlite3_stmt *stmt, F &&f)
 		}
 	}
 }
+
+} // namespace Sqlite
 
 #endif

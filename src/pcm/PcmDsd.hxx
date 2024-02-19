@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,10 @@
 #ifndef MPD_PCM_DSD_HXX
 #define MPD_PCM_DSD_HXX
 
-#include "check.h"
-#include "PcmBuffer.hxx"
-#include "AudioFormat.hxx"
+#include "Buffer.hxx"
+#include "Dsd2Pcm.hxx"
 
-#include <array>
-
-#include <stdint.h>
+#include <cstdint>
 
 template<typename T> struct ConstBuffer;
 
@@ -36,22 +33,18 @@ template<typename T> struct ConstBuffer;
 class PcmDsd {
 	PcmBuffer buffer;
 
-	std::array<struct dsd2pcm_ctx_s *, MAX_CHANNELS> dsd2pcm;
+	MultiDsd2Pcm dsd2pcm;
 
 public:
-	PcmDsd();
-	~PcmDsd();
-
-	void Reset();
+	void Reset() noexcept {
+		dsd2pcm.Reset();
+	}
 
 	ConstBuffer<float> ToFloat(unsigned channels,
-				   ConstBuffer<uint8_t> src);
-};
+				   ConstBuffer<uint8_t> src) noexcept;
 
-/**
- * Convert DSD_U8 to DSD_U32 (native endian).
- */
-ConstBuffer<uint32_t>
-Dsd8To32(PcmBuffer &buffer, unsigned channels, ConstBuffer<uint8_t> src);
+	ConstBuffer<int32_t> ToS24(unsigned channels,
+				   ConstBuffer<uint8_t> src) noexcept;
+};
 
 #endif

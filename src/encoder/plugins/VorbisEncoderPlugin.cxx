@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "VorbisEncoderPlugin.hxx"
 #include "OggEncoder.hxx"
 #include "lib/xiph/VorbisComment.hxx"
-#include "AudioFormat.hxx"
-#include "config/ConfigError.hxx"
+#include "pcm/AudioFormat.hxx"
+#include "config/Domain.hxx"
 #include "util/StringUtil.hxx"
 #include "util/NumberParser.hxx"
 #include "util/RuntimeError.hxx"
@@ -39,11 +38,14 @@ class VorbisEncoder final : public OggEncoder {
 public:
 	VorbisEncoder(float quality, int bitrate, AudioFormat &_audio_format);
 
-	virtual ~VorbisEncoder() {
+	~VorbisEncoder() noexcept override {
 		vorbis_block_clear(&vb);
 		vorbis_dsp_clear(&vd);
 		vorbis_info_clear(&vi);
 	}
+
+	VorbisEncoder(const VorbisEncoder &) = delete;
+	VorbisEncoder &operator=(const VorbisEncoder &) = delete;
 
 	/* virtual methods from class Encoder */
 	void End() override {
@@ -62,16 +64,16 @@ private:
 };
 
 class PreparedVorbisEncoder final : public PreparedEncoder {
-	float quality;
+	float quality = 3;
 	int bitrate;
 
 public:
-	PreparedVorbisEncoder(const ConfigBlock &block);
+	explicit PreparedVorbisEncoder(const ConfigBlock &block);
 
 	/* virtual methods from class PreparedEncoder */
 	Encoder *Open(AudioFormat &audio_format) override;
 
-	const char *GetMimeType() const override {
+	[[nodiscard]] const char *GetMimeType() const noexcept override {
 		return "audio/ogg";
 	}
 };
@@ -85,7 +87,7 @@ PreparedVorbisEncoder::PreparedVorbisEncoder(const ConfigBlock &block)
 		char *endptr;
 		quality = ParseDouble(value, &endptr);
 
-		if (*endptr != '\0' || quality < -1.0 || quality > 10.0)
+		if (*endptr != '\0' || quality < -1.0f || quality > 10.0f)
 			throw FormatRuntimeError("quality \"%s\" is not a number in the "
 						 "range -1 to 10",
 						 value);
@@ -97,7 +99,7 @@ PreparedVorbisEncoder::PreparedVorbisEncoder(const ConfigBlock &block)
 
 		value = block.GetBlockValue("bitrate");
 		if (value == nullptr)
-			throw std::runtime_error("neither bitrate nor quality defined");
+			return;
 
 		quality = -2.0;
 
@@ -123,13 +125,13 @@ VorbisEncoder::VorbisEncoder(float quality, int bitrate,
 	_audio_format.format = SampleFormat::FLOAT;
 	audio_format = _audio_format;
 
-	if (quality >= -1.0) {
+	if (quality >= -1.0f) {
 		/* a quality was configured (VBR) */
 
 		if (0 != vorbis_encode_init_vbr(&vi,
 						audio_format.channels,
 						audio_format.sample_rate,
-						quality * 0.1)) {
+						quality * 0.1f)) {
 			vorbis_info_clear(&vi);
 			throw std::runtime_error("error initializing vorbis vbr");
 		}
@@ -139,7 +141,7 @@ VorbisEncoder::VorbisEncoder(float quality, int bitrate,
 		if (0 != vorbis_encode_init(&vi,
 					    audio_format.channels,
 					    audio_format.sample_rate, -1.0,
-					    bitrate * 1000, -1.0)) {
+					    bitrate * 1000, -1.0f)) {
 			vorbis_info_clear(&vi);
 			throw std::runtime_error("error initializing vorbis encoder");
 		}
@@ -226,7 +228,7 @@ VorbisEncoder::SendTag(const Tag &tag)
 
 	/* reset ogg_stream_state and begin a new stream */
 
-	stream.Reinitialize(GenerateOggSerial());
+	stream.Reinitialize(GenerateSerial());
 
 	/* send that vorbis_comment to the ogg_stream_state */
 

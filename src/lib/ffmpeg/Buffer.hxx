@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,50 +22,32 @@
 
 extern "C" {
 #include <libavutil/mem.h>
-
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(52, 18, 0)
-#define HAVE_AV_FAST_MALLOC
-#else
-#include <libavcodec/avcodec.h>
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(52, 25, 0)
-#define HAVE_AV_FAST_MALLOC
-#endif
-#endif
 }
 
-#include <stddef.h>
-
-/* suppress the ffmpeg compatibility macro */
-#ifdef SampleFormat
-#undef SampleFormat
-#endif
+#include <cstddef>
 
 class FfmpegBuffer {
-	void *data;
-	unsigned size;
+	void *data = nullptr;
+	unsigned size = 0;
 
 public:
-	FfmpegBuffer():data(nullptr), size(0) {}
+	FfmpegBuffer() noexcept = default;
 
-	~FfmpegBuffer() {
+	~FfmpegBuffer() noexcept {
 		av_free(data);
 	}
 
-	gcc_malloc
-	void *Get(size_t min_size) {
-#ifdef HAVE_AV_FAST_MALLOC
+	FfmpegBuffer(const FfmpegBuffer &) = delete;
+	FfmpegBuffer &operator=(const FfmpegBuffer &) = delete;
+
+	[[gnu::malloc]]
+	void *Get(size_t min_size) noexcept {
 		av_fast_malloc(&data, &size, min_size);
-#else
-		void *new_data = av_fast_realloc(data, &size, min_size);
-		if (new_data == nullptr)
-			return AVERROR(ENOMEM);
-		data = new_data;
-#endif
 		return data;
 	}
 
 	template<typename T>
-	T *GetT(size_t n) {
+	T *GetT(size_t n) noexcept {
 		return (T *)Get(n * sizeof(T));
 	}
 };

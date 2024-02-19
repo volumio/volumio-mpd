@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2014 Max Kellermann <max@duempel.org>
+ * Copyright 2010-2018 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,18 +27,18 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "File.hxx"
 #include "Class.hxx"
 #include "String.hxx"
 #include "Object.hxx"
+#include "Exception.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/Limits.hxx"
 
 jmethodID Java::File::getAbsolutePath_method;
 
 void
-Java::File::Initialise(JNIEnv *env)
+Java::File::Initialise(JNIEnv *env) noexcept
 {
 	Class cls(env, "java/io/File");
 
@@ -47,21 +47,14 @@ Java::File::Initialise(JNIEnv *env)
 }
 
 AllocatedPath
-Java::File::ToAbsolutePath(JNIEnv *env, jobject _file)
+Java::File::ToAbsolutePath(JNIEnv *env, jobject _file) noexcept
 {
-	assert(env != nullptr);
-	assert(_file != nullptr);
-
 	LocalObject file(env, _file);
 
-	const jstring path = getAbsolutePath(env, file);
-	if (path == nullptr) {
-		env->ExceptionClear();
-		return AllocatedPath::Null();
-	}
+	const jstring path = GetAbsolutePath(env, file);
+	if (DiscardException(env) || path == nullptr)
+		return nullptr;
 
 	Java::String path2(env, path);
-	char buffer[MPD_PATH_MAX];
-	path2.CopyTo(env, buffer, sizeof(buffer));
-	return AllocatedPath::FromUTF8(buffer);
+	return AllocatedPath::FromFS(path2.ToString());
 }

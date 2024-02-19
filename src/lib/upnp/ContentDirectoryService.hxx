@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,10 @@
 #ifndef _UPNPDIR_HXX_INCLUDED_
 #define _UPNPDIR_HXX_INCLUDED_
 
-#include "Compiler.h"
-
-#include <upnp/upnp.h>
+#include "Compat.hxx"
 
 #include <string>
-#include <list>
+#include <forward_list>
 
 class UPnPDevice;
 struct UPnPService;
@@ -65,12 +63,12 @@ public:
 	 * UPnPDeviceDirectory::GetDirectories()
 	 */
 	ContentDirectoryService(const UPnPDevice &device,
-				const UPnPService &service);
+				const UPnPService &service) noexcept;
 
 	/** An empty one */
 	ContentDirectoryService() = default;
 
-	~ContentDirectoryService();
+	~ContentDirectoryService() noexcept;
 
 	/** Read a container's children list into dirbuf.
 	 *
@@ -111,15 +109,15 @@ public:
 	 * @param[out] result an empty vector: no search, or a single '*' element:
 	 *     any tag can be used in a search, or a list of usable tag names.
 	 */
-	std::list<std::string> getSearchCapabilities(UpnpClient_Handle handle) const;
+	std::forward_list<std::string> getSearchCapabilities(UpnpClient_Handle handle) const;
 
-	gcc_pure
-	std::string GetURI() const {
+	[[gnu::pure]]
+	std::string GetURI() const noexcept {
 		return "upnp://" + m_deviceId + "/" + m_serviceType;
 	}
 
 	/** Retrieve the "friendly name" for this server, useful for display. */
-	const char *getFriendlyName() const {
+	const char *getFriendlyName() const noexcept {
 		return m_friendlyName.c_str();
 	}
 };

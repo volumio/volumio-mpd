@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "AudiofileDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "CheckAudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "tag/Handler.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
@@ -30,15 +29,16 @@
 #include <audiofile.h>
 #include <af_vfs.h>
 
-#include <stdexcept>
+#include <cassert>
+#include <exception>
 
-#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static constexpr Domain audiofile_domain("audiofile");
 
 static void
-audiofile_error_func(long, const char *msg)
+audiofile_error_func(long, const char *msg) noexcept
 {
 	LogWarning(audiofile_domain, msg);
 }
@@ -54,7 +54,7 @@ struct AudioFileInputStream {
 	DecoderClient *const client;
 	InputStream &is;
 
-	size_t Read(void *buffer, size_t size) {
+	size_t Read(void *buffer, size_t size) noexcept {
 		/* libaudiofile does not like partial reads at all,
 		   and will abort playback; therefore always force full
 		   reads */
@@ -66,14 +66,14 @@ struct AudioFileInputStream {
 
 gcc_pure
 static SongTime
-audiofile_get_duration(AFfilehandle fh)
+audiofile_get_duration(AFfilehandle fh) noexcept
 {
 	return SongTime::FromScale<uint64_t>(afGetFrameCount(fh, AF_DEFAULT_TRACK),
 					     afGetRate(fh, AF_DEFAULT_TRACK));
 }
 
 static ssize_t
-audiofile_file_read(AFvirtualfile *vfile, void *data, size_t length)
+audiofile_file_read(AFvirtualfile *vfile, void *data, size_t length) noexcept
 {
 	AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
 
@@ -81,25 +81,25 @@ audiofile_file_read(AFvirtualfile *vfile, void *data, size_t length)
 }
 
 static AFfileoffset
-audiofile_file_length(AFvirtualfile *vfile)
+audiofile_file_length(AFvirtualfile *vfile) noexcept
 {
-	AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
-	InputStream &is = afis.is;
+	const AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
+	const InputStream &is = afis.is;
 
 	return is.GetSize();
 }
 
 static AFfileoffset
-audiofile_file_tell(AFvirtualfile *vfile)
+audiofile_file_tell(AFvirtualfile *vfile) noexcept
 {
-	AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
-	InputStream &is = afis.is;
+	const AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
+	const InputStream &is = afis.is;
 
 	return is.GetOffset();
 }
 
 static void
-audiofile_file_destroy(AFvirtualfile *vfile)
+audiofile_file_destroy(AFvirtualfile *vfile) noexcept
 {
 	assert(vfile->closure != nullptr);
 
@@ -108,7 +108,7 @@ audiofile_file_destroy(AFvirtualfile *vfile)
 
 static AFfileoffset
 audiofile_file_seek(AFvirtualfile *vfile, AFfileoffset _offset,
-		    int is_relative)
+		    int is_relative) noexcept
 {
 	AudioFileInputStream &afis = *(AudioFileInputStream *)vfile->closure;
 	InputStream &is = afis.is;
@@ -120,16 +120,16 @@ audiofile_file_seek(AFvirtualfile *vfile, AFfileoffset _offset,
 	try {
 		is.LockSeek(offset);
 		return is.GetOffset();
-	} catch (const std::runtime_error &e) {
-		LogError(e, "Seek failed");
+	} catch (...) {
+		LogError(std::current_exception(), "Seek failed");
 		return -1;
 	}
 }
 
 static AFvirtualfile *
-setup_virtual_fops(AudioFileInputStream &afis)
+setup_virtual_fops(AudioFileInputStream &afis) noexcept
 {
-	AFvirtualfile *vf = new AFvirtualfile();
+	auto vf = (AFvirtualfile *)malloc(sizeof(AFvirtualfile));
 	vf->closure = &afis;
 	vf->write = nullptr;
 	vf->read    = audiofile_file_read;
@@ -140,8 +140,9 @@ setup_virtual_fops(AudioFileInputStream &afis)
 	return vf;
 }
 
+gcc_const
 static SampleFormat
-audiofile_bits_to_sample_format(int bits)
+audiofile_bits_to_sample_format(int bits) noexcept
 {
 	switch (bits) {
 	case 8:
@@ -161,14 +162,14 @@ audiofile_bits_to_sample_format(int bits)
 }
 
 static SampleFormat
-audiofile_setup_sample_format(AFfilehandle af_fp)
+audiofile_setup_sample_format(AFfilehandle af_fp) noexcept
 {
 	int fs, bits;
 
 	afGetSampleFormat(af_fp, AF_DEFAULT_TRACK, &fs, &bits);
 	if (!audio_valid_sample_format(audiofile_bits_to_sample_format(bits))) {
-		FormatDebug(audiofile_domain,
-			    "input file has %d bit samples, converting to 16",
+		FmtDebug(audiofile_domain,
+			    "input file has {} bit samples, converting to 16",
 			    bits);
 		bits = 16;
 	}
@@ -178,6 +179,14 @@ audiofile_setup_sample_format(AFfilehandle af_fp)
 	afGetVirtualSampleFormat(af_fp, AF_DEFAULT_TRACK, &fs, &bits);
 
 	return audiofile_bits_to_sample_format(bits);
+}
+
+static AudioFormat
+CheckAudioFormat(AFfilehandle fh)
+{
+	return CheckAudioFormat(afGetRate(fh, AF_DEFAULT_TRACK),
+				audiofile_setup_sample_format(fh),
+				afGetVirtualChannels(fh, AF_DEFAULT_TRACK));
 }
 
 static void
@@ -191,32 +200,26 @@ audiofile_stream_decode(DecoderClient &client, InputStream &is)
 	AudioFileInputStream afis{&client, is};
 	AFvirtualfile *const vf = setup_virtual_fops(afis);
 
-	const AFfilehandle fh = afOpenVirtualFile(vf, "r", nullptr);
+	auto fh = afOpenVirtualFile(vf, "r", nullptr);
 	if (fh == AF_NULL_FILEHANDLE)
 		return;
 
 	AtScopeExit(fh) { afCloseFile(fh); };
 
-	const auto audio_format =
-		CheckAudioFormat(afGetRate(fh, AF_DEFAULT_TRACK),
-				 audiofile_setup_sample_format(fh),
-				 afGetVirtualChannels(fh, AF_DEFAULT_TRACK));
-
+	const auto audio_format = CheckAudioFormat(fh);
 	const auto total_time = audiofile_get_duration(fh);
 
-	const uint16_t kbit_rate = (uint16_t)
+	const auto kbit_rate = (uint16_t)
 		(is.GetSize() * uint64_t(8) / total_time.ToMS());
 
-	const unsigned frame_size = (unsigned)
+	const auto frame_size = (unsigned)
 		afGetVirtualFrameSize(fh, AF_DEFAULT_TRACK, true);
 
 	client.Ready(audio_format, true, total_time);
 
 	DecoderCommand cmd;
 	do {
-		/* pick 1020 since its divisible for 8,16,24, and
-		   32-bit audio */
-		char chunk[1020];
+		uint8_t chunk[8192];
 		const int nframes =
 			afReadFrames(fh, AF_DEFAULT_TRACK, chunk,
 				     sizeof(chunk) / frame_size);
@@ -237,33 +240,27 @@ audiofile_stream_decode(DecoderClient &client, InputStream &is)
 	} while (cmd == DecoderCommand::NONE);
 }
 
-gcc_pure
-static SignedSongTime
-audiofile_get_duration(InputStream &is)
+static bool
+audiofile_scan_stream(InputStream &is, TagHandler &handler)
 {
 	if (!is.IsSeekable() || !is.KnownSize())
-		return SignedSongTime::Negative();
+		return false;
 
 	AudioFileInputStream afis{nullptr, is};
 	AFvirtualfile *vf = setup_virtual_fops(afis);
 	AFfilehandle fh = afOpenVirtualFile(vf, "r", nullptr);
 	if (fh == AF_NULL_FILEHANDLE)
-		return SignedSongTime::Negative();
-
-	const auto duration = audiofile_get_duration(fh);
-	afCloseFile(fh);
-	return duration;
-}
-
-static bool
-audiofile_scan_stream(InputStream &is,
-		      const TagHandler &handler, void *handler_ctx)
-{
-	const auto duration = audiofile_get_duration(is);
-	if (duration.IsNegative())
 		return false;
 
-	tag_handler_invoke_duration(handler, handler_ctx, SongTime(duration));
+	AtScopeExit(fh) { afCloseFile(fh); };
+
+	handler.OnDuration(audiofile_get_duration(fh));
+
+	try {
+		handler.OnAudioFormat(CheckAudioFormat(fh));
+	} catch (...) {
+	}
+
 	return true;
 }
 
@@ -272,20 +269,16 @@ static const char *const audiofile_suffixes[] = {
 };
 
 static const char *const audiofile_mime_types[] = {
+	"audio/wav",
+	"audio/aiff",
 	"audio/x-wav",
 	"audio/x-aiff",
 	nullptr
 };
 
-const struct DecoderPlugin audiofile_decoder_plugin = {
-	"audiofile",
-	audiofile_init,
-	nullptr,
-	audiofile_stream_decode,
-	nullptr,
-	nullptr,
-	audiofile_scan_stream,
-	nullptr,
-	audiofile_suffixes,
-	audiofile_mime_types,
-};
+constexpr DecoderPlugin audiofile_decoder_plugin =
+	DecoderPlugin("audiofile",
+		      audiofile_stream_decode, audiofile_scan_stream)
+	.WithInit(audiofile_init)
+	.WithSuffixes(audiofile_suffixes)
+	.WithMimeTypes(audiofile_mime_types);

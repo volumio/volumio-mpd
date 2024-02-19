@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "OggVisitor.hxx"
 
 #include <stdexcept>
+#include <utility>
 
 void
 OggVisitor::EndStream()
@@ -52,7 +52,13 @@ OggVisitor::ReadNextPage()
 inline void
 OggVisitor::HandlePacket(const ogg_packet &packet)
 {
+	const bool _post_seek = std::exchange(post_seek, false);
+
 	if (packet.b_o_s) {
+		if (_post_seek)
+			/* ignore the BOS packet after seeking */
+			return;
+
 		EndStream();
 		has_stream = true;
 		OnOggBeginning(packet);
@@ -63,12 +69,12 @@ OggVisitor::HandlePacket(const ogg_packet &packet)
 		/* fail if BOS is missing */
 		throw std::runtime_error("BOS packet expected");
 
+	OnOggPacket(packet);
+
 	if (packet.e_o_s) {
 		EndStream();
 		return;
 	}
-
-	OnOggPacket(packet);
 }
 
 inline void
@@ -88,9 +94,10 @@ OggVisitor::Visit()
 }
 
 void
-OggVisitor::PostSeek()
+OggVisitor::PostSeek(uint64_t offset)
 {
 	sync.Reset();
+	sync.SetOffset(offset);
 
 	/* reset the stream to clear any previous partial packet
 	   data */
@@ -98,4 +105,17 @@ OggVisitor::PostSeek()
 
 	/* find the next Ogg page and feed it into the stream */
 	sync.ExpectPageSeekIn(stream);
+
+	post_seek = true;
+}
+
+ogg_int64_t
+OggVisitor::ReadGranulepos() noexcept
+{
+	ogg_packet packet;
+	while (stream.PacketOut(packet) == 1)
+		if (packet.granulepos >= 0)
+			return packet.granulepos;
+
+	return -1;
 }

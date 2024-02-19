@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ShutdownHandler.hxx"
 #include "db/update/InotifySource.hxx"
 #include "event/Loop.hxx"
 #include "Log.hxx"
+
+#include <exception>
 
 #include <sys/inotify.h>
 
@@ -33,8 +34,8 @@ static constexpr unsigned IN_MASK =
 	|IN_MOVE|IN_MOVE_SELF;
 
 static void
-my_inotify_callback(gcc_unused int wd, unsigned mask,
-		    const char *name, gcc_unused void *ctx)
+my_inotify_callback([[maybe_unused]] int wd, unsigned mask,
+		    const char *name, [[maybe_unused]] void *ctx)
 {
 	printf("mask=0x%x name='%s'\n", mask, name);
 }
@@ -59,7 +60,7 @@ try {
 	event_loop.Run();
 
 	return EXIT_SUCCESS;
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 	return EXIT_FAILURE;
 }

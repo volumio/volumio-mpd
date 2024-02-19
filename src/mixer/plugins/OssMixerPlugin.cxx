@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "mixer/MixerInternal.hxx"
 #include "config/Block.hxx"
-#include "system/fd_util.h"
+#include "io/FileDescriptor.hxx"
 #include "system/Error.hxx"
 #include "util/ASCII.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
-#include <assert.h>
+#include <cassert>
+
 #include <string.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -46,7 +46,7 @@ class OssMixer final : public Mixer {
 	const char *device;
 	const char *control;
 
-	int device_fd;
+	FileDescriptor device_fd;
 	int volume_control;
 
 public:
@@ -59,7 +59,7 @@ public:
 
 	/* virtual methods from class Mixer */
 	void Open() override;
-	void Close() override;
+	void Close() noexcept override;
 	int GetVolume() override;
 	void SetVolume(unsigned volume) override;
 };
@@ -97,7 +97,8 @@ OssMixer::Configure(const ConfigBlock &block)
 }
 
 static Mixer *
-oss_mixer_init(gcc_unused EventLoop &event_loop, gcc_unused AudioOutput &ao,
+oss_mixer_init([[maybe_unused]] EventLoop &event_loop,
+	       [[maybe_unused]] AudioOutput &ao,
 	       MixerListener &listener,
 	       const ConfigBlock &block)
 {
@@ -105,25 +106,25 @@ oss_mixer_init(gcc_unused EventLoop &event_loop, gcc_unused AudioOutput &ao,
 }
 
 void
-OssMixer::Close()
+OssMixer::Close() noexcept
 {
-	assert(device_fd >= 0);
+	assert(device_fd.IsDefined());
 
-	close(device_fd);
+	device_fd.Close();
 }
 
 void
 OssMixer::Open()
 {
-	device_fd = open_cloexec(device, O_RDONLY, 0);
-	if (device_fd < 0)
+	device_fd.OpenReadOnly(device);
+	if (!device_fd.IsDefined())
 		throw FormatErrno("failed to open %s", device);
 
 	try {
 		if (control) {
 			int devmask = 0;
 
-			if (ioctl(device_fd, SOUND_MIXER_READ_DEVMASK, &devmask) < 0)
+			if (ioctl(device_fd.Get(), SOUND_MIXER_READ_DEVMASK, &devmask) < 0)
 				throw MakeErrno("READ_DEVMASK failed");
 
 			if (((1 << volume_control) & devmask) == 0)
@@ -142,9 +143,9 @@ OssMixer::GetVolume()
 	int left, right, level;
 	int ret;
 
-	assert(device_fd >= 0);
+	assert(device_fd.IsDefined());
 
-	ret = ioctl(device_fd, MIXER_READ(volume_control), &level);
+	ret = ioctl(device_fd.Get(), MIXER_READ(volume_control), &level);
 	if (ret < 0)
 		throw MakeErrno("failed to read OSS volume");
 
@@ -152,9 +153,9 @@ OssMixer::GetVolume()
 	right = (level & 0xff00) >> 8;
 
 	if (left != right) {
-		FormatWarning(oss_mixer_domain,
-			      "volume for left and right is not the same, \"%i\" and "
-			      "\"%i\"\n", left, right);
+		FmtWarning(oss_mixer_domain,
+			   "volume for left and right is not the same, \"{}\" and "
+			   "\"{}\"\n", left, right);
 	}
 
 	return left;
@@ -165,16 +166,16 @@ OssMixer::SetVolume(unsigned volume)
 {
 	int level;
 
-	assert(device_fd >= 0);
+	assert(device_fd.IsDefined());
 	assert(volume <= 100);
 
 	level = (volume << 8) + volume;
 
-	if (ioctl(device_fd, MIXER_WRITE(volume_control), &level) < 0)
+	if (ioctl(device_fd.Get(), MIXER_WRITE(volume_control), &level) < 0)
 		throw MakeErrno("failed to set OSS volume");
 }
 
-const MixerPlugin oss_mixer_plugin = {
+constexpr MixerPlugin oss_mixer_plugin = {
 	oss_mixer_init,
 	true,
 };

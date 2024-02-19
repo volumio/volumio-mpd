@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Call.hxx"
 #include "Loop.hxx"
-#include "DeferredMonitor.hxx"
+#include "InjectEvent.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
-#include "Compiler.h"
 
+#include <cassert>
 #include <exception>
 
-#include <assert.h>
-
 class BlockingCallMonitor final
-	: DeferredMonitor
 {
+	InjectEvent event;
+
 	const std::function<void()> f;
 
 	Mutex mutex;
@@ -43,24 +41,25 @@ class BlockingCallMonitor final
 
 public:
 	BlockingCallMonitor(EventLoop &_loop, std::function<void()> &&_f)
-		:DeferredMonitor(_loop), f(std::move(_f)), done(false) {}
+		:event(_loop, BIND_THIS_METHOD(RunDeferred)),
+		 f(std::move(_f)), done(false) {}
 
 	void Run() {
 		assert(!done);
 
-		Schedule();
+		event.Schedule();
 
-		mutex.lock();
-		while (!done)
-			cond.wait(mutex);
-		mutex.unlock();
+		{
+			std::unique_lock<Mutex> lock(mutex);
+			cond.wait(lock, [this]{ return done; });
+		}
 
 		if (exception)
 			std::rethrow_exception(exception);
 	}
 
 private:
-	virtual void RunDeferred() override {
+	void RunDeferred() noexcept {
 		assert(!done);
 
 		try {
@@ -69,17 +68,16 @@ private:
 			exception = std::current_exception();
 		}
 
-		mutex.lock();
+		const std::scoped_lock<Mutex> lock(mutex);
 		done = true;
-		cond.signal();
-		mutex.unlock();
+		cond.notify_one();
 	}
 };
 
 void
 BlockingCall(EventLoop &loop, std::function<void()> &&f)
 {
-	if (loop.IsInside()) {
+	if (!loop.IsAlive() || loop.IsInside()) {
 		/* we're already inside the loop - we can simply call
 		   the function */
 		f();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2013-2015 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,16 +30,24 @@
 #include "StringView.hxx"
 #include "CharUtil.hxx"
 
+template<typename T>
 void
-StringView::StripLeft()
+BasicStringView<T>::StripLeft() noexcept
 {
-	while (!IsEmpty() && IsWhitespaceOrNull(front()))
+	while (!empty() && IsWhitespaceOrNull(front()))
 		pop_front();
 }
 
+template<typename T>
 void
-StringView::StripRight()
+BasicStringView<T>::StripRight() noexcept
 {
-	while (!IsEmpty() && IsWhitespaceOrNull(back()))
+	while (!empty() && IsWhitespaceOrNull(back()))
 		pop_back();
 }
+
+template struct BasicStringView<char>;
+
+#ifdef _UNICODE
+template struct BasicStringView<wchar_t>;
+#endif

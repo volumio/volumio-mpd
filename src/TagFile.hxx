@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,31 +20,36 @@
 #ifndef MPD_TAG_FILE_HXX
 #define MPD_TAG_FILE_HXX
 
-#include "check.h"
-
+struct AudioFormat;
 class Path;
-struct TagHandler;
+class TagHandler;
 class TagBuilder;
 
 /**
  * Scan the tags of a song file.  Invokes matching decoder plugins,
- * but does not invoke the special "APE" and "ID3" scanners.
+ * but does not fall back to generic scanners (APE and ID3) if no tags
+ * were found (but the file was recognized).
+ *
+ * Throws on error.
  *
  * @return true if the file was recognized (even if no metadata was
  * found)
  */
 bool
-tag_file_scan(Path path, const TagHandler &handler, void *handler_ctx);
+ScanFileTagsNoGeneric(Path path, TagHandler &handler);
 
 /**
  * Scan the tags of a song file.  Invokes matching decoder plugins,
  * and falls back to generic scanners (APE and ID3) if no tags were
  * found (but the file was recognized).
  *
+ * Throws on error.
+ *
  * @return true if the file was recognized (even if no metadata was
  * found)
  */
 bool
-tag_file_scan(Path path, TagBuilder &builder);
+ScanFileTagsWithGeneric(Path path, TagBuilder &builder,
+			AudioFormat *audio_format=nullptr);
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,8 +29,8 @@ class NeighborExplorer;
  */
 class NeighborListener {
 public:
-	virtual void FoundNeighbor(const NeighborInfo &info) = 0;
-	virtual void LostNeighbor(const NeighborInfo &info) = 0;
+	virtual void FoundNeighbor(const NeighborInfo &info) noexcept = 0;
+	virtual void LostNeighbor(const NeighborInfo &info) noexcept = 0;
 };
 
 #endif

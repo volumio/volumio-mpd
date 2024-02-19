@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,9 +21,8 @@
 #define MPD_PCM_FALLBACK_RESAMPLER_HXX
 
 #include "Resampler.hxx"
-#include "PcmBuffer.hxx"
+#include "Buffer.hxx"
 #include "AudioFormat.hxx"
-#include "Compiler.h"
 
 /**
  * A naive resampler that is used when no external library was found
@@ -37,7 +36,7 @@ class FallbackPcmResampler final : public PcmResampler {
 
 public:
 	AudioFormat Open(AudioFormat &af, unsigned new_sample_rate) override;
-	void Close() override;
+	void Close() noexcept override;
 	ConstBuffer<void> Resample(ConstBuffer<void> src) override;
 };
 

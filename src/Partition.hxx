@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,15 +25,26 @@
 #include "queue/Listener.hxx"
 #include "output/MultipleOutputs.hxx"
 #include "mixer/Listener.hxx"
+#include "mixer/Memento.hxx"
 #include "player/Control.hxx"
 #include "player/Listener.hxx"
+#include "protocol/RangeArg.hxx"
 #include "ReplayGainMode.hxx"
+#include "SingleMode.hxx"
 #include "Chrono.hxx"
-#include "Compiler.h"
+#include "config.h"
+
+#include <boost/intrusive/list.hpp>
+
+#include <string>
+#include <memory>
 
 struct Instance;
+struct RangeArg;
 class MultipleOutputs;
 class SongLoader;
+class ClientListener;
+class Client;
 
 /**
  * A partition of the Music Player Daemon.  It is a separate unit with
@@ -42,8 +53,23 @@ class SongLoader;
 struct Partition final : QueueListener, PlayerListener, MixerListener {
 	static constexpr unsigned TAG_MODIFIED = 0x1;
 	static constexpr unsigned SYNC_WITH_PLAYER = 0x2;
+	static constexpr unsigned BORDER_PAUSE = 0x4;
 
 	Instance &instance;
+
+	const std::string name;
+
+	std::unique_ptr<ClientListener> listener;
+
+	boost::intrusive::list<Client,
+			       boost::intrusive::base_hook<boost::intrusive::list_base_hook<boost::intrusive::tag<Partition>,
+											    boost::intrusive::link_mode<boost::intrusive::normal_link>>>,
+			       boost::intrusive::constant_time_size<false>> clients;
+
+	/**
+	 * Monitor for idle events local to this partition.
+	 */
+	MaskMonitor idle_monitor;
 
 	MaskMonitor global_events;
 
@@ -51,24 +77,45 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 
 	MultipleOutputs outputs;
 
+	MixerMemento mixer_memento;
+
 	PlayerControl pc;
 
 	ReplayGainMode replay_gain_mode = ReplayGainMode::OFF;
 
 	Partition(Instance &_instance,
+		  const char *_name,
 		  unsigned max_length,
 		  unsigned buffer_chunks,
-		  unsigned buffered_before_play,
 		  AudioFormat configured_audio_format,
-		  const ReplayGainConfig &replay_gain_config);
+		  const ReplayGainConfig &replay_gain_config) noexcept;
 
-	void EmitGlobalEvent(unsigned mask) {
+	~Partition() noexcept;
+
+	void BeginShutdown() noexcept;
+
+	void EmitGlobalEvent(unsigned mask) noexcept {
 		global_events.OrMask(mask);
 	}
 
-	void EmitIdle(unsigned mask);
+	/**
+	 * Emit an "idle" event to all clients of this partition.
+	 *
+	 * This method can be called from any thread.
+	 */
+	void EmitIdle(unsigned mask) noexcept {
+		idle_monitor.OrMask(mask);
+	}
 
-	void ClearQueue() {
+	/**
+	 * Populate the #InputCacheManager with soon-to-be-played song
+	 * files.
+	 *
+	 * Errors will be logged.
+	 */
+	void PrefetchQueue() noexcept;
+
+	void ClearQueue() noexcept {
 		playlist.Clear(pc);
 	}
 
@@ -91,24 +138,20 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	 * @param start the position of the first song to delete
 	 * @param end the position after the last song to delete
 	 */
-	void DeleteRange(unsigned start, unsigned end) {
-		playlist.DeleteRange(pc, start, end);
+	void DeleteRange(RangeArg range) {
+		playlist.DeleteRange(pc, range);
 	}
 
-	void StaleSong(const char *uri) {
+	void StaleSong(const char *uri) noexcept {
 		playlist.StaleSong(pc, uri);
 	}
 
-	void Shuffle(unsigned start, unsigned end) {
-		playlist.Shuffle(pc, start, end);
+	void Shuffle(RangeArg range) {
+		playlist.Shuffle(pc, range);
 	}
 
-	void MoveRange(unsigned start, unsigned end, int to) {
-		playlist.MoveRange(pc, start, end, to);
-	}
-
-	void MoveId(unsigned id, int to) {
-		playlist.MoveId(pc, id, to);
+	void MoveRange(RangeArg range, unsigned to) {
+		playlist.MoveRange(pc, range, to);
 	}
 
 	void SwapPositions(unsigned song1, unsigned song2) {
@@ -119,17 +162,15 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 		playlist.SwapIds(pc, id1, id2);
 	}
 
-	void SetPriorityRange(unsigned start_position, unsigned end_position,
-			      uint8_t priority) {
-		playlist.SetPriorityRange(pc, start_position, end_position,
-					  priority);
+	void SetPriorityRange(RangeArg position_range, uint8_t priority) {
+		playlist.SetPriorityRange(pc, position_range, priority);
 	}
 
 	void SetPriorityId(unsigned song_id, uint8_t priority) {
 		playlist.SetPriorityId(pc, song_id, priority);
 	}
 
-	void Stop() {
+	void Stop() noexcept {
 		playlist.Stop(pc);
 	}
 
@@ -161,27 +202,27 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 		playlist.SeekCurrent(pc, seek_time, relative);
 	}
 
-	void SetRepeat(bool new_value) {
+	void SetRepeat(bool new_value) noexcept {
 		playlist.SetRepeat(pc, new_value);
 	}
 
-	bool GetRandom() const {
+	bool GetRandom() const noexcept {
 		return playlist.GetRandom();
 	}
 
-	void SetRandom(bool new_value) {
+	void SetRandom(bool new_value) noexcept {
 		playlist.SetRandom(pc, new_value);
 	}
 
-	void SetSingle(bool new_value) {
+	void SetSingle(SingleMode new_value) noexcept {
 		playlist.SetSingle(pc, new_value);
 	}
 
-	void SetConsume(bool new_value) {
+	void SetConsume(bool new_value) noexcept {
 		playlist.SetConsume(new_value);
 	}
 
-	void SetReplayGainMode(ReplayGainMode mode) {
+	void SetReplayGainMode(ReplayGainMode mode) noexcept {
 		replay_gain_mode = mode;
 		UpdateEffectiveReplayGainMode();
 	}
@@ -190,7 +231,7 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	 * Publishes the effective #ReplayGainMode to all subsystems.
 	 * #ReplayGainMode::AUTO is substituted.
 	 */
-	void UpdateEffectiveReplayGainMode();
+	void UpdateEffectiveReplayGainMode() noexcept;
 
 #ifdef ENABLE_DATABASE
 	/**
@@ -198,44 +239,59 @@ struct Partition final : QueueListener, PlayerListener, MixerListener {
 	 * if this MPD configuration has no database (no
 	 * music_directory was configured).
 	 */
-	const Database *GetDatabase() const;
+	const Database *GetDatabase() const noexcept;
 
-	gcc_pure
 	const Database &GetDatabaseOrThrow() const;
 
 	/**
 	 * The database has been modified.  Propagate the change to
 	 * all subsystems.
 	 */
-	void DatabaseModified(const Database &db);
+	void DatabaseModified(const Database &db) noexcept;
 #endif
 
 	/**
 	 * A tag in the play queue has been modified by the player
 	 * thread.  Propagate the change to all subsystems.
 	 */
-	void TagModified();
+	void TagModified() noexcept;
+
+	/**
+	 * The tag of the given song has been modified.  Propagate the
+	 * change to all instances of this song in the queue.
+	 */
+	void TagModified(const char *uri, const Tag &tag) noexcept;
 
 	/**
 	 * Synchronize the player with the play queue.
 	 */
-	void SyncWithPlayer();
+	void SyncWithPlayer() noexcept;
+
+	/**
+	 * Border pause has just been enabled. Change single mode to off
+	 * if it was one-shot.
+	 */
+	void BorderPause() noexcept;
 
 private:
 	/* virtual methods from class QueueListener */
-	void OnQueueModified() override;
-	void OnQueueOptionsChanged() override;
-	void OnQueueSongStarted() override;
+	void OnQueueModified() noexcept override;
+	void OnQueueOptionsChanged() noexcept override;
+	void OnQueueSongStarted() noexcept override;
 
 	/* virtual methods from class PlayerListener */
-	void OnPlayerSync() override;
-	void OnPlayerTagModified() override;
+	void OnPlayerSync() noexcept override;
+	void OnPlayerTagModified() noexcept override;
+	void OnBorderPause() noexcept override;
 
 	/* virtual methods from class MixerListener */
-	void OnMixerVolumeChanged(Mixer &mixer, int volume) override;
+	void OnMixerVolumeChanged(Mixer &mixer, int volume) noexcept override;
+
+	/* callback for #idle_monitor */
+	void OnIdleMonitor(unsigned mask) noexcept;
 
 	/* callback for #global_events */
-	void OnGlobalEvent(unsigned mask);
+	void OnGlobalEvent(unsigned mask) noexcept;
 };
 
 #endif

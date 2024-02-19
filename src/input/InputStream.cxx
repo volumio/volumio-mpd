@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "InputStream.hxx"
-#include "thread/Cond.hxx"
-#include "util/StringCompare.hxx"
+#include "Handler.hxx"
+#include "tag/Tag.hxx"
+#include "util/ASCII.hxx"
 
+#include <cassert>
 #include <stdexcept>
 
-#include <assert.h>
-
-InputStream::~InputStream()
-{
-}
+InputStream::~InputStream() noexcept = default;
 
 void
 InputStream::Check()
@@ -36,36 +33,18 @@ InputStream::Check()
 }
 
 void
-InputStream::Update()
+InputStream::Update() noexcept
 {
 }
 
 void
-InputStream::SetReady()
+InputStream::SetReady() noexcept
 {
 	assert(!ready);
 
 	ready = true;
-	cond.broadcast();
-}
 
-void
-InputStream::WaitReady()
-{
-	while (true) {
-		Update();
-		if (ready)
-			break;
-
-		cond.wait(mutex);
-	}
-}
-
-void
-InputStream::LockWaitReady()
-{
-	const ScopeLock protect(mutex);
-	WaitReady();
+	InvokeOnReady();
 }
 
 /**
@@ -75,20 +54,22 @@ InputStream::LockWaitReady()
  */
 gcc_pure
 static bool
-ExpensiveSeeking(const char *uri)
+ExpensiveSeeking(const char *uri) noexcept
 {
-	return StringStartsWith(uri, "http://") ||
-		StringStartsWith(uri, "https://");
+	return StringStartsWithCaseASCII(uri, "http://") ||
+		StringStartsWithCaseASCII(uri, "qobuz://") ||
+		StringStartsWithCaseASCII(uri, "https://");
 }
 
 bool
-InputStream::CheapSeeking() const
+InputStream::CheapSeeking() const noexcept
 {
 	return IsSeekable() && !ExpensiveSeeking(uri.c_str());
 }
 
+//[[noreturn]]
 void
-InputStream::Seek(gcc_unused offset_type new_offset)
+InputStream::Seek(std::unique_lock<Mutex> &, [[maybe_unused]] offset_type new_offset)
 {
 	throw std::runtime_error("Seeking is not implemented");
 }
@@ -96,32 +77,32 @@ InputStream::Seek(gcc_unused offset_type new_offset)
 void
 InputStream::LockSeek(offset_type _offset)
 {
-	const ScopeLock protect(mutex);
-	Seek(_offset);
+	std::unique_lock<Mutex> lock(mutex);
+	Seek(lock, _offset);
 }
 
 void
 InputStream::LockSkip(offset_type _offset)
 {
-	const ScopeLock protect(mutex);
-	Skip(_offset);
+	std::unique_lock<Mutex> lock(mutex);
+	Skip(lock, _offset);
 }
 
-Tag *
-InputStream::ReadTag()
+std::unique_ptr<Tag>
+InputStream::ReadTag() noexcept
 {
 	return nullptr;
 }
 
-Tag *
-InputStream::LockReadTag()
+std::unique_ptr<Tag>
+InputStream::LockReadTag() noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	return ReadTag();
 }
 
 bool
-InputStream::IsAvailable()
+InputStream::IsAvailable() const noexcept
 {
 	return true;
 }
@@ -135,18 +116,18 @@ InputStream::LockRead(void *ptr, size_t _size)
 #endif
 	assert(_size > 0);
 
-	const ScopeLock protect(mutex);
-	return Read(ptr, _size);
+	std::unique_lock<Mutex> lock(mutex);
+	return Read(lock, ptr, _size);
 }
 
 void
-InputStream::ReadFull(void *_ptr, size_t _size)
+InputStream::ReadFull(std::unique_lock<Mutex> &lock, void *_ptr, size_t _size)
 {
-	uint8_t *ptr = (uint8_t *)_ptr;
+	auto *ptr = (uint8_t *)_ptr;
 
 	size_t nbytes_total = 0;
 	while (_size > 0) {
-		size_t nbytes = Read(ptr + nbytes_total, _size);
+		size_t nbytes = Read(lock, ptr + nbytes_total, _size);
 		if (nbytes == 0)
 			throw std::runtime_error("Unexpected end of file");
 
@@ -164,13 +145,27 @@ InputStream::LockReadFull(void *ptr, size_t _size)
 #endif
 	assert(_size > 0);
 
-	const ScopeLock protect(mutex);
-	ReadFull(ptr, _size);
+	std::unique_lock<Mutex> lock(mutex);
+	ReadFull(lock, ptr, _size);
 }
 
 bool
-InputStream::LockIsEOF()
+InputStream::LockIsEOF() const noexcept
 {
-	const ScopeLock protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	return IsEOF();
+}
+
+void
+InputStream::InvokeOnReady() noexcept
+{
+	if (handler != nullptr)
+		handler->OnInputStreamReady();
+}
+
+void
+InputStream::InvokeOnAvailable() noexcept
+{
+	if (handler != nullptr)
+		handler->OnInputStreamAvailable();
 }

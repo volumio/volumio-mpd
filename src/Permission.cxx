@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,19 @@
 #include "config.h"
 #include "Permission.hxx"
 #include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "system/FatalError.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "net/AddressInfo.hxx"
+#include "net/Resolver.hxx"
+#include "net/ToString.hxx"
+#include "util/IterableSplitString.hxx"
+#include "util/RuntimeError.hxx"
+#include "util/StringView.hxx"
 
-#include <algorithm>
+#include <cassert>
 #include <map>
 #include <string>
-
-#include <assert.h>
-#include <string.h>
+#include <utility>
 
 static constexpr char PERMISSION_PASSWORD_CHAR = '@';
 static constexpr char PERMISSION_SEPARATOR = ',';
@@ -40,6 +43,7 @@ static constexpr struct {
 } permission_names[] = {
 	{ "read", PERMISSION_READ },
 	{ "add", PERMISSION_ADD },
+	{ "player", PERMISSION_PLAYER },
 	{ "control", PERMISSION_CONTROL },
 	{ "admin", PERMISSION_ADMIN },
 	{ nullptr, 0 },
@@ -49,92 +53,132 @@ static std::map<std::string, unsigned> permission_passwords;
 
 static unsigned permission_default;
 
-gcc_pure
+#ifdef HAVE_UN
+static unsigned local_permissions;
+#endif
+
+#ifdef HAVE_TCP
+static std::map<std::string, unsigned> host_passwords;
+#endif
+
 static unsigned
-ParsePermission(const char *p)
+ParsePermission(StringView s)
 {
 	for (auto i = permission_names; i->name != nullptr; ++i)
-		if (strcmp(p, i->name) == 0)
+		if (s.Equals(i->name))
 			return i->value;
 
-	FormatFatalError("unknown permission \"%s\"", p);
+	throw FormatRuntimeError("unknown permission \"%.*s\"",
+				 int(s.size), s.data);
 }
 
-static unsigned parsePermissions(const char *string)
+static unsigned
+parsePermissions(std::string_view string)
 {
-	assert(string != nullptr);
-
-	const char *const end = string + strlen(string);
-
 	unsigned permission = 0;
-	while (true) {
-		const char *comma = std::find(string, end,
-					      PERMISSION_SEPARATOR);
-		if (comma > string) {
-			const std::string name(string, comma);
-			permission |= ParsePermission(name.c_str());
-		}
 
-		if (comma == end)
-			break;
+	for (const auto i : IterableSplitString(string, PERMISSION_SEPARATOR))
+		if (!i.empty())
+			permission |= ParsePermission(i);
 
-		string = comma + 1;
-	}
+	/* for backwards compatiblity with MPD 0.22 and older,
+	   "control" implies "play" */
+	if (permission & PERMISSION_CONTROL)
+		permission |= PERMISSION_PLAYER;
 
 	return permission;
 }
 
-void initPermissions(void)
+void
+initPermissions(const ConfigData &config)
 {
-	unsigned permission;
-	const ConfigParam *param;
-
 	permission_default = PERMISSION_READ | PERMISSION_ADD |
+		PERMISSION_PLAYER |
 	    PERMISSION_CONTROL | PERMISSION_ADMIN;
 
-	param = config_get_param(ConfigOption::PASSWORD);
-
-	if (param) {
+	for (const auto &param : config.GetParamList(ConfigOption::PASSWORD)) {
 		permission_default = 0;
 
-		do {
-			const char *separator =
-				strchr(param->value.c_str(),
-				       PERMISSION_PASSWORD_CHAR);
+		param.With([](const StringView value){
+			const auto [password, permissions] =
+				value.Split(PERMISSION_PASSWORD_CHAR);
+			if (permissions == nullptr)
+				throw FormatRuntimeError("\"%c\" not found in password string",
+							 PERMISSION_PASSWORD_CHAR);
 
-			if (separator == NULL)
-				FormatFatalError("\"%c\" not found in password string "
-						 "\"%s\", line %i",
-						 PERMISSION_PASSWORD_CHAR,
-						 param->value.c_str(),
-						 param->line);
-
-			std::string password(param->value.c_str(), separator);
-
-			permission = parsePermissions(separator + 1);
-
-			permission_passwords.insert(std::make_pair(std::move(password),
-								   permission));
-		} while ((param = param->next) != nullptr);
+			permission_passwords.emplace(password,
+						     parsePermissions(permissions));
+		});
 	}
 
-	param = config_get_param(ConfigOption::DEFAULT_PERMS);
+	config.With(ConfigOption::DEFAULT_PERMS, [](const char *value){
+		if (value != nullptr)
+			permission_default = parsePermissions(value);
+	});
 
-	if (param)
-		permission_default = parsePermissions(param->value.c_str());
+#ifdef HAVE_UN
+	local_permissions = config.With(ConfigOption::LOCAL_PERMISSIONS, [](const char *value){
+		return value != nullptr
+			? parsePermissions(value)
+			: permission_default;
+	});
+#endif
+
+#ifdef HAVE_TCP
+	for (const auto &param : config.GetParamList(ConfigOption::HOST_PERMISSIONS)) {
+		permission_default = 0;
+
+		param.With([](StringView value){
+			auto [host_sv, permissions_s] = value.Split(' ');
+			unsigned permissions = parsePermissions(permissions_s);
+
+			const std::string host_s{host_sv};
+
+			for (const auto &i : Resolve(host_s.c_str(), 0,
+						     AI_PASSIVE, SOCK_STREAM))
+				host_passwords.emplace(HostToString(i),
+						       permissions);
+		});
+	}
+#endif
 }
 
-int getPermissionFromPassword(char const* password, unsigned* permission)
+#ifdef HAVE_TCP
+
+int
+GetPermissionsFromAddress(SocketAddress address) noexcept
+{
+	if (auto i = host_passwords.find(HostToString(address));
+	    i != host_passwords.end())
+		return i->second;
+
+	return -1;
+}
+
+#endif
+
+std::optional<unsigned>
+GetPermissionFromPassword(const char *password) noexcept
 {
 	auto i = permission_passwords.find(password);
 	if (i == permission_passwords.end())
-		return -1;
+		return std::nullopt;
 
-	*permission = i->second;
-	return 0;
+	return i->second;
 }
 
-unsigned getDefaultPermissions(void)
+unsigned
+getDefaultPermissions() noexcept
 {
 	return permission_default;
 }
+
+#ifdef HAVE_UN
+
+unsigned
+GetLocalPermissions() noexcept
+{
+	return local_permissions;
+}
+
+#endif

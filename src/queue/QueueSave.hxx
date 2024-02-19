@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +27,7 @@
 
 struct Queue;
 class BufferedOutputStream;
-class TextFile;
+class LineReader;
 class SongLoader;
 
 void
@@ -35,9 +35,11 @@ queue_save(BufferedOutputStream &os, const Queue &queue);
 
 /**
  * Loads one song from the state file and appends it to the queue.
+ *
+ * Throws on error.
  */
 void
-queue_load_song(TextFile &file, const SongLoader &loader,
+queue_load_song(LineReader &file, const SongLoader &loader,
 		const char *line, Queue &queue);
 
 #endif

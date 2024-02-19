@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,23 +17,28 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "WildmidiDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
-#include "tag/TagHandler.hxx"
-#include "util/Domain.hxx"
+#include "tag/Handler.hxx"
+#include "util/ScopeExit.hxx"
+#include "util/StringFormat.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/Path.hxx"
-#include "Log.hxx"
+#include "fs/NarrowPath.hxx"
+#include "PluginUnavailable.hxx"
+
+#ifdef _WIN32
+/* assume WildMidi is built as static library on Windows; without
+   this, linking to the static library would fail */
+#define WILDMIDI_STATIC
+#endif
 
 extern "C" {
 #include <wildmidi_lib.h>
 }
 
-static constexpr Domain wildmidi_domain("wildmidi");
-
-static constexpr unsigned WILDMIDI_SAMPLE_RATE = 48000;
+static constexpr AudioFormat wildmidi_audio_format{48000, SampleFormat::S16, 2};
 
 static bool
 wildmidi_init(const ConfigBlock &block)
@@ -44,17 +49,32 @@ wildmidi_init(const ConfigBlock &block)
 
 	if (!FileExists(path)) {
 		const auto utf8 = path.ToUTF8();
-		FormatDebug(wildmidi_domain,
-			    "configuration file does not exist: %s",
-			    utf8.c_str());
-		return false;
+		throw PluginUnavailable(StringFormat<1024>("configuration file does not exist: %s",
+							   utf8.c_str()));
 	}
 
-	return WildMidi_Init(path.c_str(), WILDMIDI_SAMPLE_RATE, 0) == 0;
+#ifdef LIBWILDMIDI_VERSION
+	/* WildMidi_ClearError() requires libwildmidi 0.4 */
+	WildMidi_ClearError();
+	AtScopeExit() { WildMidi_ClearError(); };
+#endif
+
+	if (WildMidi_Init(NarrowPath(path),
+			  wildmidi_audio_format.sample_rate,
+			  0) != 0) {
+#ifdef LIBWILDMIDI_VERSION
+		/* WildMidi_GetError() requires libwildmidi 0.4 */
+		throw PluginUnavailable(WildMidi_GetError());
+#else
+		throw PluginUnavailable("WildMidi_Init() failed");
+#endif
+	}
+
+	return true;
 }
 
 static void
-wildmidi_finish(void)
+wildmidi_finish() noexcept
 {
 	WildMidi_Shutdown();
 }
@@ -80,15 +100,10 @@ wildmidi_output(DecoderClient &client, midi *wm)
 static void
 wildmidi_file_decode(DecoderClient &client, Path path_fs)
 {
-	static constexpr AudioFormat audio_format = {
-		WILDMIDI_SAMPLE_RATE,
-		SampleFormat::S16,
-		2,
-	};
 	midi *wm;
 	const struct _WM_Info *info;
 
-	wm = WildMidi_Open(path_fs.c_str());
+	wm = WildMidi_Open(NarrowPath(path_fs));
 	if (wm == nullptr)
 		return;
 
@@ -100,9 +115,9 @@ wildmidi_file_decode(DecoderClient &client, Path path_fs)
 
 	const auto duration =
 		SongTime::FromScale<uint64_t>(info->approx_total_samples,
-					      WILDMIDI_SAMPLE_RATE);
+					      wildmidi_audio_format.sample_rate);
 
-	client.Ready(audio_format, true, duration);
+	client.Ready(wildmidi_audio_format, true, duration);
 
 	DecoderCommand cmd;
 	do {
@@ -126,10 +141,9 @@ wildmidi_file_decode(DecoderClient &client, Path path_fs)
 }
 
 static bool
-wildmidi_scan_file(Path path_fs,
-		   const TagHandler &handler, void *handler_ctx)
+wildmidi_scan_file(Path path_fs, TagHandler &handler) noexcept
 {
-	midi *wm = WildMidi_Open(path_fs.c_str());
+	midi *wm = WildMidi_Open(NarrowPath(path_fs));
 	if (wm == nullptr)
 		return false;
 
@@ -139,10 +153,12 @@ wildmidi_scan_file(Path path_fs,
 		return false;
 	}
 
+	handler.OnAudioFormat(wildmidi_audio_format);
+
 	const auto duration =
 		SongTime::FromScale<uint64_t>(info->approx_total_samples,
-					      WILDMIDI_SAMPLE_RATE);
-	tag_handler_invoke_duration(handler, handler_ctx, duration);
+					      wildmidi_audio_format.sample_rate);
+	handler.OnDuration(duration);
 
 	WildMidi_Close(wm);
 
@@ -154,15 +170,7 @@ static const char *const wildmidi_suffixes[] = {
 	nullptr
 };
 
-const struct DecoderPlugin wildmidi_decoder_plugin = {
-	"wildmidi",
-	wildmidi_init,
-	wildmidi_finish,
-	nullptr,
-	wildmidi_file_decode,
-	wildmidi_scan_file,
-	nullptr,
-	nullptr,
-	wildmidi_suffixes,
-	nullptr,
-};
+constexpr DecoderPlugin wildmidi_decoder_plugin =
+	DecoderPlugin("wildmidi", wildmidi_file_decode, wildmidi_scan_file)
+	.WithInit(wildmidi_init, wildmidi_finish)
+	.WithSuffixes(wildmidi_suffixes);

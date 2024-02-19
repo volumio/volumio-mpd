@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,13 @@
 #ifndef MPD_NEIGHBOR_ALL_HXX
 #define MPD_NEIGHBOR_ALL_HXX
 
-#include "check.h"
-#include "Compiler.h"
 #include "thread/Mutex.hxx"
 
 #include <forward_list>
+#include <memory>
+#include <string>
 
+struct ConfigData;
 class EventLoop;
 class NeighborExplorer;
 class NeighborListener;
@@ -36,11 +37,15 @@ struct NeighborInfo;
  */
 class NeighborGlue {
 	struct Explorer {
-		NeighborExplorer *const explorer;
+		const std::string name;
+		std::unique_ptr<NeighborExplorer> explorer;
 
-		Explorer(NeighborExplorer *_explorer):explorer(_explorer) {}
+		template<typename N, typename E>
+		Explorer(N &&_name, E &&_explorer) noexcept
+			:name(std::forward<N>(_name)),
+			 explorer(std::forward<E>(_explorer)) {}
+
 		Explorer(const Explorer &) = delete;
-		~Explorer();
 	};
 
 	Mutex mutex;
@@ -50,28 +55,29 @@ class NeighborGlue {
 public:
 	typedef std::forward_list<NeighborInfo> List;
 
-	NeighborGlue() = default;
+	NeighborGlue() noexcept;
 	NeighborGlue(const NeighborGlue &) = delete;
-	~NeighborGlue();
+	~NeighborGlue() noexcept;
 
-	bool IsEmpty() const {
+	bool IsEmpty() const noexcept {
 		return explorers.empty();
 	}
 
 	/**
 	 * Throws std::runtime_error on error.
 	 */
-	void Init(EventLoop &loop, NeighborListener &listener);
+	void Init(const ConfigData &config, EventLoop &loop,
+		  NeighborListener &listener);
 
 	void Open();
-	void Close();
+	void Close() noexcept;
 
 	/**
 	 * Get the combined list of all neighbors from all active
 	 * plugins.
 	 */
-	gcc_pure
-	List GetList() const;
+	[[gnu::pure]]
+	List GetList() const noexcept;
 };
 
 #endif

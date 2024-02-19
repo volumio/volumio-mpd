@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,6 @@
 #define MPD_UPNP_OBJECT_HXX
 
 #include "tag/Tag.hxx"
-#include "Compiler.h"
 
 #include <string>
 
@@ -60,7 +59,7 @@ public:
 	 * Parent's ObjectId
 	 */
 	std::string parent_id;
-	
+
 	std::string url;
 
 	/**
@@ -76,11 +75,11 @@ public:
 	UPnPDirObject() = default;
 	UPnPDirObject(UPnPDirObject &&) = default;
 
-	~UPnPDirObject();
+	~UPnPDirObject() noexcept;
 
 	UPnPDirObject &operator=(UPnPDirObject &&) = default;
 
-	void Clear() {
+	void Clear() noexcept {
 		id.clear();
 		parent_id.clear();
 		url.clear();
@@ -89,9 +88,18 @@ public:
 		tag.Clear();
 	}
 
-	gcc_pure
-	bool Check() const {
-		return !id.empty() && !parent_id.empty() && !name.empty() &&
+	[[gnu::pure]]
+	bool IsRoot() const noexcept {
+		return type == Type::CONTAINER && id == "0";
+	}
+
+	[[gnu::pure]]
+	bool Check() const noexcept {
+		return !id.empty() &&
+			/* root nodes don't need a parent id and a
+			   name */
+			(IsRoot() || (!parent_id.empty() &&
+				      !name.empty())) &&
 			(type != UPnPDirObject::Type::ITEM ||
 			 item_class != UPnPDirObject::ItemClass::UNKNOWN);
 	}

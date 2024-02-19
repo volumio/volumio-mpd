@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,21 +20,19 @@
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
 
-#include "config.h"
 #include "LogCallback.hxx"
 #include "Domain.hxx"
-#include "LogV.hxx"
 #include "util/Domain.hxx"
+#include "util/StringFormat.hxx"
+#include "Log.hxx"
 
 extern "C" {
 #include <libavutil/log.h>
 }
 
-#include <stdio.h>
-
-gcc_const
+[[gnu::const]]
 static LogLevel
-FfmpegImportLogLevel(int level)
+FfmpegImportLogLevel(int level) noexcept
 {
 	if (level <= AV_LOG_FATAL)
 		return LogLevel::ERROR;
@@ -49,7 +47,7 @@ FfmpegImportLogLevel(int level)
 }
 
 void
-FfmpegLogCallback(gcc_unused void *ptr, int level, const char *fmt, va_list vl)
+FfmpegLogCallback(void *ptr, int level, const char *fmt, std::va_list vl)
 {
 	const AVClass * cls = nullptr;
 
@@ -57,10 +55,15 @@ FfmpegLogCallback(gcc_unused void *ptr, int level, const char *fmt, va_list vl)
 		cls = *(const AVClass *const*)ptr;
 
 	if (cls != nullptr) {
-		char domain[64];
-		snprintf(domain, sizeof(domain), "%s/%s",
-			 ffmpeg_domain.GetName(), cls->item_name(ptr));
+		const auto domain =
+			StringFormat<64>("%s/%s",
+					 ffmpeg_domain.GetName(),
+					 cls->item_name(ptr));
 		const Domain d(domain);
-		LogFormatV(d, FfmpegImportLogLevel(level), fmt, vl);
+
+		char msg[1024];
+		vsnprintf(msg, sizeof(msg), fmt, vl);
+
+		Log(FfmpegImportLogLevel(level), d, msg);
 	}
 }
