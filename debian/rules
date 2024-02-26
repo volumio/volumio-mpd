@@ -26,7 +26,7 @@ ENABLE_ARCHIVES=-Dbzip2=enabled \
 # Autodiscovery support
 ENABLE_AUTODISCOVERY=-Dneighbor=true \
 		-Dupnp=pupnp \
-		-Dzeroconf=avahi
+		-Dzeroconf=auto
 
 # Client support
 ENABLE_CLIENTS=-Dipv6=enabled \
@@ -59,7 +59,7 @@ ENABLE_FILEFORMATS=-Dfaad=enabled \
 		-Dwildmidi=enabled
 
 # Other features
-ENABLE_OTHER=-Dcue=true \
+ENABLE_OTHER=-Dcue=false \
 		-Ddatabase=true \
 		-Dexpat=enabled \
 		-Dicu=enabled \
@@ -109,7 +109,8 @@ ENABLE_STREAMING=-Dcdio_paranoia=enabled \
 		-Dmms=enabled
 
 # Sphinx documentation
-ENABLE_DOCUMENTATION=-Ddocumentation=enabled
+ENABLE_DOCUMENTATION=-Ddocumentation=disabled \
+		-Doxygen=false
 
 ###############################################################
 

@@ -1,3 +1,13 @@
+mpd (0.23.15-3) stable; urgency=medium
+
+  * Include commit 7c520f6 Wrong macro used.
+  * Include commit 1a67062 DB reorder fields to reduce padding.
+  * Include commit 16af2a2 CommandLine: fix typo.
+  * Change zeroconf to auto which incluedes all know protocols.
+  * Remove cue playlist option causing mpd failure on incorrectly formated lists.
+
+ -- Andrew Seredyn <andser@gmail.com>  Thu, 22 Feb 2024 14:17:47 +0100
+
 mpd (0.23.15-2) stable; urgency=medium
 
   * Remove mpd.tmpfile causing permissions challenge on mpd

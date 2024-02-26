@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2021 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_SIMPLE_DATABASE_PLUGIN_HXX
 #define MPD_SIMPLE_DATABASE_PLUGIN_HXX
@@ -39,12 +23,6 @@ class PrefixedLightSong;
 class SimpleDatabase : public Database {
 	AllocatedPath path;
 	std::string path_utf8;
-
-#ifdef ENABLE_ZLIB
-	bool compress;
-#endif
-
-	bool hide_playlist_targets;
 
 	/**
 	 * The path where cache files for Mount() are located.
@@ -70,9 +48,16 @@ class SimpleDatabase : public Database {
 	mutable unsigned borrowed_song_count;
 #endif
 
+#ifdef ENABLE_ZLIB
+	const bool compress;
+#endif
+
+	const bool hide_playlist_targets;
+
 public:
 	SimpleDatabase(const ConfigBlock &block);
-	SimpleDatabase(AllocatedPath &&_path, bool _compress) noexcept;
+	SimpleDatabase(AllocatedPath &&_path, bool _compress,
+		       bool _hide_playlist_targets) noexcept;
 
 	static DatabasePtr Create(EventLoop &main_event_loop,
 				  EventLoop &io_event_loop,
@@ -84,6 +69,10 @@ public:
 		assert(root != NULL);
 
 		return *root;
+	}
+
+	bool HasCache() const noexcept {
+		return !cache_path.IsNull();
 	}
 
 	void Save();
@@ -126,7 +115,7 @@ public:
 		   VisitPlaylist visit_playlist) const override;
 
 	RecursiveMap<std::string> CollectUniqueTags(const DatabaseSelection &selection,
-						    ConstBuffer<TagType> tag_types) const override;
+						    std::span<const TagType> tag_types) const override;
 
 	DatabaseStats GetStats(const DatabaseSelection &selection) const override;
 

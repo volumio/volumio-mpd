@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2021 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "SimpleDatabasePlugin.hxx"
@@ -33,15 +17,16 @@
 #include "DatabaseSave.hxx"
 #include "db/DatabaseLock.hxx"
 #include "db/DatabaseError.hxx"
-#include "fs/io/TextFile.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/zlib/AutoGunzipFileLineReader.hxx"
 #include "io/BufferedOutputStream.hxx"
 #include "io/FileOutputStream.hxx"
 #include "fs/FileInfo.hxx"
 #include "config/Block.hxx"
 #include "fs/FileSystem.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "util/CharUtil.hxx"
 #include "util/Domain.hxx"
-#include "util/ConstBuffer.hxx"
 #include "util/RecursiveMap.hxx"
 #include "Log.hxx"
 
@@ -57,11 +42,11 @@ static constexpr Domain simple_db_domain("simple_db");
 inline SimpleDatabase::SimpleDatabase(const ConfigBlock &block)
 	:Database(simple_db_plugin),
 	 path(block.GetPath("path")),
+	 cache_path(block.GetPath("cache_directory")),
 #ifdef ENABLE_ZLIB
 	 compress(block.GetBlockValue("compress", true)),
 #endif
-	 hide_playlist_targets(block.GetBlockValue("hide_playlist_targets", true)),
-	 cache_path(block.GetPath("cache_directory"))
+	 hide_playlist_targets(block.GetBlockValue("hide_playlist_targets", true))
 {
 	if (path.IsNull())
 		throw std::runtime_error("No \"path\" parameter specified");
@@ -69,18 +54,21 @@ inline SimpleDatabase::SimpleDatabase(const ConfigBlock &block)
 	path_utf8 = path.ToUTF8();
 }
 
-inline SimpleDatabase::SimpleDatabase(AllocatedPath &&_path,
+inline
+SimpleDatabase::SimpleDatabase(AllocatedPath &&_path,
 #ifndef ENABLE_ZLIB
-				      [[maybe_unused]]
+			       [[maybe_unused]]
 #endif
-				      bool _compress) noexcept
+			       bool _compress,
+			       bool _hide_playlist_targets) noexcept
 	:Database(simple_db_plugin),
 	 path(std::move(_path)),
 	 path_utf8(path.ToUTF8()),
+	 cache_path(nullptr),
 #ifdef ENABLE_ZLIB
 	 compress(_compress),
 #endif
-	 cache_path(nullptr)
+	 hide_playlist_targets(_hide_playlist_targets)
 {
 }
 
@@ -120,12 +108,8 @@ SimpleDatabase::Check() const
 
 #ifndef _WIN32
 		/* Check if we can write to the directory */
-		if (!CheckAccess(dirPath, X_OK | W_OK)) {
-			const int e = errno;
-			const std::string dirPath_utf8 = dirPath.ToUTF8();
-			throw FormatErrno(e, "Can't create db file in \"%s\"",
-					  dirPath_utf8.c_str());
-		}
+		if (!CheckAccess(dirPath, X_OK | W_OK))
+			throw FmtErrno("Can't create db file in \"{}\"", dirPath);
 #endif
 
 		return;
@@ -140,8 +124,8 @@ SimpleDatabase::Check() const
 #ifndef _WIN32
 	/* And check that we can write to it */
 	if (!CheckAccess(path, R_OK | W_OK))
-		throw FormatErrno("Can't open db file \"%s\" for reading/writing",
-				  path_utf8.c_str());
+		throw FmtErrno("Can't open db file \"{}\" for reading/writing",
+			       path);
 #endif
 }
 
@@ -151,7 +135,7 @@ SimpleDatabase::Load()
 	assert(!path.IsNull());
 	assert(root != nullptr);
 
-	TextFile file(path);
+	AutoGunzipFileLineReader file{path};
 
 	LogDebug(simple_db_domain, "reading DB");
 
@@ -267,7 +251,7 @@ SimpleDatabase::ReturnSong([[maybe_unused]] const LightSong *song) const noexcep
 	}
 }
 
-gcc_const
+[[gnu::const]]
 static DatabaseSelection
 CheckSelection(DatabaseSelection selection) noexcept
 {
@@ -334,7 +318,7 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 
 RecursiveMap<std::string>
 SimpleDatabase::CollectUniqueTags(const DatabaseSelection &selection,
-				  ConstBuffer<TagType> tag_types) const
+				  std::span<const TagType> tag_types) const
 {
 	return ::CollectUniqueTags(*this, selection, tag_types);
 }
@@ -380,7 +364,7 @@ SimpleDatabase::Save()
 
 #ifdef ENABLE_ZLIB
 	if (gzip != nullptr) {
-		gzip->Flush();
+		gzip->Finish();
 		gzip.reset();
 	}
 #endif
@@ -445,7 +429,7 @@ SimpleDatabase::Mount(const char *local_uri, const char *storage_uri)
 	constexpr bool compress = false;
 #endif
 	auto db = std::make_unique<SimpleDatabase>(cache_path / name_fs,
-						   compress);
+						   compress, hide_playlist_targets);
 	db->Open();
 
 	bool exists = db->FileExists();
