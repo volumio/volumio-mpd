@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,6 @@ struct Partition;
 bool
 playlist_file_print(Response &r, Partition &partition,
 		    const SongLoader &loader,
-		    const char *uri, bool detail);
+		    const LocatedUri &uri, bool detail);
 
 #endif

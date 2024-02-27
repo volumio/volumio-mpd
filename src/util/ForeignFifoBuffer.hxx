@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2014 Max Kellermann <max@duempel.org>
+ * Copyright 2003-2019 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,12 +32,10 @@
 
 #include "WritableBuffer.hxx"
 
-#include <utility>
 #include <algorithm>
-
+#include <cassert>
 #include <cstddef>
-
-#include <assert.h>
+#include <utility>
 
 /**
  * A first-in-first-out buffer: you can append data at the end, and
@@ -51,29 +49,29 @@
 template<typename T>
 class ForeignFifoBuffer {
 public:
-	typedef size_t size_type;
-	typedef WritableBuffer<T> Range;
-	typedef typename Range::pointer_type pointer_type;
-	typedef typename Range::const_pointer_type const_pointer_type;
+	using size_type = std::size_t;
+	using Range = WritableBuffer<T>;
+	using pointer = typename Range::pointer;
+	using const_pointer = typename Range::const_pointer;
 
 protected:
-	size_type head, tail, capacity;
+	size_type head = 0, tail = 0, capacity;
 	T *data;
 
 public:
-	explicit constexpr ForeignFifoBuffer(std::nullptr_t n)
-		:head(0), tail(0), capacity(0), data(n) {}
+	explicit constexpr ForeignFifoBuffer(std::nullptr_t n) noexcept
+		:capacity(0), data(n) {}
 
-	constexpr ForeignFifoBuffer(T *_data, size_type _capacity)
-		:head(0), tail(0), capacity(_capacity), data(_data) {}
+	constexpr ForeignFifoBuffer(T *_data, size_type _capacity) noexcept
+		:capacity(_capacity), data(_data) {}
 
-	ForeignFifoBuffer(ForeignFifoBuffer &&src)
+	ForeignFifoBuffer(ForeignFifoBuffer &&src) noexcept
 		:head(src.head), tail(src.tail),
 		 capacity(src.capacity), data(src.data) {
 		src.SetNull();
 	}
 
-	ForeignFifoBuffer &operator=(ForeignFifoBuffer &&src) {
+	ForeignFifoBuffer &operator=(ForeignFifoBuffer &&src) noexcept {
 		head = src.head;
 		tail = src.tail;
 		capacity = src.capacity;
@@ -82,36 +80,41 @@ public:
 		return *this;
 	}
 
-	void Swap(ForeignFifoBuffer<T> &other) {
-		std::swap(head, other.head);
-		std::swap(tail, other.tail);
-		std::swap(capacity, other.capacity);
-		std::swap(data, other.data);
+	void swap(ForeignFifoBuffer<T> &other) noexcept {
+		using std::swap;
+		swap(head, other.head);
+		swap(tail, other.tail);
+		swap(capacity, other.capacity);
+		swap(data, other.data);
 	}
 
-	constexpr bool IsNull() const {
+	friend void swap(ForeignFifoBuffer<T> &a, ForeignFifoBuffer<T> &b) noexcept {
+		a.swap(b);
+	}
+
+	constexpr bool IsNull() const noexcept {
 		return data == nullptr;
 	}
 
-	constexpr bool IsDefined() const {
+	constexpr bool IsDefined() const noexcept {
 		return !IsNull();
 	}
 
-	T *GetBuffer() {
+	T *GetBuffer() noexcept {
 		return data;
 	}
 
-	constexpr size_type GetCapacity() const {
+	constexpr size_type GetCapacity() const noexcept {
 		return capacity;
 	}
 
-	void SetNull() {
+	void SetNull() noexcept {
 		head = tail = 0;
 		capacity = 0;
 		data = nullptr;
 	}
 
-	void SetBuffer(T *_data, size_type _capacity) {
+	void SetBuffer(T *_data, size_type _capacity) noexcept {
 		assert(_data != nullptr);
 		assert(_capacity > 0);
 
@@ -120,7 +123,7 @@ public:
 		data = _data;
 	}
 
-	void MoveBuffer(T *new_data, size_type new_capacity) {
+	void MoveBuffer(T *new_data, size_type new_capacity) noexcept {
 		assert(new_capacity >= tail - head);
 
 		std::move(data + head, data + tail, new_data);
@@ -130,24 +133,24 @@ public:
 		head = 0;
 	}
 
-	void Clear() {
+	void Clear() noexcept {
 		head = tail = 0;
 	}
 
-	constexpr bool IsEmpty() const {
+	constexpr bool empty() const noexcept {
 		return head == tail;
 	}
 
-	constexpr bool IsFull() const {
+	constexpr bool IsFull() const noexcept {
 		return head == 0 && tail == capacity;
 	}
 
 	/**
 	 * Prepares writing.  Returns a buffer range which may be written.
-	 * When you are finished, call append().
+	 * When you are finished, call Append().
 	 */
-	Range Write() {
-		if (IsEmpty())
+	Range Write() noexcept {
+		if (empty())
 			Clear();
 		else if (tail == capacity)
 			Shift();
@@ -155,7 +158,7 @@ public:
 		return Range(data + tail, capacity - tail);
 	}
 
-	bool WantWrite(size_type n) {
+	bool WantWrite(size_type n) noexcept {
 		if (tail + n <= capacity)
 			/* enough space after the tail */
 			return true;
@@ -172,9 +175,9 @@ public:
 
 	/**
 	 * Expands the tail of the buffer, after data has been written to
-	 * the buffer returned by write().
+	 * the buffer returned by Write().
 	 */
-	void Append(size_type n) {
+	void Append(size_type n) noexcept {
 		assert(tail <= capacity);
 		assert(n <= capacity);
 		assert(tail + n <= capacity);
@@ -182,7 +185,7 @@ public:
 		tail += n;
 	}
 
-	constexpr size_type GetAvailable() const {
+	constexpr size_type GetAvailable() const noexcept {
 		return tail - head;
 	}
 
@@ -190,14 +193,14 @@ public:
 	 * Return a buffer range which may be read.  The buffer pointer is
 	 * writable, to allow modifications while parsing.
 	 */
-	constexpr Range Read() const {
+	constexpr Range Read() const noexcept {
 		return Range(data + head, tail - head);
 	}
 
 	/**
 	 * Marks a chunk as consumed.
 	 */
-	void Consume(size_type n) {
+	void Consume(size_type n) noexcept {
 		assert(tail <= capacity);
 		assert(head <= tail);
 		assert(n <= tail);
@@ -206,7 +209,7 @@ public:
 		head += n;
 	}
 
-	size_type Read(pointer_type p, size_type n) {
+	size_type Read(pointer p, size_type n) noexcept {
 		auto range = Read();
 		if (n > range.size)
 			n = range.size;
@@ -220,10 +223,19 @@ public:
 	 *
 	 * @return the number of items moved
 	 */
-	size_type MoveFrom(ForeignFifoBuffer<T> &src) {
+	size_type MoveFrom(ForeignFifoBuffer<T> &src) noexcept {
 		auto r = src.Read();
 		auto w = Write();
-		size_t n = std::min(r.size, w.size);
+
+		if (w.size < r.size && head > 0) {
+			/* if the source contains more data than we
+			   can append at the tail, try to make more
+			   room by shifting the head to 0 */
+			Shift();
+			w = Write();
+		}
+
+		const auto n = std::min(r.size, w.size);
 
 		std::move(r.data, r.data + n, w.data);
 		Append(n);
@@ -232,7 +244,7 @@ public:
 	}
 
 protected:
-	void Shift() {
+	void Shift() noexcept {
 		if (head == 0)
 			return;
 

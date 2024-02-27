@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,15 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DecoderPrint.hxx"
 #include "DecoderList.hxx"
 #include "DecoderPlugin.hxx"
 #include "client/Response.hxx"
 
-#include <functional>
+#include <fmt/format.h>
 
-#include <assert.h>
+#include <cassert>
+#include <functional>
 
 static void
 decoder_plugin_print(Response &r,
@@ -35,21 +35,21 @@ decoder_plugin_print(Response &r,
 
 	assert(plugin.name != nullptr);
 
-	r.Format("plugin: %s\n", plugin.name);
+	r.Fmt(FMT_STRING("plugin: {}\n"), plugin.name);
 
 	if (plugin.suffixes != nullptr)
 		for (p = plugin.suffixes; *p != nullptr; ++p)
-			r.Format("suffix: %s\n", *p);
+			r.Fmt(FMT_STRING("suffix: {}\n"), *p);
 
 	if (plugin.mime_types != nullptr)
 		for (p = plugin.mime_types; *p != nullptr; ++p)
-			r.Format("mime_type: %s\n", *p);
+			r.Fmt(FMT_STRING("mime_type: {}\n"), *p);
 }
 
 void
 decoder_list_print(Response &r)
 {
-	using namespace std::placeholders;
-	const auto f = std::bind(decoder_plugin_print, std::ref(r), _1);
+	const auto f = [&](const auto &plugin)
+		{ return decoder_plugin_print(r, plugin); };
 	decoder_plugins_for_each_enabled(f);
 }

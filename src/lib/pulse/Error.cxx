@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Error.hxx"
 #include "util/RuntimeError.hxx"
 
@@ -25,7 +24,7 @@
 #include <pulse/error.h>
 
 std::runtime_error
-MakePulseError(pa_context *context, const char *prefix)
+MakePulseError(pa_context *context, const char *prefix) noexcept
 {
 	const int e = pa_context_errno(context);
 	return FormatRuntimeError("%s: %s", prefix, pa_strerror(e));

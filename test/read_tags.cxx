@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,22 +18,25 @@
  */
 
 #include "config.h"
-#include "ScopeIOThread.hxx"
+#include "config/Data.hxx"
+#include "event/Thread.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
 #include "input/Init.hxx"
 #include "input/InputStream.hxx"
-#include "AudioFormat.hxx"
-#include "tag/TagHandler.hxx"
+#include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
 #include "fs/Path.hxx"
-#include "thread/Cond.hxx"
-#include "Log.hxx"
+#include "fs/NarrowPath.hxx"
+#include "pcm/AudioFormat.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/StringView.hxx"
+#include "util/PrintException.hxx"
 
+#include <cassert>
 #include <stdexcept>
 
-#include <assert.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -42,31 +45,41 @@
 #include <locale.h>
 #endif
 
-static bool empty = true;
+class DumpTagHandler final : public NullTagHandler {
+	bool empty = true;
 
-static void
-print_duration(SongTime duration, gcc_unused void *ctx)
-{
-	printf("duration=%f\n", duration.ToDoubleS());
-}
+public:
+	DumpTagHandler() noexcept
+		:NullTagHandler(WANT_DURATION|WANT_TAG|WANT_PAIR|WANT_PICTURE) {}
 
-static void
-print_tag(TagType type, const char *value, gcc_unused void *ctx)
-{
-	printf("[%s]=%s\n", tag_item_names[type], value);
-	empty = false;
-}
+	bool IsEmpty() const noexcept {
+		return empty;
+	}
 
-static void
-print_pair(const char *name, const char *value, gcc_unused void *ctx)
-{
-	printf("\"%s\"=%s\n", name, value);
-}
+	void OnDuration(SongTime duration) noexcept override {
+		printf("duration=%f\n", duration.ToDoubleS());
+	}
 
-static constexpr TagHandler print_handler = {
-	print_duration,
-	print_tag,
-	print_pair,
+	void OnTag(TagType type, StringView value) noexcept override {
+		printf("[%s]=%.*s\n", tag_item_names[type],
+		       int(value.size), value.data);
+		empty = false;
+	}
+
+	void OnPair(StringView key, StringView value) noexcept override {
+		printf("\"%.*s\"=%.*s\n",
+		       int(key.size), key.data,
+		       int(value.size), value.data);
+	}
+
+	void OnAudioFormat(AudioFormat af) noexcept override {
+		printf("%s\n", ToString(af).c_str());
+	}
+
+	void OnPicture(const char *mime_type,
+		       ConstBuffer<void> buffer) noexcept override {
+		printf("picture mime='%s' size=%zu\n", mime_type, buffer.size);
+	}
 };
 
 int main(int argc, char **argv)
@@ -85,37 +98,37 @@ try {
 	}
 
 	decoder_name = argv[1];
-	const Path path = Path::FromFS(argv[2]);
+	const char *path = argv[2];
 
-	const ScopeIOThread io_thread;
+	EventThread io_thread;
+	io_thread.Start();
 
-	input_stream_global_init();
-	AtScopeExit() { input_stream_global_finish(); };
+	const ScopeInputPluginsInit input_plugins_init(ConfigData(),
+						       io_thread.GetEventLoop());
 
-	decoder_plugin_init_all();
-	AtScopeExit() { decoder_plugin_deinit_all(); };
+	const ScopeDecoderPluginsInit decoder_plugins_init({});
 
 	plugin = decoder_plugin_from_name(decoder_name);
-	if (plugin == NULL) {
+	if (plugin == nullptr) {
 		fprintf(stderr, "No such decoder: %s\n", decoder_name);
 		return EXIT_FAILURE;
 	}
 
+	DumpTagHandler h;
 	bool success;
 	try {
-		success = plugin->ScanFile(path, print_handler, nullptr);
-	} catch (const std::exception &e) {
-		LogError(e);
+		success = plugin->ScanFile(FromNarrowPath(path), h);
+	} catch (...) {
+		PrintException(std::current_exception());
 		success = false;
 	}
 
 	Mutex mutex;
-	Cond cond;
 	InputStreamPtr is;
 
-	if (!success && plugin->scan_stream != NULL) {
-		is = InputStream::OpenReady(path.c_str(), mutex, cond);
-		success = plugin->ScanStream(*is, print_handler, nullptr);
+	if (!success && plugin->scan_stream != nullptr) {
+		is = InputStream::OpenReady(path, mutex);
+		success = plugin->ScanStream(*is, h);
 	}
 
 	if (!success) {
@@ -123,15 +136,15 @@ try {
 		return EXIT_FAILURE;
 	}
 
-	if (empty) {
+	if (h.IsEmpty()) {
 		if (is)
-			ScanGenericTags(*is, print_handler, nullptr);
+			ScanGenericTags(*is, h);
 		else
-			ScanGenericTags(path, print_handler, nullptr);
+			ScanGenericTags(FromNarrowPath(path), h);
 	}
 
 	return 0;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

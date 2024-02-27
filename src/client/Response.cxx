@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,56 +17,70 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Response.hxx"
 #include "Client.hxx"
-#include "util/FormatString.hxx"
-#include "util/AllocatedString.hxx"
+
+#include <fmt/format.h>
+
+TagMask
+Response::GetTagMask() const noexcept
+{
+	return GetClient().tag_mask;
+}
 
 bool
-Response::Write(const void *data, size_t length)
+Response::Write(const void *data, size_t length) noexcept
 {
 	return client.Write(data, length);
 }
 
 bool
-Response::Write(const char *data)
+Response::Write(const char *data) noexcept
 {
 	return client.Write(data);
 }
 
 bool
-Response::FormatV(const char *fmt, va_list args)
+Response::VFmt(fmt::string_view format_str, fmt::format_args args) noexcept
 {
-	return Write(FormatStringV(fmt, args).c_str());
+	fmt::memory_buffer buffer;
+#if FMT_VERSION >= 80000
+	fmt::vformat_to(std::back_inserter(buffer), format_str, args);
+#else
+	fmt::vformat_to(buffer, format_str, args);
+#endif
+	return Write(buffer.data(), buffer.size());
 }
 
 bool
-Response::Format(const char *fmt, ...)
+Response::WriteBinary(ConstBuffer<void> payload) noexcept
 {
-	va_list args;
-	va_start(args, fmt);
-	bool success = FormatV(fmt, args);
-	va_end(args);
-	return success;
+	assert(payload.size <= client.binary_limit);
+
+	return
+		Fmt("binary: {}\n", payload.size) &&
+		Write(payload.data, payload.size) &&
+		Write("\n");
 }
 
 void
-Response::Error(enum ack code, const char *msg)
+Response::Error(enum ack code, const char *msg) noexcept
 {
-	FormatError(code, "%s", msg);
+	Fmt(FMT_STRING("ACK [{}@{}] {{{}}} "),
+	    (int)code, list_index, command);
+
+	Write(msg);
+	Write("\n");
 }
 
 void
-Response::FormatError(enum ack code, const char *fmt, ...)
+Response::VFmtError(enum ack code,
+		    fmt::string_view format_str, fmt::format_args args) noexcept
 {
-	Format("ACK [%i@%u] {%s} ",
-	       (int)code, list_index, command);
+	Fmt(FMT_STRING("ACK [{}@{}] {{{}}} "),
+	    (int)code, list_index, command);
 
-	va_list args;
-	va_start(args, fmt);
-	FormatV(fmt, args);
-	va_end(args);
+	VFmt(format_str, args);
 
 	Write("\n");
 }

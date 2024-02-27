@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "UpdateIO.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "storage/FileInfo.hxx"
@@ -27,50 +26,47 @@
 #include "fs/AllocatedPath.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
-
-#include <errno.h>
+#include <cerrno>
 
 bool
-GetInfo(Storage &storage, const char *uri_utf8, StorageFileInfo &info)
+GetInfo(Storage &storage, const char *uri_utf8, StorageFileInfo &info) noexcept
 try {
 	info = storage.GetInfo(uri_utf8, true);
 	return true;
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 	return false;
 }
 
 bool
-GetInfo(StorageDirectoryReader &reader, StorageFileInfo &info)
+GetInfo(StorageDirectoryReader &reader, StorageFileInfo &info) noexcept
 try {
 	info = reader.GetInfo(true);
 	return true;
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 	return false;
 }
 
 bool
-DirectoryExists(Storage &storage, const Directory &directory)
+DirectoryExists(Storage &storage, const Directory &directory) noexcept
 {
 	StorageFileInfo info;
 
 	try {
 		info = storage.GetInfo(directory.GetPath(), true);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 
-	return directory.device == DEVICE_INARCHIVE ||
-		directory.device == DEVICE_CONTAINER
+	return directory.IsReallyAFile()
 		? info.IsRegular()
 		: info.IsDirectory();
 }
 
 static StorageFileInfo
 GetDirectoryChildInfo(Storage &storage, const Directory &directory,
-		      const char *name_utf8)
+		      std::string_view name_utf8)
 {
 	const auto uri_utf8 = PathTraitsUTF8::Build(directory.GetPath(),
 						    name_utf8);
@@ -79,19 +75,19 @@ GetDirectoryChildInfo(Storage &storage, const Directory &directory,
 
 bool
 directory_child_is_regular(Storage &storage, const Directory &directory,
-			   const char *name_utf8)
+			   std::string_view name_utf8) noexcept
 try {
 	return GetDirectoryChildInfo(storage, directory, name_utf8)
 		.IsRegular();
-} catch (const std::runtime_error &) {
+} catch (...) {
 	return false;
 }
 
 bool
-directory_child_access(Storage &storage, const Directory &directory,
-		       const char *name, int mode)
+directory_child_access(const Storage &storage, const Directory &directory,
+		       std::string_view name, int mode) noexcept
 {
-#ifdef WIN32
+#ifdef _WIN32
 	/* CheckAccess() is useless on WIN32 */
 	(void)storage;
 	(void)directory;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2014 Max Kellermann <max@duempel.org>
+ * Copyright (C) 2009-2014 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,9 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "Tokenizer.hxx"
 #include "CharUtil.hxx"
-#include "StringUtil.hxx"
+#include "StringStrip.hxx"
 
 #include <stdexcept>
 

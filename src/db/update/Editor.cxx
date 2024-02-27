@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h" /* must be first for large file support */
 #include "Editor.hxx"
 #include "Remove.hxx"
 #include "db/PlaylistVector.hxx"
@@ -25,15 +24,15 @@
 #include "db/plugins/simple/Directory.hxx"
 #include "db/plugins/simple/Song.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 void
 DatabaseEditor::DeleteSong(Directory &dir, Song *del)
 {
-	assert(del->parent == &dir);
+	assert(&del->parent == &dir);
 
 	/* first, prevent traversers in main task from getting this */
-	dir.RemoveSong(del);
+	const SongPtr song = dir.RemoveSong(del);
 
 	/* temporary unlock, because update_remove_song() blocks */
 	const ScopeDatabaseUnlock unlock;
@@ -41,8 +40,8 @@ DatabaseEditor::DeleteSong(Directory &dir, Song *del)
 	/* now take it out of the playlist (in the main_task) */
 	remove.Remove(del->GetURI());
 
-	/* finally, all possible references gone, free it */
-	del->Free();
+	/* the Song object will be freed here because its owning
+	   SongPtr lives on our stack, see above */
 }
 
 void
@@ -66,7 +65,7 @@ DatabaseEditor::ClearDirectory(Directory &directory)
 		});
 
 	directory.ForEachSongSafe([this, &directory](Song &song){
-			assert(song.parent == &directory);
+			assert(&song.parent == &directory);
 			DeleteSong(directory, &song);
 		});
 }
@@ -89,7 +88,7 @@ DatabaseEditor::LockDeleteDirectory(Directory *directory)
 }
 
 bool
-DatabaseEditor::DeleteNameIn(Directory &parent, const char *name)
+DatabaseEditor::DeleteNameIn(Directory &parent, std::string_view name)
 {
 	const ScopeDatabaseLock protect;
 

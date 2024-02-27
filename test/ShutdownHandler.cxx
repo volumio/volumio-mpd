@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ShutdownHandler.hxx"
 
-#ifndef WIN32
+#ifndef _WIN32
 #include "event/SignalMonitor.hxx"
 #include "event/Loop.hxx"
 
 #include <signal.h>
 
 static void
-HandleShutdownSignal(void *ctx)
+HandleShutdownSignal(void *ctx) noexcept
 {
 	auto &loop = *(EventLoop *)ctx;
 	loop.Break();

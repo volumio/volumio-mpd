@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Blocking.hxx"
 #include "Connection.hxx"
 #include "event/Call.hxx"
@@ -40,7 +39,7 @@ BlockingNfsOperation::Run()
 }
 
 void
-BlockingNfsOperation::OnNfsConnectionReady()
+BlockingNfsOperation::OnNfsConnectionReady() noexcept
 {
 	try {
 		Start();
@@ -52,21 +51,21 @@ BlockingNfsOperation::OnNfsConnectionReady()
 }
 
 void
-BlockingNfsOperation::OnNfsConnectionFailed(std::exception_ptr e)
+BlockingNfsOperation::OnNfsConnectionFailed(std::exception_ptr e) noexcept
 {
 	error = std::move(e);
 	LockSetFinished();
 }
 
 void
-BlockingNfsOperation::OnNfsConnectionDisconnected(std::exception_ptr e)
+BlockingNfsOperation::OnNfsConnectionDisconnected(std::exception_ptr e) noexcept
 {
 	error = std::move(e);
 	LockSetFinished();
 }
 
 void
-BlockingNfsOperation::OnNfsCallback(unsigned status, void *data)
+BlockingNfsOperation::OnNfsCallback(unsigned status, void *data) noexcept
 {
 	connection.RemoveLease(*this);
 
@@ -75,7 +74,7 @@ BlockingNfsOperation::OnNfsCallback(unsigned status, void *data)
 }
 
 void
-BlockingNfsOperation::OnNfsError(std::exception_ptr &&e)
+BlockingNfsOperation::OnNfsError(std::exception_ptr &&e) noexcept
 {
 	connection.RemoveLease(*this);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,47 +17,66 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Configured.hxx"
 #include "DatabaseGlue.hxx"
-#include "config/ConfigGlobal.hxx"
+#include "Interface.hxx"
+#include "config/Data.hxx"
 #include "config/Param.hxx"
 #include "config/Block.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "fs/FileSystem.hxx"
 #include "fs/StandardDirectory.hxx"
 #include "util/RuntimeError.hxx"
 
-Database *
-CreateConfiguredDatabase(EventLoop &loop, DatabaseListener &listener)
+DatabasePtr
+CreateConfiguredDatabase(const ConfigData &config,
+			 EventLoop &main_event_loop, EventLoop &io_event_loop,
+			 DatabaseListener &listener)
 {
-	const auto *param = config_get_block(ConfigBlockOption::DATABASE);
-	const auto *path = config_get_param(ConfigOption::DB_FILE);
+	const auto *param = config.GetBlock(ConfigBlockOption::DATABASE);
+	const auto *path = config.GetParam(ConfigOption::DB_FILE);
 
 	if (param != nullptr && path != nullptr)
 		throw FormatRuntimeError("Found both 'database' (line %d) and 'db_file' (line %d) setting",
 					 param->line, path->line);
 
-	if (param != nullptr)
-		return DatabaseGlobalInit(loop, listener, *param);
-	else if (path != nullptr) {
+	if (param != nullptr) {
+		param->SetUsed();
+		return DatabaseGlobalInit(main_event_loop, io_event_loop,
+					  listener, *param);
+	} else if (path != nullptr) {
 		ConfigBlock block(path->line);
-		block.AddBlockParam("path", path->value.c_str(), path->line);
-		return DatabaseGlobalInit(loop, listener, block);
+		block.AddBlockParam("path", path->value, path->line);
+		return DatabaseGlobalInit(main_event_loop, io_event_loop,
+					  listener, block);
 	} else {
 		/* if there is no override, use the cache directory */
 
-		const AllocatedPath cache_dir = GetUserCacheDir();
+		const AllocatedPath cache_dir = GetAppCacheDir();
 		if (cache_dir.IsNull())
 			return nullptr;
 
-		const auto db_file = AllocatedPath::Build(cache_dir,
-							  PATH_LITERAL("mpd.db"));
-		const auto db_file_utf8 = db_file.ToUTF8();
+		const auto db_file = cache_dir / Path::FromFS(PATH_LITERAL("db"));
+		auto db_file_utf8 = db_file.ToUTF8();
 		if (db_file_utf8.empty())
 			return nullptr;
 
 		ConfigBlock block;
-		block.AddBlockParam("path", db_file_utf8.c_str(), -1);
-		return DatabaseGlobalInit(loop, listener, block);
+		block.AddBlockParam("path", std::move(db_file_utf8), -1);
+
+		{
+			const auto mounts_dir = cache_dir
+				/ Path::FromFS(PATH_LITERAL("mounts"));
+			CreateDirectoryNoThrow(mounts_dir);
+
+			if (auto mounts_dir_utf8 = mounts_dir.ToUTF8();
+			    !mounts_dir_utf8.empty())
+				block.AddBlockParam("cache_directory",
+						    std::move(mounts_dir_utf8),
+						    -1);
+		}
+
+		return DatabaseGlobalInit(main_event_loop, io_event_loop,
+					  listener, block);
 	}
 }

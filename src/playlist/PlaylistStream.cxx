@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PlaylistStream.hxx"
 #include "PlaylistRegistry.hxx"
-#include "util/UriUtil.hxx"
+#include "SongEnumerator.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
 #include "fs/Path.hxx"
+#include "util/StringView.hxx"
+#include "util/UriExtract.hxx"
 #include "Log.hxx"
 
-#include <stdexcept>
+#include <cassert>
+#include <exception>
 
-#include <assert.h>
-
-static SongEnumerator *
-playlist_open_path_suffix(Path path, Mutex &mutex, Cond &cond)
+static std::unique_ptr<SongEnumerator>
+playlist_open_path_suffix(Path path, Mutex &mutex)
 try {
 	assert(!path.IsNull());
 
@@ -39,48 +39,46 @@ try {
 	if (suffix == nullptr)
 		return nullptr;
 
-	const auto suffix_utf8 = Path::FromFS(suffix).ToUTF8();
-	if (!playlist_suffix_supported(suffix_utf8.c_str()))
+	const auto suffix_utf8 = Path::FromFS(suffix).ToUTF8Throw();
+	if (!playlist_suffix_supported(suffix_utf8))
 		return nullptr;
 
-	auto is = OpenLocalInputStream(path, mutex, cond);
+	auto is = OpenLocalInputStream(path, mutex);
 	return playlist_list_open_stream_suffix(std::move(is),
-						suffix_utf8.c_str());
-} catch (const std::runtime_error &e) {
-	LogError(e);
+						suffix_utf8);
+} catch (...) {
+	LogError(std::current_exception());
 	return nullptr;
 }
 
-SongEnumerator *
-playlist_open_path(Path path, Mutex &mutex, Cond &cond)
+std::unique_ptr<SongEnumerator>
+playlist_open_path(Path path, Mutex &mutex)
 try {
 	assert(!path.IsNull());
 
-	const std::string uri_utf8 = path.ToUTF8();
-	auto playlist = !uri_utf8.empty()
-		? playlist_list_open_uri(uri_utf8.c_str(), mutex, cond)
-		: nullptr;
+	const std::string uri_utf8 = path.ToUTF8Throw();
+	auto playlist = playlist_list_open_uri(uri_utf8.c_str(), mutex);
 	if (playlist == nullptr)
-		playlist = playlist_open_path_suffix(path, mutex, cond);
+		playlist = playlist_open_path_suffix(path, mutex);
 
 	return playlist;
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 	return nullptr;
 }
 
-SongEnumerator *
-playlist_open_remote(const char *uri, Mutex &mutex, Cond &cond)
+std::unique_ptr<SongEnumerator>
+playlist_open_remote(const char *uri, Mutex &mutex)
 try {
 	assert(uri_has_scheme(uri));
 
-	SongEnumerator *playlist = playlist_list_open_uri(uri, mutex, cond);
+	auto playlist = playlist_list_open_uri(uri, mutex);
 	if (playlist != nullptr)
 		return playlist;
 
-	auto is = InputStream::OpenReady(uri, mutex, cond);
+	auto is = InputStream::OpenReady(uri, mutex);
 	return playlist_list_open_stream(std::move(is), uri);
-} catch (const std::runtime_error &e) {
-	LogError(e);
+} catch (...) {
+	LogError(std::current_exception());
 	return nullptr;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,14 +22,21 @@
 
 #include "ReplayGainMode.hxx"
 
+#include <memory>
+
 class Filter;
 class PreparedFilter;
 class Mixer;
 struct ReplayGainConfig;
 struct ReplayGainInfo;
 
-PreparedFilter *
-NewReplayGainFilter(const ReplayGainConfig &config);
+/**
+ * @param allow_convert allow the class to convert to a different
+ * #SampleFormat to preserve quality?
+ */
+std::unique_ptr<PreparedFilter>
+NewReplayGainFilter(const ReplayGainConfig &config,
+		    bool allow_convert) noexcept;
 
 /**
  * Enables or disables the hardware mixer for applying replay gain.

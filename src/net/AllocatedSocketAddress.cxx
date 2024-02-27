@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2012-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,10 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "AllocatedSocketAddress.hxx"
+#include "IPv4Address.hxx"
+#include "IPv6Address.hxx"
+#include "util/StringView.hxx"
 
 #include <string.h>
 
@@ -37,7 +39,7 @@
 #endif
 
 AllocatedSocketAddress &
-AllocatedSocketAddress::operator=(SocketAddress src)
+AllocatedSocketAddress::operator=(SocketAddress src) noexcept
 {
 	if (src.IsNull()) {
 		Clear();
@@ -50,7 +52,7 @@ AllocatedSocketAddress::operator=(SocketAddress src)
 }
 
 void
-AllocatedSocketAddress::SetSize(size_type new_size)
+AllocatedSocketAddress::SetSize(size_type new_size) noexcept
 {
 	if (size == new_size)
 		return;
@@ -62,8 +64,14 @@ AllocatedSocketAddress::SetSize(size_type new_size)
 
 #ifdef HAVE_UN
 
+StringView
+AllocatedSocketAddress::GetLocalRaw() const noexcept
+{
+	return SocketAddress(*this).GetLocalRaw();
+}
+
 void
-AllocatedSocketAddress::SetLocal(const char *path)
+AllocatedSocketAddress::SetLocal(const char *path) noexcept
 {
 	const bool is_abstract = *path == '@';
 
@@ -74,11 +82,40 @@ AllocatedSocketAddress::SetLocal(const char *path)
 	struct sockaddr_un *sun;
 	SetSize(sizeof(*sun) - sizeof(sun->sun_path) + path_length);
 	sun = (struct sockaddr_un *)address;
-	sun->sun_family = AF_UNIX;
+	sun->sun_family = AF_LOCAL;
 	memcpy(sun->sun_path, path, path_length);
 
 	if (is_abstract)
 		sun->sun_path[0] = 0;
+}
+
+#endif
+
+#ifdef HAVE_TCP
+
+bool
+AllocatedSocketAddress::SetPort(unsigned port) noexcept
+{
+	if (IsNull())
+		return false;
+
+	switch (GetFamily()) {
+	case AF_INET:
+		{
+			auto &a = *(IPv4Address *)(void *)address;
+			a.SetPort(port);
+			return true;
+		}
+
+	case AF_INET6:
+		{
+			auto &a = *(IPv6Address *)(void *)address;
+			a.SetPort(port);
+			return true;
+		}
+	}
+
+	return false;
 }
 
 #endif

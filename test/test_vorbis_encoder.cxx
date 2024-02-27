@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,32 +17,31 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "encoder/EncoderList.hxx"
 #include "encoder/EncoderPlugin.hxx"
 #include "encoder/EncoderInterface.hxx"
 #include "encoder/ToOutputStream.hxx"
-#include "AudioFormat.hxx"
+#include "pcm/AudioFormat.hxx"
 #include "config/Block.hxx"
-#include "fs/io/StdioOutputStream.hxx"
+#include "io/StdioOutputStream.hxx"
 #include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
-#include "Log.hxx"
+#include "tag/Builder.hxx"
+#include "util/PrintException.hxx"
 
+#include <cassert>
 #include <memory>
 
 #include <stddef.h>
-#include <unistd.h>
 
 static uint8_t zero[256];
 
 int
-main(gcc_unused int argc, gcc_unused char **argv)
+main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 try {
 	/* create the encoder */
 
 	const auto plugin = encoder_plugin_get("vorbis");
-	assert(plugin != NULL);
+	assert(plugin != nullptr);
 
 	ConfigBlock block;
 	block.AddBlockParam("quality", "5.0", -1);
@@ -95,7 +94,7 @@ try {
 	EncoderToOutputStream(os, *encoder);
 
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

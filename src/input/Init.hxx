@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +20,31 @@
 #ifndef MPD_INPUT_INIT_HXX
 #define MPD_INPUT_INIT_HXX
 
+struct ConfigData;
+class EventLoop;
+
 /**
  * Initializes this library and all #InputStream implementations.
  */
 void
-input_stream_global_init();
+input_stream_global_init(const ConfigData &config, EventLoop &event_loop);
 
 /**
  * Deinitializes this library and all #InputStream implementations.
  */
 void
-input_stream_global_finish();
+input_stream_global_finish() noexcept;
+
+class ScopeInputPluginsInit {
+public:
+	ScopeInputPluginsInit(const ConfigData &config,
+			      EventLoop &event_loop) {
+		input_stream_global_init(config, event_loop);
+	}
+
+	~ScopeInputPluginsInit() noexcept {
+		input_stream_global_finish();
+	}
+};
 
 #endif

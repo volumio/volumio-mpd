@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,18 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "PcmChannels.hxx"
-#include "PcmBuffer.hxx"
+#include "ChannelDefs.hxx"
+#include "Buffer.hxx"
+#include "Silence.hxx"
 #include "Traits.hxx"
-#include "AudioFormat.hxx"
 #include "util/ConstBuffer.hxx"
+#include "util/WritableBuffer.hxx"
 
-#include <assert.h>
+#include <array>
+#include <algorithm>
+#include <cassert>
 
 template<typename D, typename S>
 static void
-MonoToStereo(D dest, S src, S end)
+MonoToStereo(D dest, S src, S end) noexcept
 {
 	while (src != end) {
 		const auto value = *src++;
@@ -42,7 +45,7 @@ MonoToStereo(D dest, S src, S end)
 template<SampleFormat F, class Traits=SampleTraits<F>>
 static typename Traits::value_type
 StereoToMono(typename Traits::value_type _a,
-	     typename Traits::value_type _b)
+	     typename Traits::value_type _b) noexcept
 {
 	typename Traits::sum_type a(_a);
 	typename Traits::sum_type b(_b);
@@ -51,10 +54,10 @@ StereoToMono(typename Traits::value_type _a,
 }
 
 template<SampleFormat F, class Traits=SampleTraits<F>>
-static typename Traits::pointer_type
-StereoToMono(typename Traits::pointer_type dest,
-	     typename Traits::const_pointer_type src,
-	     typename Traits::const_pointer_type end)
+static typename Traits::pointer
+StereoToMono(typename Traits::pointer dest,
+	     typename Traits::const_pointer src,
+	     typename Traits::const_pointer end) noexcept
 {
 	while (src != end) {
 		const auto a = *src++;
@@ -67,11 +70,11 @@ StereoToMono(typename Traits::pointer_type dest,
 }
 
 template<SampleFormat F, class Traits=SampleTraits<F>>
-static typename Traits::pointer_type
-NToStereo(typename Traits::pointer_type dest,
+static typename Traits::pointer
+NToStereo(typename Traits::pointer dest,
 	  unsigned src_channels,
-	  typename Traits::const_pointer_type src,
-	  typename Traits::const_pointer_type end)
+	  typename Traits::const_pointer src,
+	  typename Traits::const_pointer end) noexcept
 {
 	assert((end - src) % src_channels == 0);
 
@@ -90,13 +93,45 @@ NToStereo(typename Traits::pointer_type dest,
 	return dest;
 }
 
+/**
+ * Convert stereo to N channels (where N > 2).  Left and right map to
+ * the first two channels (front left and front right), and the
+ * remaining (surround) channels are filled with silence.
+ */
 template<SampleFormat F, class Traits=SampleTraits<F>>
-static typename Traits::pointer_type
-NToM(typename Traits::pointer_type dest,
+static typename Traits::pointer
+StereoToN(typename Traits::pointer dest,
+	  unsigned dest_channels,
+	  typename Traits::const_pointer src,
+	  typename Traits::const_pointer end) noexcept
+{
+	assert(dest_channels > 2);
+	assert((end - src) % 2 == 0);
+
+	std::array<typename Traits::value_type, MAX_CHANNELS - 2> silence;
+	PcmSilence({&silence.front(), sizeof(silence)}, F);
+
+	while (src != end) {
+		/* copy left/right to front-left/front-right, which is
+		   the first two channels in all multi-channel
+		   configurations **/
+		*dest++ = *src++;
+		*dest++ = *src++;
+
+		/* all other channels are silent */
+		dest = std::copy_n(silence.begin(), dest_channels - 2, dest);
+	}
+
+	return dest;
+}
+
+template<SampleFormat F, class Traits=SampleTraits<F>>
+static typename Traits::pointer
+NToM(typename Traits::pointer dest,
      unsigned dest_channels,
      unsigned src_channels,
-     typename Traits::const_pointer_type src,
-     typename Traits::const_pointer_type end)
+     typename Traits::const_pointer src,
+     typename Traits::const_pointer end) noexcept
 {
 	assert((end - src) % src_channels == 0);
 
@@ -120,7 +155,7 @@ static ConstBuffer<typename Traits::value_type>
 ConvertChannels(PcmBuffer &buffer,
 		unsigned dest_channels,
 		unsigned src_channels,
-		ConstBuffer<typename Traits::value_type> src)
+		ConstBuffer<typename Traits::value_type> src) noexcept
 {
 	assert(src.size % src_channels == 0);
 
@@ -133,6 +168,9 @@ ConvertChannels(PcmBuffer &buffer,
 		StereoToMono<F>(dest, src.begin(), src.end());
 	else if (dest_channels == 2)
 		NToStereo<F>(dest, src_channels, src.begin(), src.end());
+	else if (src_channels == 2 && dest_channels > 2)
+		StereoToN<F, Traits>(dest, dest_channels,
+				     src.begin(), src.end());
 	else
 		NToM<F>(dest, dest_channels,
 			src_channels, src.begin(), src.end());
@@ -144,7 +182,7 @@ ConstBuffer<int16_t>
 pcm_convert_channels_16(PcmBuffer &buffer,
 			unsigned dest_channels,
 			unsigned src_channels,
-			ConstBuffer<int16_t> src)
+			ConstBuffer<int16_t> src) noexcept
 {
 	return ConvertChannels<SampleFormat::S16>(buffer, dest_channels,
 						  src_channels, src);
@@ -154,7 +192,7 @@ ConstBuffer<int32_t>
 pcm_convert_channels_24(PcmBuffer &buffer,
 			unsigned dest_channels,
 			unsigned src_channels,
-			ConstBuffer<int32_t> src)
+			ConstBuffer<int32_t> src) noexcept
 {
 	return ConvertChannels<SampleFormat::S24_P32>(buffer, dest_channels,
 						      src_channels, src);
@@ -164,7 +202,7 @@ ConstBuffer<int32_t>
 pcm_convert_channels_32(PcmBuffer &buffer,
 			unsigned dest_channels,
 			unsigned src_channels,
-			ConstBuffer<int32_t> src)
+			ConstBuffer<int32_t> src) noexcept
 {
 	return ConvertChannels<SampleFormat::S32>(buffer, dest_channels,
 						  src_channels, src);
@@ -174,7 +212,7 @@ ConstBuffer<float>
 pcm_convert_channels_float(PcmBuffer &buffer,
 			   unsigned dest_channels,
 			   unsigned src_channels,
-			   ConstBuffer<float> src)
+			   ConstBuffer<float> src) noexcept
 {
 	return ConvertChannels<SampleFormat::FLOAT>(buffer, dest_channels,
 						    src_channels, src);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,25 +17,25 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FullyBufferedSocket.hxx"
 #include "net/SocketError.hxx"
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#include <assert.h>
+#include <cassert>
+
 #include <string.h>
 
 FullyBufferedSocket::ssize_t
-FullyBufferedSocket::DirectWrite(const void *data, size_t length)
+FullyBufferedSocket::DirectWrite(const void *data, size_t length) noexcept
 {
-	const auto nbytes = SocketMonitor::Write((const char *)data, length);
+	const auto nbytes = GetSocket().Write((const char *)data, length);
 	if (gcc_unlikely(nbytes < 0)) {
 		const auto code = GetSocketError();
-		if (IsSocketErrorAgain(code))
+		if (IsSocketErrorSendWouldBlock(code))
 			return 0;
 
-		IdleMonitor::Cancel();
-		BufferedSocket::Cancel();
+		idle_event.Cancel();
+		event.Cancel();
 
 		if (IsSocketErrorClosed(code))
 			OnSocketClosed();
@@ -47,14 +47,14 @@ FullyBufferedSocket::DirectWrite(const void *data, size_t length)
 }
 
 bool
-FullyBufferedSocket::Flush()
+FullyBufferedSocket::Flush() noexcept
 {
 	assert(IsDefined());
 
 	const auto data = output.Read();
-	if (data.IsEmpty()) {
-		IdleMonitor::Cancel();
-		CancelWrite();
+	if (data.empty()) {
+		idle_event.Cancel();
+		event.CancelWrite();
 		return true;
 	}
 
@@ -64,23 +64,23 @@ FullyBufferedSocket::Flush()
 
 	output.Consume(nbytes);
 
-	if (output.IsEmpty()) {
-		IdleMonitor::Cancel();
-		CancelWrite();
+	if (output.empty()) {
+		idle_event.Cancel();
+		event.CancelWrite();
 	}
 
 	return true;
 }
 
 bool
-FullyBufferedSocket::Write(const void *data, size_t length)
+FullyBufferedSocket::Write(const void *data, size_t length) noexcept
 {
 	assert(IsDefined());
 
 	if (length == 0)
 		return true;
 
-	const bool was_empty = output.IsEmpty();
+	const bool was_empty = output.empty();
 
 	if (!output.Append(data, length)) {
 		OnSocketError(std::make_exception_ptr(std::runtime_error("Output buffer is full")));
@@ -88,30 +88,27 @@ FullyBufferedSocket::Write(const void *data, size_t length)
 	}
 
 	if (was_empty)
-		IdleMonitor::Schedule();
-	return true;
-}
-
-bool
-FullyBufferedSocket::OnSocketReady(unsigned flags)
-{
-	if (flags & WRITE) {
-		assert(!output.IsEmpty());
-		assert(!IdleMonitor::IsActive());
-
-		if (!Flush())
-			return false;
-	}
-
-	if (!BufferedSocket::OnSocketReady(flags))
-		return false;
-
+		idle_event.Schedule();
 	return true;
 }
 
 void
-FullyBufferedSocket::OnIdle()
+FullyBufferedSocket::OnSocketReady(unsigned flags) noexcept
 {
-	if (Flush() && !output.IsEmpty())
-		ScheduleWrite();
+	if (flags & SocketEvent::WRITE) {
+		assert(!output.empty());
+		assert(!idle_event.IsPending());
+
+		if (!Flush())
+			return;
+	}
+
+	BufferedSocket::OnSocketReady(flags);
+}
+
+void
+FullyBufferedSocket::OnIdle() noexcept
+{
+	if (Flush() && !output.empty())
+		event.ScheduleWrite();
 }

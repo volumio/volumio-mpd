@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "Log.hxx"
 
-#include <assert.h>
+#include <cassert>
 
 size_t
 decoder_read(DecoderClient *client,
 	     InputStream &is,
-	     void *buffer, size_t length)
+	     void *buffer, size_t length) noexcept
 {
 	assert(buffer != nullptr);
 
@@ -37,17 +36,38 @@ decoder_read(DecoderClient *client,
 
 	try {
 		return is.LockRead(buffer, length);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		return 0;
 	}
 }
 
+size_t
+decoder_read_much(DecoderClient *client, InputStream &is,
+		  void *_buffer, size_t size) noexcept
+{
+	auto buffer = (uint8_t *)_buffer;
+
+	size_t total = 0;
+
+	while (size > 0 && !is.LockIsEOF()) {
+		size_t nbytes = decoder_read(client, is, buffer, size);
+		if (nbytes == 0)
+			return false;
+
+		total += nbytes;
+		buffer += nbytes;
+		size -= nbytes;
+	}
+
+	return total;
+}
+
 bool
 decoder_read_full(DecoderClient *client, InputStream &is,
-		  void *_buffer, size_t size)
+		  void *_buffer, size_t size) noexcept
 {
-	uint8_t *buffer = (uint8_t *)_buffer;
+	auto buffer = (uint8_t *)_buffer;
 
 	while (size > 0) {
 		size_t nbytes = decoder_read(client, is, buffer, size);
@@ -62,7 +82,7 @@ decoder_read_full(DecoderClient *client, InputStream &is,
 }
 
 bool
-decoder_skip(DecoderClient *client, InputStream &is, size_t size)
+decoder_skip(DecoderClient *client, InputStream &is, size_t size) noexcept
 {
 	while (size > 0) {
 		char buffer[1024];

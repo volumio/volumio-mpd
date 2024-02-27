@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,12 @@
 #ifndef MPD_PCM_FORMAT_CONVERTER_HXX
 #define MPD_PCM_FORMAT_CONVERTER_HXX
 
-#include "check.h"
-#include "AudioFormat.hxx"
-#include "PcmBuffer.hxx"
-#include "PcmDither.hxx"
+#include "SampleFormat.hxx"
+#include "Buffer.hxx"
+#include "Dither.hxx"
 
 #ifndef NDEBUG
-#include <assert.h>
+#include <cassert>
 #endif
 
 template<typename T> struct ConstBuffer;
@@ -42,11 +41,11 @@ class PcmFormatConverter {
 
 public:
 #ifndef NDEBUG
-	PcmFormatConverter()
+	PcmFormatConverter() noexcept
 		:src_format(SampleFormat::UNDEFINED),
 		 dest_format(SampleFormat::UNDEFINED) {}
 
-	~PcmFormatConverter() {
+	~PcmFormatConverter() noexcept {
 		assert(src_format == SampleFormat::UNDEFINED);
 		assert(dest_format == SampleFormat::UNDEFINED);
 	}
@@ -65,18 +64,16 @@ public:
 	/**
 	 * Closes the object.  After that, you may call Open() again.
 	 */
-	void Close();
+	void Close() noexcept;
 
 	/**
 	 * Convert a block of PCM data.
 	 *
-	 * Throws std::runtime_error on error.
-	 *
 	 * @param src the input buffer
 	 * @return the destination buffer
 	 */
-	gcc_pure
-	ConstBuffer<void> Convert(ConstBuffer<void> src);
+	[[gnu::pure]]
+	ConstBuffer<void> Convert(ConstBuffer<void> src) noexcept;
 };
 
 #endif

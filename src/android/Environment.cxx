@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Environment.hxx"
 #include "java/Class.hxx"
 #include "java/String.hxx"
@@ -26,13 +25,13 @@
 #include "fs/AllocatedPath.hxx"
 
 namespace Environment {
-	static Java::TrivialClass cls;
-	static jmethodID getExternalStorageDirectory_method;
-	static jmethodID getExternalStoragePublicDirectory_method;
-};
+
+static Java::TrivialClass cls;
+static jmethodID getExternalStorageDirectory_method;
+static jmethodID getExternalStoragePublicDirectory_method;
 
 void
-Environment::Initialise(JNIEnv *env)
+Initialise(JNIEnv *env) noexcept
 {
 	cls.Find(env, "android/os/Environment");
 
@@ -46,40 +45,38 @@ Environment::Initialise(JNIEnv *env)
 }
 
 void
-Environment::Deinitialise(JNIEnv *env)
+Deinitialise(JNIEnv *env) noexcept
 {
 	cls.Clear(env);
 }
 
 AllocatedPath
-Environment::getExternalStorageDirectory()
+getExternalStorageDirectory(JNIEnv *env) noexcept
 {
-	JNIEnv *env = Java::GetEnv();
-
 	jobject file =
 		env->CallStaticObjectMethod(cls,
 					    getExternalStorageDirectory_method);
 	if (file == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
 }
 
 AllocatedPath
-Environment::getExternalStoragePublicDirectory(const char *type)
+getExternalStoragePublicDirectory(JNIEnv *env, const char *type) noexcept
 {
 	if (getExternalStoragePublicDirectory_method == nullptr)
 		/* needs API level 8 */
-		return AllocatedPath::Null();
-
-	JNIEnv *env = Java::GetEnv();
+		return nullptr;
 
 	Java::String type2(env, type);
-	jobject file = env->CallStaticObjectMethod(Environment::cls,
-						   Environment::getExternalStoragePublicDirectory_method,
+	jobject file = env->CallStaticObjectMethod(cls,
+						   getExternalStoragePublicDirectory_method,
 						   type2.Get());
 	if (file == nullptr)
-		return AllocatedPath::Null();
+		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
 }
+
+} // namespace Environment

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "OggFind.hxx"
 #include "lib/xiph/OggSyncState.hxx"
 #include "input/InputStream.hxx"
-
-#include <stdexcept>
 
 bool
 OggFindEOS(OggSyncState &oy, ogg_stream_state &os, ogg_packet &packet)
@@ -51,7 +48,7 @@ OggSeekPageAtOffset(OggSyncState &oy, ogg_stream_state &os, InputStream &is,
 
 	try {
 		is.LockSeek(offset);
-	} catch (const std::runtime_error &) {
+	} catch (...) {
 		return false;
 	}
 
@@ -60,13 +57,14 @@ OggSeekPageAtOffset(OggSyncState &oy, ogg_stream_state &os, InputStream &is,
 
 bool
 OggSeekFindEOS(OggSyncState &oy, ogg_stream_state &os, ogg_packet &packet,
-	       InputStream &is)
+	       InputStream &is, bool synced)
 {
 	if (!is.KnownSize())
 		return false;
 
 	if (is.GetRest() < 65536)
-		return OggFindEOS(oy, os, packet);
+		return (synced || oy.ExpectPageSeekIn(os)) &&
+			OggFindEOS(oy, os, packet);
 
 	if (!is.CheapSeeking())
 		return false;

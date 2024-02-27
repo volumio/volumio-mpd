@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,18 @@
 #ifndef MPD_INSTANCE_HXX
 #define MPD_INSTANCE_HXX
 
-#include "check.h"
+#include "config.h"
 #include "event/Loop.hxx"
+#include "event/Thread.hxx"
 #include "event/MaskMonitor.hxx"
-#include "Compiler.h"
+
+#ifdef ENABLE_SYSTEMD_DAEMON
+#include "lib/systemd/Watchdog.hxx"
+#endif
+
+#ifdef ENABLE_CURL
+#include "RemoteTagCacheHandler.hxx"
+#endif
 
 #ifdef ENABLE_NEIGHBOR_PLUGINS
 #include "neighbor/Listener.hxx"
@@ -32,14 +40,23 @@ class NeighborGlue;
 
 #ifdef ENABLE_DATABASE
 #include "db/DatabaseListener.hxx"
-class Database;
+#include "db/Ptr.hxx"
 class Storage;
 class UpdateService;
+#ifdef ENABLE_INOTIFY
+class InotifyUpdate;
 #endif
+#endif
+
+#include <memory>
+#include <list>
 
 class ClientList;
 struct Partition;
 class StateFile;
+class RemoteTagCache;
+class StickerDatabase;
+class InputCacheManager;
 
 /**
  * A utility class which, when used as the first base class, ensures
@@ -63,15 +80,41 @@ struct Instance final
 #ifdef ENABLE_NEIGHBOR_PLUGINS
 	public NeighborListener
 #endif
+#ifdef ENABLE_CURL
+	, public RemoteTagCacheHandler
+#endif
 {
+	/**
+	 * A thread running an #EventLoop for non-blocking (bulk) I/O.
+	 */
+	EventThread io_thread;
+
+	/**
+	 * Another thread running an #EventLoop for non-blocking
+	 * (real-time) I/O.  This is used instead of #io_thread for
+	 * events which require low latency, e.g. for filling hardware
+	 * ring buffers.
+	 */
+	EventThread rtio_thread;
+
+#ifdef ENABLE_SYSTEMD_DAEMON
+	Systemd::Watchdog systemd_watchdog;
+#endif
+
+	std::unique_ptr<InputCacheManager> input_cache;
+
+	/**
+	 * Monitor for global idle events to be broadcasted to all
+	 * partitions.
+	 */
 	MaskMonitor idle_monitor;
 
 #ifdef ENABLE_NEIGHBOR_PLUGINS
-	NeighborGlue *neighbors;
+	std::unique_ptr<NeighborGlue> neighbors;
 #endif
 
 #ifdef ENABLE_DATABASE
-	Database *database;
+	DatabasePtr database;
 
 	/**
 	 * This is really a #CompositeStorage.  To avoid heavy include
@@ -80,27 +123,63 @@ struct Instance final
 	Storage *storage = nullptr;
 
 	UpdateService *update = nullptr;
+
+#ifdef ENABLE_INOTIFY
+	std::unique_ptr<InotifyUpdate> inotify_update;
+#endif
 #endif
 
-	ClientList *client_list;
+#ifdef ENABLE_CURL
+	std::unique_ptr<RemoteTagCache> remote_tag_cache;
+#endif
 
-	Partition *partition;
+	std::unique_ptr<ClientList> client_list;
 
-	StateFile *state_file;
+	std::list<Partition> partitions;
 
-	Instance()
-		:idle_monitor(event_loop, BIND_THIS_METHOD(OnIdle)), state_file(nullptr) {}
+	std::unique_ptr<StateFile> state_file;
+
+#ifdef ENABLE_SQLITE
+	std::unique_ptr<StickerDatabase> sticker_database;
+#endif
+
+	Instance();
+	~Instance() noexcept;
 
 	/**
-	 * Initiate shutdown.  Wrapper for EventLoop::Break().
+	 * Wrapper for EventLoop::Break().  Call to initiate shutdown.
 	 */
-	void Shutdown() {
+	void Break() noexcept {
 		event_loop.Break();
 	}
 
-	void EmitIdle(unsigned mask) {
+	/**
+	 * Emit an "idle" event to all clients of all partitions.
+	 *
+	 * This method can be called from any thread.
+	 */
+	void EmitIdle(unsigned mask) noexcept {
 		idle_monitor.OrMask(mask);
 	}
+
+	/**
+	 * Notify the #Instance that the state has been modified, and
+	 * the #StateFile may need to be saved.
+	 *
+	 * This method must be called from the main thread.
+	 */
+	void OnStateModified() noexcept;
+
+	/**
+	 * Find a #Partition with the given name.  Returns nullptr if
+	 * no such partition was found.
+	 */
+	[[gnu::pure]]
+	Partition *FindPartition(const char *name) noexcept;
+
+	void DeletePartition(Partition &partition) noexcept;
+
+	void BeginShutdownPartitions() noexcept;
 
 #ifdef ENABLE_DATABASE
 	/**
@@ -108,8 +187,8 @@ struct Instance final
 	 * if this MPD configuration has no database (no
 	 * music_directory was configured).
 	 */
-	Database *GetDatabase() {
-		return database;
+	Database *GetDatabase() noexcept {
+		return database.get();
 	}
 
 	/**
@@ -117,24 +196,47 @@ struct Instance final
 	 * DatabaseError if this MPD configuration has no database (no
 	 * music_directory was configured).
 	 */
-	gcc_pure
 	const Database &GetDatabaseOrThrow() const;
 #endif
 
+#ifdef ENABLE_SQLITE
+	bool HasStickerDatabase() const noexcept {
+		return sticker_database != nullptr;
+	}
+#endif
+
+	void BeginShutdownUpdate() noexcept;
+
+#ifdef ENABLE_CURL
+	void LookupRemoteTag(const char *uri) noexcept;
+#else
+	void LookupRemoteTag(const char *) noexcept {
+		/* no-op */
+	}
+#endif
+
+	void FlushCaches() noexcept;
+
 private:
 #ifdef ENABLE_DATABASE
-	void OnDatabaseModified() override;
-	void OnDatabaseSongRemoved(const char *uri) override;
+	/* virtual methods from class DatabaseListener */
+	void OnDatabaseModified() noexcept override;
+	void OnDatabaseSongRemoved(const char *uri) noexcept override;
 #endif
 
 #ifdef ENABLE_NEIGHBOR_PLUGINS
 	/* virtual methods from class NeighborListener */
-	void FoundNeighbor(const NeighborInfo &info) override;
-	void LostNeighbor(const NeighborInfo &info) override;
+	void FoundNeighbor(const NeighborInfo &info) noexcept override;
+	void LostNeighbor(const NeighborInfo &info) noexcept override;
+#endif
+
+#ifdef ENABLE_CURL
+	/* virtual methods from class RemoteTagCacheHandler */
+	void OnRemoteTag(const char *uri, const Tag &tag) noexcept override;
 #endif
 
 	/* callback for #idle_monitor */
-	void OnIdle(unsigned mask);
+	void OnIdle(unsigned mask) noexcept;
 };
 
 #endif

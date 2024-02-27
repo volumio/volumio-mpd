@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,9 @@
 #ifndef MPD_COMMAND_LIST_BUILDER_HXX
 #define MPD_COMMAND_LIST_BUILDER_HXX
 
+#include <cassert>
 #include <list>
 #include <string>
-
-#include <assert.h>
 
 class CommandListBuilder {
 	/**
@@ -44,7 +43,7 @@ class CommandListBuilder {
 		 * Enabled in "list_OK" mode.
 		 */
 		OK = true,
-	} mode;
+	} mode = Mode::DISABLED;
 
 	/**
 	 * for when in list mode
@@ -57,9 +56,6 @@ class CommandListBuilder {
 	size_t size;
 
 public:
-	CommandListBuilder()
-		:mode(Mode::DISABLED) {}
-
 	/**
 	 * Is a command list currently being built?
 	 */
@@ -100,7 +96,7 @@ public:
 	/**
 	 * Finishes the list and returns it.
 	 */
-	std::list<std::string> &&Commit() {
+	std::list<std::string> Commit() {
 		assert(IsActive());
 
 		return std::move(list);

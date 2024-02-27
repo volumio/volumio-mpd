@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_EVENT_CALL_HXX
 #define MPD_EVENT_CALL_HXX
 
-#include "check.h"
-
 #include <functional>
 
 class EventLoop;
@@ -29,6 +27,8 @@ class EventLoop;
 /**
  * Call the given function in the context of the #EventLoop, and wait
  * for it to finish.
+ *
+ * Exceptions thrown by the given function will be rethrown.
  */
 void
 BlockingCall(EventLoop &loop, std::function<void()> &&f);

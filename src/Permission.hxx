@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,18 +20,45 @@
 #ifndef MPD_PERMISSION_HXX
 #define MPD_PERMISSION_HXX
 
+#include "config.h"
+
+#include <optional>
+
+struct ConfigData;
+class SocketAddress;
+
 static constexpr unsigned PERMISSION_NONE = 0;
 static constexpr unsigned PERMISSION_READ = 1;
 static constexpr unsigned PERMISSION_ADD = 2;
 static constexpr unsigned PERMISSION_CONTROL = 4;
 static constexpr unsigned PERMISSION_ADMIN = 8;
+static constexpr unsigned PERMISSION_PLAYER = 16;
 
-int getPermissionFromPassword(char const* password, unsigned* permission);
+/**
+ * @return the permissions for the given password or std::nullopt if
+ * the password is not accepted
+ */
+[[gnu::pure]]
+std::optional<unsigned>
+GetPermissionFromPassword(const char *password) noexcept;
 
+[[gnu::const]]
 unsigned
-getDefaultPermissions();
+getDefaultPermissions() noexcept;
+
+#ifdef HAVE_UN
+[[gnu::const]]
+unsigned
+GetLocalPermissions() noexcept;
+#endif
+
+#ifdef HAVE_TCP
+[[gnu::pure]]
+int
+GetPermissionsFromAddress(SocketAddress address) noexcept;
+#endif
 
 void
-initPermissions();
+initPermissions(const ConfigData &config);
 
 #endif

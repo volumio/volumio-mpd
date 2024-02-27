@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,17 +21,16 @@
  * Common data structures and functions used by FLAC and OggFLAC
  */
 
-#include "config.h"
 #include "FlacCommon.hxx"
-#include "FlacMetadata.hxx"
-#include "util/ConstBuffer.hxx"
+#include "lib/xiph/FlacStreamMetadata.hxx"
 #include "Log.hxx"
+#include "input/InputStream.hxx"
 
-#include <stdexcept>
+#include <exception>
 
 bool
 FlacDecoder::Initialize(unsigned sample_rate, unsigned bits_per_sample,
-			unsigned channels, FLAC__uint64 total_frames)
+			unsigned channels, FLAC__uint64 total_frames) noexcept
 {
 	assert(!initialized);
 	assert(!unsupported);
@@ -39,8 +38,8 @@ FlacDecoder::Initialize(unsigned sample_rate, unsigned bits_per_sample,
 	try {
 		pcm_import.Open(sample_rate, bits_per_sample,
 				channels);
-	} catch (const std::runtime_error &e) {
-		LogError(e);
+	} catch (...) {
+		LogError(std::current_exception());
 		unsupported = true;
 		return false;
 	}
@@ -61,7 +60,7 @@ FlacDecoder::Initialize(unsigned sample_rate, unsigned bits_per_sample,
 }
 
 inline void
-FlacDecoder::OnStreamInfo(const FLAC__StreamMetadata_StreamInfo &stream_info)
+FlacDecoder::OnStreamInfo(const FLAC__StreamMetadata_StreamInfo &stream_info) noexcept
 {
 	if (initialized)
 		return;
@@ -73,19 +72,21 @@ FlacDecoder::OnStreamInfo(const FLAC__StreamMetadata_StreamInfo &stream_info)
 }
 
 inline void
-FlacDecoder::OnVorbisComment(const FLAC__StreamMetadata_VorbisComment &vc)
+FlacDecoder::OnVorbisComment(const FLAC__StreamMetadata_VorbisComment &vc) noexcept
 {
 	ReplayGainInfo rgi;
 	if (flac_parse_replay_gain(rgi, vc))
 		GetClient()->SubmitReplayGain(&rgi);
 
-	GetClient()->SubmitMixRamp(flac_parse_mixramp(vc));
+	if (auto mix_ramp = flac_parse_mixramp(vc);
+	    mix_ramp.IsDefined())
+		GetClient()->SubmitMixRamp(std::move(mix_ramp));
 
 	tag = flac_vorbis_comments_to_tag(&vc);
 }
 
 void
-FlacDecoder::OnMetadata(const FLAC__StreamMetadata &metadata)
+FlacDecoder::OnMetadata(const FLAC__StreamMetadata &metadata) noexcept
 {
 	if (unsupported)
 		return;
@@ -105,7 +106,7 @@ FlacDecoder::OnMetadata(const FLAC__StreamMetadata &metadata)
 }
 
 inline bool
-FlacDecoder::OnFirstFrame(const FLAC__FrameHeader &header)
+FlacDecoder::OnFirstFrame(const FLAC__FrameHeader &header) noexcept
 {
 	if (unsupported)
 		return false;
@@ -138,30 +139,15 @@ FlacDecoder::GetDeltaPosition(const FLAC__StreamDecoder &sd)
 FLAC__StreamDecoderWriteStatus
 FlacDecoder::OnWrite(const FLAC__Frame &frame,
 		     const FLAC__int32 *const buf[],
-		     FLAC__uint64 nbytes)
+		     FLAC__uint64 nbytes) noexcept
 {
 	if (!initialized && !OnFirstFrame(frame.header))
 		return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
 
-	const auto data = pcm_import.Import(buf, frame.header.blocksize);
+	chunk = pcm_import.Import(buf, frame.header.blocksize);
 
-	unsigned bit_rate = nbytes * 8 * frame.header.sample_rate /
+	kbit_rate = nbytes * 8 * frame.header.sample_rate /
 		(1000 * frame.header.blocksize);
-
-	auto cmd = GetClient()->SubmitData(GetInputStream(),
-					   data.data, data.size,
-					   bit_rate);
-	switch (cmd) {
-	case DecoderCommand::NONE:
-	case DecoderCommand::START:
-		break;
-
-	case DecoderCommand::STOP:
-		return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
-
-	case DecoderCommand::SEEK:
-		return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
-	}
 
 	return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
 }

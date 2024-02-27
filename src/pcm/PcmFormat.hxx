@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,9 @@
 #ifndef MPD_PCM_FORMAT_HXX
 #define MPD_PCM_FORMAT_HXX
 
-#include "AudioFormat.hxx"
+#include "SampleFormat.hxx"
 
-#include <stdint.h>
+#include <cstdint>
 
 template<typename T> struct ConstBuffer;
 class PcmBuffer;
@@ -37,10 +37,10 @@ class PcmDither;
  * @param src the source PCM buffer
  * @return the destination buffer
  */
-gcc_pure
+[[gnu::pure]]
 ConstBuffer<int16_t>
 pcm_convert_to_16(PcmBuffer &buffer, PcmDither &dither,
-		  SampleFormat src_format, ConstBuffer<void> src);
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept;
 
 /**
  * Converts PCM samples to 24 bit (32 bit alignment).
@@ -49,10 +49,10 @@ pcm_convert_to_16(PcmBuffer &buffer, PcmDither &dither,
  * @param src the source PCM buffer
  * @return the destination buffer
  */
-gcc_pure
+[[gnu::pure]]
 ConstBuffer<int32_t>
 pcm_convert_to_24(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src);
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept;
 
 /**
  * Converts PCM samples to 32 bit.
@@ -61,10 +61,10 @@ pcm_convert_to_24(PcmBuffer &buffer,
  * @param src the source PCM buffer
  * @return the destination buffer
  */
-gcc_pure
+[[gnu::pure]]
 ConstBuffer<int32_t>
 pcm_convert_to_32(PcmBuffer &buffer,
-		  SampleFormat src_format, ConstBuffer<void> src);
+		  SampleFormat src_format, ConstBuffer<void> src) noexcept;
 
 /**
  * Converts PCM samples to 32 bit floating point.
@@ -73,9 +73,9 @@ pcm_convert_to_32(PcmBuffer &buffer,
  * @param src the source PCM buffer
  * @return the destination buffer
  */
-gcc_pure
+[[gnu::pure]]
 ConstBuffer<float>
 pcm_convert_to_float(PcmBuffer &buffer,
-		     SampleFormat src_format, ConstBuffer<void> src);
+		     SampleFormat src_format, ConstBuffer<void> src) noexcept;
 
 #endif

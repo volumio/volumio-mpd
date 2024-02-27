@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,17 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Device.hxx"
 #include "Util.hxx"
 #include "lib/expat/ExpatParser.hxx"
 
 #include <string.h>
 
-UPnPDevice::~UPnPDevice()
-{
-	/* this destructor exists here just so it won't get inlined */
-}
+/* this destructor exists here just so it won't get inlined */
+UPnPDevice::~UPnPDevice() noexcept = default;
 
 /**
  * An XML parser which constructs an UPnP device object from the
@@ -41,12 +38,12 @@ class UPnPDeviceParser final : public CommonExpatParser {
 	UPnPService m_tservice;
 
 public:
-	UPnPDeviceParser(UPnPDevice& device)
+	explicit UPnPDeviceParser(UPnPDevice& device)
 		:m_device(device),
 		 value(nullptr) {}
 
 protected:
-	virtual void StartElement(const XML_Char *name, const XML_Char **) {
+	void StartElement(const XML_Char *name, const XML_Char **) override {
 		value = nullptr;
 
 		switch (name[0]) {
@@ -81,17 +78,17 @@ protected:
 		}
 	}
 
-	virtual void EndElement(const XML_Char *name) {
+	void EndElement(const XML_Char *name) override {
 		if (value != nullptr) {
 			trimstring(*value);
 			value = nullptr;
 		} else if (!strcmp(name, "service")) {
 			m_device.services.emplace_back(std::move(m_tservice));
-			m_tservice.clear();
+			m_tservice = {};
 		}
 	}
 
-	virtual void CharacterData(const XML_Char *s, int len) {
+	void CharacterData(const XML_Char *s, int len) override {
 		if (value != nullptr)
 			value->append(s, len);
 	}
@@ -115,7 +112,7 @@ UPnPDevice::Parse(const std::string &url, const char *description)
 			// ???
 			URLBase = url;
 		} else {
-			auto hostslash = url.find_first_of("/", 7);
+			auto hostslash = url.find('/', 7);
 			if (hostslash == std::string::npos || hostslash == url.size()-1) {
 				URLBase = url;
 			} else {

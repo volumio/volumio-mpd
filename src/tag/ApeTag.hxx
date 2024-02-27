@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,18 +20,17 @@
 #ifndef MPD_APE_TAG_HXX
 #define MPD_APE_TAG_HXX
 
-#include "TagTable.hxx"
-
 class InputStream;
-struct TagHandler;
+class TagHandler;
 
 /**
  * Scan the APE tags of a stream.
  *
+ * Throws on I/O error.
+ *
  * @param path_fs the path of the file in filesystem encoding
  */
 bool
-tag_ape_scan2(InputStream &is,
-	      const TagHandler &handler, void *handler_ctx);
+tag_ape_scan2(InputStream &is, TagHandler &handler);
 
 #endif

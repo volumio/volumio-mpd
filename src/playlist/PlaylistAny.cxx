@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,34 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
+#include "LocateUri.hxx"
 #include "PlaylistAny.hxx"
 #include "PlaylistStream.hxx"
 #include "PlaylistMapper.hxx"
-#include "util/UriUtil.hxx"
+#include "SongEnumerator.hxx"
+#include "config.h"
 
-SongEnumerator *
-playlist_open_any(const char *uri,
+std::unique_ptr<SongEnumerator>
+playlist_open_any(const LocatedUri &located_uri,
 #ifdef ENABLE_DATABASE
 		  const Storage *storage,
 #endif
-		  Mutex &mutex, Cond &cond)
+		  Mutex &mutex)
 {
-	return uri_has_scheme(uri)
-		? playlist_open_remote(uri, mutex, cond)
-		: playlist_mapper_open(uri,
+	switch (located_uri.type) {
+	case LocatedUri::Type::ABSOLUTE:
+		return playlist_open_remote(located_uri.canonical_uri, mutex);
+
+	case LocatedUri::Type::PATH:
+		return playlist_open_path(located_uri.path, mutex);
+
+	case LocatedUri::Type::RELATIVE:
+		return playlist_mapper_open(located_uri.canonical_uri,
 #ifdef ENABLE_DATABASE
 				       storage,
 #endif
-				       mutex, cond);
+				       mutex);
+	}
+
+	gcc_unreachable();
 }

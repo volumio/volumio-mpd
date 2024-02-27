@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 #define MPD_PCM_FLOAT_CONVERT_HXX
 
 #include "Traits.hxx"
+#include "Clamp.hxx"
 
 /**
  * Convert from float to an integer sample format.
@@ -34,10 +35,10 @@ struct FloatToIntegerSampleConvert {
 	typedef typename SrcTraits::long_type SL;
 	typedef typename DstTraits::value_type DV;
 
-	static constexpr SV factor = 1 << (DstTraits::BITS - 1);
+	static constexpr SV factor = uintmax_t(1) << (DstTraits::BITS - 1);
+	static_assert(factor > 0, "Wrong factor");
 
-	gcc_const
-	static DV Convert(SV src) {
+	static constexpr DV Convert(SV src) noexcept {
 		return PcmClamp<F, Traits>(SL(src * factor));
 	}
 };
@@ -53,10 +54,10 @@ struct IntegerToFloatSampleConvert {
 	typedef typename SrcTraits::value_type SV;
 	typedef typename DstTraits::value_type DV;
 
-	static constexpr DV factor = 0.5 / (1 << (SrcTraits::BITS - 2));
+	static constexpr DV factor = 1.0f / FloatToIntegerSampleConvert<F, Traits>::factor;
+	static_assert(factor > 0, "Wrong factor");
 
-	gcc_const
-	static DV Convert(SV src) {
+	static constexpr DV Convert(SV src) noexcept {
 		return DV(src) * factor;
 	}
 };

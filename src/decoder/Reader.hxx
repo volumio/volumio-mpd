@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,7 @@
 #ifndef MPD_DECODER_READER_HXX
 #define MPD_DECODER_READER_HXX
 
-#include "check.h"
-#include "fs/io/Reader.hxx"
-#include "Compiler.h"
+#include "io/Reader.hxx"
 
 class DecoderClient;
 class InputStream;

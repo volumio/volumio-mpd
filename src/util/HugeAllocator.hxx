@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2019 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +30,10 @@
 #ifndef HUGE_ALLOCATOR_HXX
 #define HUGE_ALLOCATOR_HXX
 
-#include "Compiler.h"
+#include "WritableBuffer.hxx"
 
-#include <new>
+#include <cstddef>
 #include <utility>
-
-#include <stddef.h>
 
 #ifdef __linux__
 
@@ -43,10 +41,15 @@
  * Allocate a huge amount of memory.  This will be done in a way that
  * allows giving the memory back to the kernel as soon as we don't
  * need it anymore.  On the downside, this call is expensive.
+ *
+ * Throws std::bad_alloc on error
+ *
+ * @returns the allocated buffer with a size which may be rounded up
+ * (to the next page size), so callers can take advantage of this
+ * allocation overhead
  */
-gcc_malloc
-void *
-HugeAllocate(size_t size) throw(std::bad_alloc);
+WritableBuffer<void>
+HugeAllocate(size_t size);
 
 /**
  * @param p an allocation returned by HugeAllocate()
@@ -54,6 +57,13 @@ HugeAllocate(size_t size) throw(std::bad_alloc);
  */
 void
 HugeFree(void *p, size_t size) noexcept;
+
+/**
+ * Control whether this allocation is copied to newly forked child
+ * processes.  Disabling that makes forking a little bit cheaper.
+ */
+void
+HugeForkCow(void *p, size_t size, bool enable) noexcept;
 
 /**
  * Discard any data stored in the allocation and give the memory back
@@ -66,17 +76,21 @@ HugeFree(void *p, size_t size) noexcept;
 void
 HugeDiscard(void *p, size_t size) noexcept;
 
-#elif defined(WIN32)
-#include <windows.h>
+#elif defined(_WIN32)
+#include <memoryapi.h>
 
-gcc_malloc
-void *
-HugeAllocate(size_t size) throw(std::bad_alloc);
+WritableBuffer<void>
+HugeAllocate(size_t size);
 
 static inline void
-HugeFree(void *p, gcc_unused size_t size) noexcept
+HugeFree(void *p, size_t) noexcept
 {
 	VirtualFree(p, 0, MEM_RELEASE);
+}
+
+static inline void
+HugeForkCow(void *, size_t, bool) noexcept
+{
 }
 
 static inline void
@@ -89,13 +103,12 @@ HugeDiscard(void *p, size_t size) noexcept
 
 /* not Linux: fall back to standard C calls */
 
-#include <stdint.h>
+#include <cstdint>
 
-gcc_malloc
-static inline void *
-HugeAllocate(size_t size) throw(std::bad_alloc)
+static inline WritableBuffer<void>
+HugeAllocate(size_t size)
 {
-	return new uint8_t[size];
+	return {new uint8_t[size], size};
 }
 
 static inline void
@@ -106,6 +119,11 @@ HugeFree(void *_p, size_t) noexcept
 }
 
 static inline void
+HugeForkCow(void *, size_t, bool) noexcept
+{
+}
+
+static inline void
 HugeDiscard(void *, size_t) noexcept
 {
 }
@@ -113,47 +131,111 @@ HugeDiscard(void *, size_t) noexcept
 #endif
 
 /**
- * Automatic huge memory allocation management.
+ * Automatic memory management for a dynamic array in "huge" memory.
  */
-class HugeAllocation {
-	void *data = nullptr;
-	size_t size;
+template<typename T>
+class HugeArray {
+	typedef WritableBuffer<T> Buffer;
+	Buffer buffer{nullptr};
 
 public:
-	HugeAllocation() = default;
+	typedef typename Buffer::size_type size_type;
+	typedef typename Buffer::value_type value_type;
+	typedef typename Buffer::reference reference;
+	typedef typename Buffer::const_reference const_reference;
+	typedef typename Buffer::iterator iterator;
+	typedef typename Buffer::const_iterator const_iterator;
 
-	HugeAllocation(size_t _size) throw(std::bad_alloc)
-		:data(HugeAllocate(_size)), size(_size) {}
+	constexpr HugeArray() = default;
 
-	HugeAllocation(HugeAllocation &&src) noexcept
-		:data(src.data), size(src.size) {
-		src.data = nullptr;
-	}
+	explicit HugeArray(size_type _size)
+		:buffer(Buffer::FromVoidFloor(HugeAllocate(sizeof(value_type) * _size))) {}
 
-	~HugeAllocation() {
-		if (data != nullptr)
-			HugeFree(data, size);
-	}
+	constexpr HugeArray(HugeArray &&other) noexcept
+		:buffer(std::exchange(other.buffer, nullptr)) {}
 
-	HugeAllocation &operator=(HugeAllocation &&src) noexcept {
-		std::swap(data, src.data);
-		std::swap(size, src.size);
-		return *this;
-	}
-
-	void Discard() noexcept {
-		HugeDiscard(data, size);
-	}
-
-	void reset() noexcept {
-		if (data != nullptr) {
-			HugeFree(data, size);
-			data = nullptr;
+	~HugeArray() noexcept {
+		if (buffer != nullptr) {
+			auto v = buffer.ToVoid();
+			HugeFree(v.data, v.size);
 		}
 	}
 
-	void *get() noexcept {
-		return data;
+	HugeArray &operator=(HugeArray &&other) noexcept {
+		using std::swap;
+		swap(buffer, other.buffer);
+		return *this;
+	}
+
+	void ForkCow(bool enable) noexcept {
+		auto v = buffer.ToVoid();
+		HugeForkCow(v.data, v.size, enable);
+	}
+
+	void Discard() noexcept {
+		auto v = buffer.ToVoid();
+		HugeDiscard(v.data, v.size);
+	}
+
+	constexpr bool operator==(std::nullptr_t) const noexcept {
+		return buffer == nullptr;
+	}
+
+	constexpr bool operator!=(std::nullptr_t) const noexcept {
+		return buffer != nullptr;
+	}
+
+	/**
+	 * Returns the number of allocated elements.
+	 */
+	constexpr size_type size() const noexcept {
+		return buffer.size;
+	}
+
+	reference front() noexcept {
+		return buffer.front();
+	}
+
+	const_reference front() const noexcept {
+		return buffer.front();
+	}
+
+	reference back() noexcept {
+		return buffer.back();
+	}
+
+	const_reference back() const noexcept {
+		return buffer.back();
+	}
+
+	/**
+	 * Returns one element.  No bounds checking.
+	 */
+	reference operator[](size_type i) noexcept {
+		return buffer[i];
+	}
+
+	/**
+	 * Returns one constant element.  No bounds checking.
+	 */
+	const_reference operator[](size_type i) const noexcept {
+		return buffer[i];
+	}
+
+	iterator begin() noexcept {
+		return buffer.begin();
+	}
+
+	constexpr const_iterator begin() const noexcept {
+		return buffer.cbegin();
+	}
+
+	iterator end() noexcept {
+		return buffer.end();
+	}
+
+	constexpr const_iterator end() const noexcept {
+		return buffer.cend();
 	}
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,24 +17,27 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SignalHandlers.hxx"
+#include "Instance.hxx"
 #include "event/SignalMonitor.hxx"
 
-#ifndef WIN32
+#ifndef _WIN32
 
 #include "Log.hxx"
 #include "LogInit.hxx"
-#include "event/Loop.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
 #include "util/Domain.hxx"
 
-#include <signal.h>
+#include <csignal>
+
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 static constexpr Domain signal_handlers_domain("signal_handlers");
 
 static void
-HandleShutdownSignal(void *ctx)
+HandleShutdownSignal(void *ctx) noexcept
 {
 	auto &loop = *(EventLoop *)ctx;
 	loop.Break();
@@ -43,25 +46,31 @@ HandleShutdownSignal(void *ctx)
 static void
 x_sigaction(int signum, const struct sigaction *act)
 {
-	if (sigaction(signum, act, NULL) < 0)
-		FatalSystemError("sigaction() failed");
+	if (sigaction(signum, act, nullptr) < 0)
+		throw MakeErrno("sigaction() failed");
 }
 
 static void
-handle_reload_event(void *)
+handle_reload_event(void *ctx) noexcept
 {
-	LogDebug(signal_handlers_domain, "got SIGHUP, reopening log files");
+	auto &instance = *(Instance *)ctx;
+
+	LogDebug(signal_handlers_domain, "got SIGHUP, reopening log files and flushing caches");
 	cycle_log_files();
+
+	instance.FlushCaches();
 }
 
 #endif
 
 void
-SignalHandlersInit(EventLoop &loop)
+SignalHandlersInit(Instance &instance, bool daemon)
 {
+	auto &loop = instance.event_loop;
+
 	SignalMonitorInit(loop);
 
-#ifndef WIN32
+#ifndef _WIN32
 	struct sigaction sa;
 
 	sa.sa_flags = 0;
@@ -72,12 +81,20 @@ SignalHandlersInit(EventLoop &loop)
 	SignalMonitorRegister(SIGINT, {&loop, HandleShutdownSignal});
 	SignalMonitorRegister(SIGTERM, {&loop, HandleShutdownSignal});
 
-	SignalMonitorRegister(SIGHUP, {nullptr, handle_reload_event});
+	SignalMonitorRegister(SIGHUP, {&instance, handle_reload_event});
 #endif
+
+	if (!daemon) {
+#ifdef __linux__
+		/* if MPD was not daemonized, shut it down when the
+		   parent process dies */
+		prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+	}
 }
 
 void
-SignalHandlersFinish()
+SignalHandlersFinish() noexcept
 {
 	SignalMonitorFinish();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,24 +20,12 @@
 #ifndef MPD_UPNP_UTIL_HXX
 #define MPD_UPNP_UTIL_HXX
 
-#include "Compiler.h"
-
 #include <string>
-#include <list>
 
 void
-trimstring(std::string &s, const char *ws = " \t\n");
+trimstring(std::string &s, const char *ws = " \t\n") noexcept;
 
 std::string
-path_getfather(const std::string &s);
-
-gcc_pure
-std::list<std::string>
-stringToTokens(const std::string &str,
-	       const char *delims = "/", bool skipinit = true);
-
-template <class T>
-bool
-csvToStrings(const char *s, T &tokens);
+path_getfather(const std::string &s) noexcept;
 
 #endif /* _UPNPP_H_X_INCLUDED_ */

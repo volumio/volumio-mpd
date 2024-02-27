@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,15 +21,14 @@
 #define MPD_PLAYLIST_COMMANDS_HXX
 
 #include "CommandResult.hxx"
-#include "Compiler.h"
 
 class Client;
 class Request;
 class Response;
 
-gcc_const
+[[gnu::const]]
 bool
-playlist_commands_available();
+playlist_commands_available() noexcept;
 
 CommandResult
 handle_save(Client &client, Request request, Response &response);

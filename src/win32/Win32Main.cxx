@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,14 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Main.hxx"
-
-#ifdef WIN32
-
-#include "Compiler.h"
+#include "util/Compiler.h"
 #include "Instance.hxx"
-#include "system/FatalError.hxx"
+#include "system/Error.hxx"
+#include "Log.hxx"
 
 #include <cstdlib>
 #include <atomic>
@@ -65,13 +62,13 @@ service_notify_status(DWORD status_code)
 }
 
 static DWORD WINAPI
-service_dispatcher(gcc_unused DWORD control, gcc_unused DWORD event_type,
-		   gcc_unused void *event_data, gcc_unused void *context)
+service_dispatcher([[maybe_unused]] DWORD control, [[maybe_unused]] DWORD event_type,
+		   [[maybe_unused]] void *event_data, [[maybe_unused]] void *context)
 {
 	switch (control) {
 	case SERVICE_CONTROL_SHUTDOWN:
 	case SERVICE_CONTROL_STOP:
-		instance->Shutdown();
+		global_instance->Break();
 		return NO_ERROR;
 	default:
 		return NO_ERROR;
@@ -79,18 +76,20 @@ service_dispatcher(gcc_unused DWORD control, gcc_unused DWORD event_type,
 }
 
 static void WINAPI
-service_main(gcc_unused DWORD argc, gcc_unused LPTSTR argv[])
-{
+service_main([[maybe_unused]] DWORD argc, [[maybe_unused]] LPTSTR argv[])
+try {
 	service_handle =
 		RegisterServiceCtrlHandlerEx(service_name,
 					     service_dispatcher, nullptr);
 
 	if (service_handle == 0)
-		FatalSystemError("RegisterServiceCtrlHandlerEx() failed");
+		throw MakeLastError("RegisterServiceCtrlHandlerEx() failed");
 
 	service_notify_status(SERVICE_START_PENDING);
 	mpd_main(service_argc, service_argv);
 	service_notify_status(SERVICE_STOPPED);
+} catch (...) {
+	LogError(std::current_exception());
 }
 
 static BOOL WINAPI
@@ -107,7 +106,7 @@ console_handler(DWORD event)
 			// regardless our thread is still active.
 			// If this did not happen within 3 seconds
 			// let's shutdown anyway.
-			instance->Shutdown();
+			global_instance->Break();
 			// Under debugger it's better to wait indefinitely
 			// to allow debugging of shutdown code.
 			Sleep(IsDebuggerPresent() ? INFINITE : 3000);
@@ -138,7 +137,7 @@ int win32_main(int argc, char *argv[])
 		return mpd_main(argc, argv);
 	}
 
-	FatalSystemError("StartServiceCtrlDispatcher() failed", error_code);
+	throw MakeLastError(error_code, "StartServiceCtrlDispatcher() failed");
 }
 
 void win32_app_started()
@@ -156,5 +155,3 @@ void win32_app_stopping()
 	else
 		running.store(false);
 }
-
-#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,16 @@
 #ifndef MPD_MAIN_HXX
 #define MPD_MAIN_HXX
 
-class EventLoop;
-class Context;
 struct Instance;
 
 #ifdef ANDROID
-extern Context *context;
+#include "android/LogListener.hxx"
+
+extern class Context *context;
+extern LogListener *logListener;
 #endif
 
-extern Instance *instance;
+extern Instance *global_instance;
 
 #ifndef ANDROID
 
@@ -38,11 +39,12 @@ extern Instance *instance;
  * On Windows platform this is called from win32_main()
  * after doing some initialization.
  */
-int mpd_main(int argc, char *argv[]);
+int
+mpd_main(int argc, char *argv[]);
 
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 
 /**
  * If program is run as windows service performs nessesary initialization

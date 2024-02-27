@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "DecoderBuffer.hxx"
 #include "DecoderAPI.hxx"
 
@@ -25,7 +24,7 @@ bool
 DecoderBuffer::Fill()
 {
 	auto w = buffer.Write();
-	if (w.IsEmpty())
+	if (w.empty())
 		/* buffer is full */
 		return false;
 

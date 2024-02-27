@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,11 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SmbclientNeighborPlugin.hxx"
 #include "lib/smbclient/Init.hxx"
+#include "lib/smbclient/Context.hxx"
 #include "lib/smbclient/Domain.hxx"
-#include "lib/smbclient/Mutex.hxx"
 #include "neighbor/NeighborPlugin.hxx"
 #include "neighbor/Explorer.hxx"
 #include "neighbor/Listener.hxx"
@@ -34,29 +33,32 @@
 
 #include <libsmbclient.h>
 
-#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <utility>
 
 class SmbclientNeighborExplorer final : public NeighborExplorer {
 	struct Server {
-		std::string name, comment;
+		const std::string name, comment;
 
-		bool alive;
+		Server(std::string &&_name, std::string &&_comment) noexcept
+			:name(std::move(_name)),
+			 comment(std::move(_comment)) {}
 
-		Server(std::string &&_name, std::string &&_comment)
-			:name(std::move(_name)), comment(std::move(_comment)),
-			 alive(true) {}
 		Server(const Server &) = delete;
 
-		gcc_pure
-		bool operator==(const Server &other) const {
+		[[gnu::pure]]
+		bool operator==(const Server &other) const noexcept {
 			return name == other.name;
 		}
 
-		gcc_pure
-		NeighborInfo Export() const {
+		[[nodiscard]] [[gnu::pure]]
+		NeighborInfo Export() const noexcept {
 			return { "smb://" + name + "/", comment };
 		}
 	};
+
+	SmbclientContext ctx = SmbclientContext::New();
 
 	Thread thread;
 
@@ -68,52 +70,52 @@ class SmbclientNeighborExplorer final : public NeighborExplorer {
 	bool quit;
 
 public:
-	SmbclientNeighborExplorer(NeighborListener &_listener)
-		:NeighborExplorer(_listener) {}
+	explicit SmbclientNeighborExplorer(NeighborListener &_listener)
+		:NeighborExplorer(_listener),
+		 thread(BIND_THIS_METHOD(ThreadFunc)) {}
 
 	/* virtual methods from class NeighborExplorer */
 	void Open() override;
-	virtual void Close() override;
-	virtual List GetList() const override;
+	void Close() noexcept override;
+	List GetList() const noexcept override;
 
 private:
-	void Run();
-	void ThreadFunc();
-	static void ThreadFunc(void *ctx);
+	/**
+	 * Caller must lock the mutex.
+	 */
+	void Run() noexcept;
+
+	void ThreadFunc() noexcept;
 };
 
 void
 SmbclientNeighborExplorer::Open()
 {
 	quit = false;
-	thread.Start(ThreadFunc, this);
+	thread.Start();
 }
 
 void
-SmbclientNeighborExplorer::Close()
+SmbclientNeighborExplorer::Close() noexcept
 {
-	mutex.lock();
-	quit = true;
-	cond.signal();
-	mutex.unlock();
+	{
+		const std::scoped_lock<Mutex> lock(mutex);
+		quit = true;
+		cond.notify_one();
+	}
 
 	thread.Join();
 }
 
 NeighborExplorer::List
-SmbclientNeighborExplorer::GetList() const
+SmbclientNeighborExplorer::GetList() const noexcept
 {
-	const ScopeLock protect(mutex);
-	/*
-	List list;
-	for (const auto &i : servers)
-		list.emplace_front(i.Export());
-	*/
+	const std::scoped_lock<Mutex> protect(mutex);
 	return list;
 }
 
 static void
-ReadServer(NeighborExplorer::List &list, const smbc_dirent &e)
+ReadServer(NeighborExplorer::List &list, const smbc_dirent &e) noexcept
 {
 	const std::string name(e.name, e.namelen);
 	const std::string comment(e.comment, e.commentlen);
@@ -122,21 +124,24 @@ ReadServer(NeighborExplorer::List &list, const smbc_dirent &e)
 }
 
 static void
-ReadServers(NeighborExplorer::List &list, const char *uri);
+ReadServers(SmbclientContext &ctx, const char *uri,
+	    NeighborExplorer::List &list) noexcept;
 
 static void
-ReadWorkgroup(NeighborExplorer::List &list, const std::string &name)
+ReadWorkgroup(SmbclientContext &ctx, const std::string &name,
+	      NeighborExplorer::List &list) noexcept
 {
 	std::string uri = "smb://" + name;
-	ReadServers(list, uri.c_str());
+	ReadServers(ctx, uri.c_str(), list);
 }
 
 static void
-ReadEntry(NeighborExplorer::List &list, const smbc_dirent &e)
+ReadEntry(SmbclientContext &ctx, const smbc_dirent &e,
+	  NeighborExplorer::List &list) noexcept
 {
 	switch (e.smbc_type) {
 	case SMBC_WORKGROUP:
-		ReadWorkgroup(list, std::string(e.name, e.namelen));
+		ReadWorkgroup(ctx, std::string(e.name, e.namelen), list);
 		break;
 
 	case SMBC_SERVER:
@@ -146,42 +151,40 @@ ReadEntry(NeighborExplorer::List &list, const smbc_dirent &e)
 }
 
 static void
-ReadServers(NeighborExplorer::List &list, int fd)
+ReadServers(SmbclientContext &ctx, SMBCFILE *handle,
+	    NeighborExplorer::List &list) noexcept
 {
-	smbc_dirent *e;
-	while ((e = smbc_readdir(fd)) != nullptr)
-		ReadEntry(list, *e);
-
-	smbc_closedir(fd);
+	while (auto e = ctx.ReadDirectory(handle))
+		ReadEntry(ctx, *e, list);
 }
 
 static void
-ReadServers(NeighborExplorer::List &list, const char *uri)
+ReadServers(SmbclientContext &ctx, const char *uri,
+	    NeighborExplorer::List &list) noexcept
 {
-	int fd = smbc_opendir(uri);
-	if (fd >= 0) {
-		ReadServers(list, fd);
-		smbc_closedir(fd);
+	SMBCFILE *handle = ctx.OpenDirectory(uri);
+	if (handle != nullptr) {
+		ReadServers(ctx, handle, list);
+		ctx.CloseDirectory(handle);
 	} else
-		FormatErrno(smbclient_domain, "smbc_opendir('%s') failed",
-			    uri);
+		FmtError(smbclient_domain, "smbc_opendir('{}') failed: {}",
+			 uri, strerror(errno));
 }
 
-gcc_pure
+[[gnu::pure]]
 static NeighborExplorer::List
-DetectServers()
+DetectServers(SmbclientContext &ctx) noexcept
 {
 	NeighborExplorer::List list;
-	const ScopeLock protect(smbclient_mutex);
-	ReadServers(list, "smb://");
+	ReadServers(ctx, "smb://", list);
 	return list;
 }
 
-gcc_pure
-static NeighborExplorer::List::const_iterator
-FindBeforeServerByURI(NeighborExplorer::List::const_iterator prev,
-		      NeighborExplorer::List::const_iterator end,
-		      const std::string &uri)
+[[gnu::pure]]
+static NeighborExplorer::List::iterator
+FindBeforeServerByURI(NeighborExplorer::List::iterator prev,
+		      NeighborExplorer::List::iterator end,
+		      const std::string &uri) noexcept
 {
 	for (auto i = std::next(prev); i != end; prev = i, i = std::next(prev))
 		if (i->uri == uri)
@@ -191,11 +194,14 @@ FindBeforeServerByURI(NeighborExplorer::List::const_iterator prev,
 }
 
 inline void
-SmbclientNeighborExplorer::Run()
+SmbclientNeighborExplorer::Run() noexcept
 {
-	List found = DetectServers(), lost;
+	List found, lost;
 
-	mutex.lock();
+	{
+		const ScopeUnlock unlock(mutex);
+		found = DetectServers(ctx);
+	}
 
 	const auto found_before_begin = found.before_begin();
 	const auto found_end = found.end();
@@ -212,14 +218,7 @@ SmbclientNeighborExplorer::Run()
 			prev = i;
 		} else {
 			/* can't see it anymore: move to "lost" */
-#if CLANG_OR_GCC_VERSION(4,7)
 			lost.splice_after(lost.before_begin(), list, prev);
-#else
-			/* the forward_list::splice_after() lvalue
-			   reference overload is missing in gcc 4.6 */
-			lost.emplace_front(std::move(*i));
-			list.erase_after(prev);
-#endif
 		}
 	}
 
@@ -227,7 +226,7 @@ SmbclientNeighborExplorer::Run()
 	     i != found_end; prev = i, i = std::next(prev))
 		list.push_front(*i);
 
-	mutex.unlock();
+	const ScopeUnlock unlock(mutex);
 
 	for (auto &i : lost)
 		listener.LostNeighbor(i);
@@ -237,43 +236,31 @@ SmbclientNeighborExplorer::Run()
 }
 
 inline void
-SmbclientNeighborExplorer::ThreadFunc()
+SmbclientNeighborExplorer::ThreadFunc() noexcept
 {
-	mutex.lock();
+	SetThreadName("smbclient");
+
+	std::unique_lock<Mutex> lock(mutex);
 
 	while (!quit) {
-		mutex.unlock();
-
 		Run();
 
-		mutex.lock();
 		if (quit)
 			break;
 
 		// TODO: sleep for how long?
-		cond.timed_wait(mutex, 10000);
+		cond.wait_for(lock, std::chrono::seconds(10));
 	}
-
-	mutex.unlock();
 }
 
-void
-SmbclientNeighborExplorer::ThreadFunc(void *ctx)
-{
-	SetThreadName("smbclient");
-
-	SmbclientNeighborExplorer &e = *(SmbclientNeighborExplorer *)ctx;
-	e.ThreadFunc();
-}
-
-static NeighborExplorer *
-smbclient_neighbor_create(gcc_unused EventLoop &loop,
+static std::unique_ptr<NeighborExplorer>
+smbclient_neighbor_create([[maybe_unused]] EventLoop &loop,
 			  NeighborListener &listener,
-			  gcc_unused const ConfigBlock &block)
+			  [[maybe_unused]] const ConfigBlock &block)
 {
 	SmbclientInit();
 
-	return new SmbclientNeighborExplorer(listener);
+	return std::make_unique<SmbclientNeighborExplorer>(listener);
 }
 
 const NeighborPlugin smbclient_neighbor_plugin = {

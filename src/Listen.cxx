@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,68 +19,42 @@
 
 #include "config.h"
 #include "Listen.hxx"
-#include "client/Client.hxx"
-#include "config/Param.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigOption.hxx"
-#include "net/SocketAddress.hxx"
-#include "event/ServerSocket.hxx"
-#include "system/Error.hxx"
-#include "util/RuntimeError.hxx"
-#include "util/Domain.hxx"
-#include "fs/AllocatedPath.hxx"
 #include "Log.hxx"
+#include "client/Listener.hxx"
+#include "config/Param.hxx"
+#include "config/Data.hxx"
+#include "config/Option.hxx"
+#include "config/Net.hxx"
+#include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "net/AllocatedSocketAddress.hxx"
+#include "net/UniqueSocketDescriptor.hxx"
+#include "net/SocketUtil.hxx"
+#include "system/Error.hxx"
+#include "fs/AllocatedPath.hxx"
+#include "fs/StandardDirectory.hxx"
+#include "fs/XDG.hxx"
+#include "util/Domain.hxx"
+#include "util/RuntimeError.hxx"
 
-#include <string.h>
-#include <assert.h>
+#include <sys/stat.h>
 
 #ifdef ENABLE_SYSTEMD_DAEMON
 #include <systemd/sd-daemon.h>
 #endif
 
-static constexpr Domain listen_domain("listen");
-
 #define DEFAULT_PORT	6600
 
-class ClientListener final : public ServerSocket {
-	Partition &partition;
+#if defined(USE_XDG) && defined(HAVE_UN)
+static constexpr Domain listen_domain("listen");
+#endif
 
-public:
-	ClientListener(EventLoop &_loop, Partition &_partition)
-		:ServerSocket(_loop), partition(_partition) {}
-
-private:
-	void OnAccept(int fd, SocketAddress address, int uid) override {
-		client_new(GetEventLoop(), partition,
-			   fd, address, uid);
-	}
-};
-
-static ClientListener *listen_socket;
 int listen_port;
-
-/**
- * Throws #std::runtime_error on error.
- */
-static void
-listen_add_config_param(unsigned int port,
-			const ConfigParam *param)
-{
-	assert(param != nullptr);
-
-	if (0 == strcmp(param->value.c_str(), "any")) {
-		listen_socket->AddPort(port);
-	} else if (param->value[0] == '/' || param->value[0] == '~') {
-		listen_socket->AddPath(param->GetPath());
-	} else {
-		listen_socket->AddHost(param->value.c_str(), port);
-	}
-}
 
 #ifdef ENABLE_SYSTEMD_DAEMON
 
 static bool
-listen_systemd_activation()
+listen_systemd_activation(ClientListener &listener)
 {
 	int n = sd_listen_fds(true);
 	if (n <= 0) {
@@ -91,67 +65,100 @@ listen_systemd_activation()
 
 	for (int i = SD_LISTEN_FDS_START, end = SD_LISTEN_FDS_START + n;
 	     i != end; ++i)
-		listen_socket->AddFD(i);
+		listener.AddFD(UniqueSocketDescriptor(i));
 
 	return true;
 }
 
 #endif
 
-void
-listen_global_init(EventLoop &loop, Partition &partition)
+/**
+ * Listen on "$XDG_RUNTIME_DIR/mpd/socket" (if applicable).
+ *
+ * @return true if a listener socket was added
+ */
+static bool
+ListenXdgRuntimeDir(ClientListener &listener) noexcept
 {
-	int port = config_get_positive(ConfigOption::PORT, DEFAULT_PORT);
-	const auto *param = config_get_param(ConfigOption::BIND_TO_ADDRESS);
+#if defined(USE_XDG) && defined(HAVE_UN)
+	if (geteuid() == 0)
+		/* this MPD instance is a system-wide daemon; don't
+		   use $XDG_RUNTIME_DIR */
+		return false;
 
-	listen_socket = new ClientListener(loop, partition);
+	const auto mpd_runtime_dir = GetAppRuntimeDir();
+	if (mpd_runtime_dir.IsNull())
+		return false;
+
+	const auto socket_path = mpd_runtime_dir / Path::FromFS("socket");
+	unlink(socket_path.c_str());
+
+	AllocatedSocketAddress address;
+	address.SetLocal(socket_path.c_str());
+
+	try {
+		auto fd = socket_bind_listen(AF_LOCAL, SOCK_STREAM, 0,
+					     address, 5);
+		chmod(socket_path.c_str(), 0600);
+		listener.AddFD(std::move(fd), std::move(address));
+		return true;
+	} catch (...) {
+		FmtError(listen_domain,
+			 "Failed to listen on '{}' (not fatal): {}",
+			 socket_path, std::current_exception());
+		return false;
+	}
+#else
+	(void)listener;
+	return false;
+#endif
+}
+
+void
+listen_global_init(const ConfigData &config, ClientListener &listener)
+{
+	int port = config.GetPositive(ConfigOption::PORT, DEFAULT_PORT);
 
 #ifdef ENABLE_SYSTEMD_DAEMON
-	if (listen_systemd_activation())
+	if (listen_systemd_activation(listener))
 		return;
 #endif
 
-	if (param != nullptr) {
-		/* "bind_to_address" is configured, create listeners
-		   for all values */
+	for (const auto &param : config.GetParamList(ConfigOption::BIND_TO_ADDRESS)) {
+		try {
+			ServerSocketAddGeneric(listener, param.value.c_str(),
+					       port);
+		} catch (...) {
+			std::throw_with_nested(FormatRuntimeError("Failed to listen on %s (line %i)",
+								  param.value.c_str(),
+								  param.line));
+		}
+	}
 
-		do {
-			try {
-				listen_add_config_param(port, param);
-			} catch (const std::runtime_error &e) {
-				delete listen_socket;
-				std::throw_with_nested(FormatRuntimeError("Failed to listen on %s (line %i)",
-									  param->value.c_str(),
-									  param->line));
-			}
-		} while ((param = param->next) != nullptr);
-	} else {
+	bool have_xdg_runtime_listener = false;
+
+	if (listener.IsEmpty()) {
 		/* no "bind_to_address" configured, bind the
 		   configured port on all interfaces */
 
+		have_xdg_runtime_listener = ListenXdgRuntimeDir(listener);
+
 		try {
-			listen_socket->AddPort(port);
-		} catch (const std::runtime_error &e) {
-			delete listen_socket;
+			listener.AddPort(port);
+		} catch (...) {
 			std::throw_with_nested(FormatRuntimeError("Failed to listen on *:%d: ", port));
 		}
 	}
 
 	try {
-		listen_socket->Open();
-	} catch (const std::runtime_error &e) {
-		delete listen_socket;
-		throw;
+		listener.Open();
+	} catch (...) {
+		if (have_xdg_runtime_listener)
+			LogError(std::current_exception(),
+				 "Default TCP listener setup failed, but this is okay because we have a $XDG_RUNTIME_DIR listener");
+		else
+			throw;
 	}
 
 	listen_port = port;
-}
-
-void listen_global_finish(void)
-{
-	LogDebug(listen_domain, "listen_global_finish called");
-
-	assert(listen_socket != nullptr);
-
-	delete listen_socket;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,19 +17,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "SongSave.hxx"
+#include "pcm/AudioParser.hxx"
 #include "db/plugins/simple/Song.hxx"
-#include "DetachedSong.hxx"
+#include "song/DetachedSong.hxx"
 #include "TagSave.hxx"
-#include "fs/io/TextFile.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
+#include "io/LineReader.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "tag/ParseName.hxx"
 #include "tag/Tag.hxx"
-#include "tag/TagBuilder.hxx"
-#include "util/StringUtil.hxx"
+#include "tag/Builder.hxx"
+#include "time/ChronoUtil.hxx"
+#include "util/StringAPI.hxx"
+#include "util/StringBuffer.hxx"
+#include "util/StringStrip.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/NumberParser.hxx"
 
-#include <string.h>
 #include <stdlib.h>
 
 #define SONG_MTIME "mtime"
@@ -47,13 +51,24 @@ range_save(BufferedOutputStream &os, unsigned start_ms, unsigned end_ms)
 void
 song_save(BufferedOutputStream &os, const Song &song)
 {
-	os.Format(SONG_BEGIN "%s\n", song.uri);
+	os.Format(SONG_BEGIN "%s\n", song.filename.c_str());
+
+	if (!song.target.empty())
+		os.Format("Target: %s\n", song.target.c_str());
 
 	range_save(os, song.start_time.ToMS(), song.end_time.ToMS());
 
 	tag_save(os, song.tag);
 
-	os.Format(SONG_MTIME ": %li\n", (long)song.mtime);
+	if (song.audio_format.IsDefined())
+		os.Format("Format: %s\n", ToString(song.audio_format).c_str());
+
+	if (song.in_playlist)
+		os.Write("InPlaylist: yes\n");
+
+	if (!IsNegative(song.mtime))
+		os.Format(SONG_MTIME ": %li\n",
+			  (long)std::chrono::system_clock::to_time_t(song.mtime));
 	os.Format(SONG_END "\n");
 }
 
@@ -66,24 +81,25 @@ song_save(BufferedOutputStream &os, const DetachedSong &song)
 
 	tag_save(os, song.GetTag());
 
-	os.Format(SONG_MTIME ": %li\n", (long)song.GetLastModified());
+	if (!IsNegative(song.GetLastModified()))
+		os.Format(SONG_MTIME ": %li\n",
+			  (long)std::chrono::system_clock::to_time_t(song.GetLastModified()));
 	os.Format(SONG_END "\n");
 }
 
-DetachedSong *
-song_load(TextFile &file, const char *uri)
+DetachedSong
+song_load(LineReader &file, const char *uri,
+	  std::string *target_r, bool *in_playlist_r)
 {
-	DetachedSong *song = new DetachedSong(uri);
+	DetachedSong song(uri);
 
 	TagBuilder tag;
 
 	char *line;
 	while ((line = file.ReadLine()) != nullptr &&
-	       strcmp(line, SONG_END) != 0) {
-		char *colon = strchr(line, ':');
+	       !StringIsEqual(line, SONG_END)) {
+		char *colon = std::strchr(line, ':');
 		if (colon == nullptr || colon == line) {
-			delete song;
-
 			throw FormatRuntimeError("unknown line in db: %s", line);
 		}
 
@@ -93,13 +109,23 @@ song_load(TextFile &file, const char *uri)
 		TagType type;
 		if ((type = tag_name_parse(line)) != TAG_NUM_OF_ITEM_TYPES) {
 			tag.AddItem(type, value);
-		} else if (strcmp(line, "Time") == 0) {
-			tag.SetDuration(SignedSongTime::FromS(atof(value)));
-		} else if (strcmp(line, "Playlist") == 0) {
-			tag.SetHasPlaylist(strcmp(value, "yes") == 0);
-		} else if (strcmp(line, SONG_MTIME) == 0) {
-			song->SetLastModified(atoi(value));
-		} else if (strcmp(line, "Range") == 0) {
+		} else if (StringIsEqual(line, "Time")) {
+			tag.SetDuration(SignedSongTime::FromS(ParseDouble(value)));
+		} else if (StringIsEqual(line, "Target")) {
+			if (target_r != nullptr)
+				*target_r = value;
+		} else if (StringIsEqual(line, "Format")) {
+			try {
+				song.SetAudioFormat(ParseAudioFormat(value,
+								     false));
+			} catch (...) {
+				/* ignore parser errors */
+			}
+		} else if (StringIsEqual(line, "Playlist")) {
+			tag.SetHasPlaylist(StringIsEqual(value, "yes"));
+		} else if (StringIsEqual(line, SONG_MTIME)) {
+			song.SetLastModified(std::chrono::system_clock::from_time_t(atoi(value)));
+		} else if (StringIsEqual(line, "Range")) {
 			char *endptr;
 
 			unsigned start_ms = strtoul(value, &endptr, 10);
@@ -107,15 +133,16 @@ song_load(TextFile &file, const char *uri)
 				? strtoul(endptr + 1, nullptr, 10)
 				: 0;
 
-			song->SetStartTime(SongTime::FromMS(start_ms));
-			song->SetEndTime(SongTime::FromMS(end_ms));
+			song.SetStartTime(SongTime::FromMS(start_ms));
+			song.SetEndTime(SongTime::FromMS(end_ms));
+		} else if (StringIsEqual(line, "InPlaylist")) {
+			if (in_playlist_r != nullptr)
+				*in_playlist_r = StringIsEqual(value, "yes");
 		} else {
-			delete song;
-
 			throw FormatRuntimeError("unknown line in db: %s", line);
 		}
 	}
 
-	song->SetTag(tag.Commit());
+	song.SetTag(tag.Commit());
 	return song;
 }

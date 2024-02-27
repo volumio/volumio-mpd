@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,34 +17,25 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "Glue.hxx"
 #include "Registry.hxx"
 #include "Explorer.hxx"
 #include "NeighborPlugin.hxx"
 #include "Info.hxx"
-#include "config/ConfigGlobal.hxx"
-#include "config/ConfigError.hxx"
+#include "config/Data.hxx"
 #include "config/Block.hxx"
 #include "util/RuntimeError.hxx"
 
 #include <stdexcept>
 
-NeighborGlue::Explorer::~Explorer()
-{
-	delete explorer;
-}
+NeighborGlue::NeighborGlue() noexcept = default;
+NeighborGlue::~NeighborGlue() noexcept = default;
 
-NeighborGlue::~NeighborGlue() {}
-
-static NeighborExplorer *
+static std::unique_ptr<NeighborExplorer>
 CreateNeighborExplorer(EventLoop &loop, NeighborListener &listener,
+		       const char *plugin_name,
 		       const ConfigBlock &block)
 {
-	const char *plugin_name = block.GetBlockValue("plugin");
-	if (plugin_name == nullptr)
-		throw std::runtime_error("Missing \"plugin\" configuration");
-
 	const NeighborPlugin *plugin = GetNeighborPluginByName(plugin_name);
 	if (plugin == nullptr)
 		throw FormatRuntimeError("No such neighbor plugin: %s",
@@ -54,17 +45,25 @@ CreateNeighborExplorer(EventLoop &loop, NeighborListener &listener,
 }
 
 void
-NeighborGlue::Init(EventLoop &loop, NeighborListener &listener)
+NeighborGlue::Init(const ConfigData &config,
+		   EventLoop &loop, NeighborListener &listener)
 {
-	for (const auto *block = config_get_block(ConfigBlockOption::NEIGHBORS);
-	     block != nullptr; block = block->next) {
+	for (const auto &block : config.GetBlockList(ConfigBlockOption::NEIGHBORS)) {
+		block.SetUsed();
+
 		try {
-			auto *explorer =
-				CreateNeighborExplorer(loop, listener, *block);
-			explorers.emplace_front(explorer);
+			const char *plugin_name = block.GetBlockValue("plugin");
+			if (plugin_name == nullptr)
+				throw std::runtime_error("Missing \"plugin\" configuration");
+
+			explorers.emplace_front(plugin_name,
+						CreateNeighborExplorer(loop,
+								       listener,
+								       plugin_name,
+								       block));
 		} catch (...) {
 			std::throw_with_nested(FormatRuntimeError("Line %i: ",
-								  block->line));
+								  block.line));
 		}
 	}
 }
@@ -80,20 +79,22 @@ NeighborGlue::Open()
 			/* roll back */
 			for (auto k = explorers.begin(); k != i; ++k)
 				k->explorer->Close();
-			throw;
+
+			std::throw_with_nested(FormatRuntimeError("Failed to open neighblor plugin '%s'",
+								  i->name.c_str()));
 		}
 	}
 }
 
 void
-NeighborGlue::Close()
+NeighborGlue::Close() noexcept
 {
-	for (auto i = explorers.begin(), end = explorers.end(); i != end; ++i)
-		i->explorer->Close();
+	for (auto & explorer : explorers)
+		explorer.explorer->Close();
 }
 
 NeighborGlue::List
-NeighborGlue::GetList() const
+NeighborGlue::GetList() const noexcept
 {
 	List result;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,22 +21,22 @@
 #define MPD_SONG_STICKER_HXX
 
 #include "Match.hxx"
-#include "Compiler.h"
 
 #include <string>
 
 struct LightSong;
 struct Sticker;
 class Database;
+class StickerDatabase;
 
 /**
  * Returns one value from a song's sticker record.
  *
  * Throws #SqliteError on error.
  */
-gcc_pure
 std::string
-sticker_song_get_value(const LightSong &song, const char *name);
+sticker_song_get_value(StickerDatabase &db,
+		       const LightSong &song, const char *name);
 
 /**
  * Sets a sticker value in the specified song.  Overwrites existing
@@ -45,7 +45,8 @@ sticker_song_get_value(const LightSong &song, const char *name);
  * Throws #SqliteError on error.
  */
 void
-sticker_song_set_value(const LightSong &song,
+sticker_song_set_value(StickerDatabase &db,
+		       const LightSong &song,
 		       const char *name, const char *value);
 
 /**
@@ -54,10 +55,10 @@ sticker_song_set_value(const LightSong &song,
  * Throws #SqliteError on error.
  */
 bool
-sticker_song_delete(const char *uri);
+sticker_song_delete(StickerDatabase &db, const char *uri);
 
 bool
-sticker_song_delete(const LightSong &song);
+sticker_song_delete(StickerDatabase &db, const LightSong &song);
 
 /**
  * Deletes a sticker value.  Does nothing if the sticker did not
@@ -66,7 +67,8 @@ sticker_song_delete(const LightSong &song);
  * Throws #SqliteError on error.
  */
 bool
-sticker_song_delete_value(const LightSong &song, const char *name);
+sticker_song_delete_value(StickerDatabase &db,
+			  const LightSong &song, const char *name);
 
 /**
  * Loads the sticker for the specified song.
@@ -74,10 +76,10 @@ sticker_song_delete_value(const LightSong &song, const char *name);
  * Throws #SqliteError on error.
  *
  * @param song the song object
- * @return a sticker object, or nullptr if there is no sticker
+ * @return a sticker object
  */
-Sticker *
-sticker_song_get(const LightSong &song);
+Sticker
+sticker_song_get(StickerDatabase &db, const LightSong &song);
 
 /**
  * Finds stickers with the specified name below the specified
@@ -91,7 +93,8 @@ sticker_song_get(const LightSong &song);
  * @param name the name of the sticker
  */
 void
-sticker_song_find(const Database &db, const char *base_uri, const char *name,
+sticker_song_find(StickerDatabase &sticker_database, const Database &db,
+		  const char *base_uri, const char *name,
 		  StickerOperator op, const char *value,
 		  void (*func)(const LightSong &song, const char *value,
 			       void *user_data),

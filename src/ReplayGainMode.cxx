@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,14 +18,15 @@
  */
 
 #include "ReplayGainMode.hxx"
+#include "util/Compiler.h"
 
+#include <cassert>
 #include <stdexcept>
 
-#include <assert.h>
 #include <string.h>
 
 const char *
-ToString(ReplayGainMode mode)
+ToString(ReplayGainMode mode) noexcept
 {
 	switch (mode) {
 	case ReplayGainMode::AUTO:

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,15 +19,13 @@
 
 #include "config.h"
 #include "tag/Id3Load.hxx"
-#include "tag/TagRva2.hxx"
+#include "tag/Rva2.hxx"
 #include "ReplayGainInfo.hxx"
-#include "config/ConfigGlobal.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "fs/Path.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
-#include "Log.hxx"
+#include "util/PrintException.hxx"
 
 #include <id3tag.h>
 
@@ -38,19 +36,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-const char *
-config_get_string(gcc_unused enum ConfigOption option,
-		  const char *default_value)
-{
-	return default_value;
-}
-
 static void
 DumpReplayGainTuple(const char *name, const ReplayGainTuple &tuple)
 {
 	if (tuple.IsDefined())
 		fprintf(stderr, "replay_gain[%s]: gain=%f peak=%f\n",
-			name, tuple.gain, tuple.peak);
+			name, (double)tuple.gain, (double)tuple.peak);
 }
 
 static void
@@ -75,12 +66,11 @@ try {
 	const Path path = Path::FromFS(argv[1]);
 
 	Mutex mutex;
-	Cond cond;
 
-	auto is = OpenLocalInputStream(path, mutex, cond);
+	auto is = OpenLocalInputStream(path, mutex);
 
 	const auto tag = tag_id3_load(*is);
-	if (tag == NULL) {
+	if (tag == nullptr) {
 		fprintf(stderr, "No ID3 tag found\n");
 		return EXIT_FAILURE;
 	}
@@ -97,7 +87,7 @@ try {
 	DumpReplayGainInfo(replay_gain);
 
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

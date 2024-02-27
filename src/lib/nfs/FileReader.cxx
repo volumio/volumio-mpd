@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,41 +17,39 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FileReader.hxx"
 #include "Glue.hxx"
 #include "Base.hxx"
 #include "Connection.hxx"
 #include "event/Call.hxx"
-#include "IOThread.hxx"
-#include "util/StringCompare.hxx"
+#include "util/ASCII.hxx"
 
+#include <cassert>
+#include <cstring>
+#include <stdexcept>
 #include <utility>
 
-#include <assert.h>
-#include <string.h>
 #include <fcntl.h>
-#include <sys/stat.h>
 
-NfsFileReader::NfsFileReader()
-	:DeferredMonitor(io_thread_get()), state(State::INITIAL)
+NfsFileReader::NfsFileReader() noexcept
+	:defer_open(nfs_get_event_loop(), BIND_THIS_METHOD(OnDeferredOpen))
 {
 }
 
-NfsFileReader::~NfsFileReader()
+NfsFileReader::~NfsFileReader() noexcept
 {
 	assert(state == State::INITIAL);
 }
 
 void
-NfsFileReader::Close()
+NfsFileReader::Close() noexcept
 {
 	if (state == State::INITIAL)
 		return;
 
 	if (state == State::DEFER) {
 		state = State::INITIAL;
-		DeferredMonitor::Cancel();
+		defer_open.Cancel();
 		return;
 	}
 
@@ -62,7 +60,7 @@ NfsFileReader::Close()
 }
 
 void
-NfsFileReader::CancelOrClose()
+NfsFileReader::CancelOrClose() noexcept
 {
 	assert(state != State::INITIAL &&
 	       state != State::DEFER);
@@ -84,9 +82,9 @@ NfsFileReader::CancelOrClose()
 }
 
 void
-NfsFileReader::DeferClose()
+NfsFileReader::DeferClose() noexcept
 {
-	BlockingCall(io_thread_get(), [this](){ Close(); });
+	BlockingCall(GetEventLoop(), [this](){ Close(); });
 }
 
 void
@@ -94,12 +92,12 @@ NfsFileReader::Open(const char *uri)
 {
 	assert(state == State::INITIAL);
 
-	if (!StringStartsWith(uri, "nfs://"))
+	if (!StringStartsWithCaseASCII(uri, "nfs://"))
 		throw std::runtime_error("Malformed nfs:// URI");
 
 	uri += 6;
 
-	const char *slash = strchr(uri, '/');
+	const char *slash = std::strchr(uri, '/');
 	if (slash == nullptr)
 		throw std::runtime_error("Malformed nfs:// URI");
 
@@ -114,7 +112,7 @@ NfsFileReader::Open(const char *uri)
 			new_path = "/";
 		path = new_path;
 	} else {
-		slash = strrchr(uri + 1, '/');
+		slash = std::strrchr(uri + 1, '/');
 		if (slash == nullptr || slash[1] == 0)
 			throw std::runtime_error("Malformed nfs:// URI");
 
@@ -123,7 +121,7 @@ NfsFileReader::Open(const char *uri)
 	}
 
 	state = State::DEFER;
-	DeferredMonitor::Schedule();
+	defer_open.Schedule();
 }
 
 void
@@ -136,7 +134,7 @@ NfsFileReader::Read(uint64_t offset, size_t size)
 }
 
 void
-NfsFileReader::CancelRead()
+NfsFileReader::CancelRead() noexcept
 {
 	if (state == State::READ) {
 		connection->Cancel(*this);
@@ -145,7 +143,7 @@ NfsFileReader::CancelRead()
 }
 
 void
-NfsFileReader::OnNfsConnectionReady()
+NfsFileReader::OnNfsConnectionReady() noexcept
 {
 	assert(state == State::MOUNT);
 
@@ -160,7 +158,7 @@ NfsFileReader::OnNfsConnectionReady()
 }
 
 void
-NfsFileReader::OnNfsConnectionFailed(std::exception_ptr e)
+NfsFileReader::OnNfsConnectionFailed(std::exception_ptr e) noexcept
 {
 	assert(state == State::MOUNT);
 
@@ -170,7 +168,7 @@ NfsFileReader::OnNfsConnectionFailed(std::exception_ptr e)
 }
 
 void
-NfsFileReader::OnNfsConnectionDisconnected(std::exception_ptr e)
+NfsFileReader::OnNfsConnectionDisconnected(std::exception_ptr e) noexcept
 {
 	assert(state > State::MOUNT);
 
@@ -180,9 +178,8 @@ NfsFileReader::OnNfsConnectionDisconnected(std::exception_ptr e)
 }
 
 inline void
-NfsFileReader::OpenCallback(nfsfh *_fh)
+NfsFileReader::OpenCallback(nfsfh *_fh) noexcept
 {
-	assert(state == State::OPEN);
 	assert(connection != nullptr);
 	assert(_fh != nullptr);
 
@@ -199,27 +196,33 @@ NfsFileReader::OpenCallback(nfsfh *_fh)
 }
 
 inline void
-NfsFileReader::StatCallback(const struct stat *st)
+NfsFileReader::StatCallback(const struct stat *_st) noexcept
 {
-	assert(state == State::STAT);
 	assert(connection != nullptr);
 	assert(fh != nullptr);
-	assert(st != nullptr);
+	assert(_st != nullptr);
+
+#if defined(_WIN32) && !defined(_WIN64)
+	/* on 32-bit Windows, libnfs enables -D_FILE_OFFSET_BITS=64,
+	   but MPD (Meson) doesn't - to work around this mismatch, we
+	   cast explicitly to "struct stat64" */
+	const auto *st = (const struct stat64 *)_st;
+#else
+	const auto *st = _st;
+#endif
 
 	if (!S_ISREG(st->st_mode)) {
 		OnNfsFileError(std::make_exception_ptr(std::runtime_error("Not a regular file")));
 		return;
 	}
 
-	state = State::IDLE;
-
 	OnNfsFileOpen(st->st_size);
 }
 
 void
-NfsFileReader::OnNfsCallback(unsigned status, void *data)
+NfsFileReader::OnNfsCallback(unsigned status, void *data) noexcept
 {
-	switch (state) {
+	switch (std::exchange(state, State::IDLE)) {
 	case State::INITIAL:
 	case State::DEFER:
 	case State::MOUNT:
@@ -236,14 +239,13 @@ NfsFileReader::OnNfsCallback(unsigned status, void *data)
 		break;
 
 	case State::READ:
-		state = State::IDLE;
 		OnNfsFileRead(data, status);
 		break;
 	}
 }
 
 void
-NfsFileReader::OnNfsError(std::exception_ptr &&e)
+NfsFileReader::OnNfsError(std::exception_ptr &&e) noexcept
 {
 	switch (state) {
 	case State::INITIAL:
@@ -273,7 +275,7 @@ NfsFileReader::OnNfsError(std::exception_ptr &&e)
 }
 
 void
-NfsFileReader::RunDeferred()
+NfsFileReader::OnDeferredOpen() noexcept
 {
 	assert(state == State::DEFER);
 

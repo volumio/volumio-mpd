@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,35 +21,35 @@
 #include "DynamicFifoBuffer.hxx"
 
 #include <algorithm>
+#include <cassert>
 
-#include <assert.h>
 #include <string.h>
 
-PeakBuffer::~PeakBuffer()
+PeakBuffer::~PeakBuffer() noexcept
 {
 	delete normal_buffer;
 	delete peak_buffer;
 }
 
 bool
-PeakBuffer::IsEmpty() const
+PeakBuffer::empty() const noexcept
 {
-	return (normal_buffer == nullptr || normal_buffer->IsEmpty()) &&
-		(peak_buffer == nullptr || peak_buffer->IsEmpty());
+	return (normal_buffer == nullptr || normal_buffer->empty()) &&
+		(peak_buffer == nullptr || peak_buffer->empty());
 }
 
 WritableBuffer<void>
-PeakBuffer::Read() const
+PeakBuffer::Read() const noexcept
 {
 	if (normal_buffer != nullptr) {
 		const auto p = normal_buffer->Read();
-		if (!p.IsEmpty())
+		if (!p.empty())
 			return p.ToVoid();
 	}
 
 	if (peak_buffer != nullptr) {
 		const auto p = peak_buffer->Read();
-		if (!p.IsEmpty())
+		if (!p.empty())
 			return p.ToVoid();
 	}
 
@@ -57,16 +57,16 @@ PeakBuffer::Read() const
 }
 
 void
-PeakBuffer::Consume(size_t length)
+PeakBuffer::Consume(std::size_t length) noexcept
 {
-	if (normal_buffer != nullptr && !normal_buffer->IsEmpty()) {
+	if (normal_buffer != nullptr && !normal_buffer->empty()) {
 		normal_buffer->Consume(length);
 		return;
 	}
 
-	if (peak_buffer != nullptr && !peak_buffer->IsEmpty()) {
+	if (peak_buffer != nullptr && !peak_buffer->empty()) {
 		peak_buffer->Consume(length);
-		if (peak_buffer->IsEmpty()) {
+		if (peak_buffer->empty()) {
 			delete peak_buffer;
 			peak_buffer = nullptr;
 		}
@@ -75,24 +75,25 @@ PeakBuffer::Consume(size_t length)
 	}
 }
 
-static size_t
-AppendTo(DynamicFifoBuffer<uint8_t> &buffer, const void *data, size_t length)
+static std::size_t
+AppendTo(DynamicFifoBuffer<std::byte> &buffer,
+	 const void *data, size_t length) noexcept
 {
 	assert(data != nullptr);
 	assert(length > 0);
 
-	size_t total = 0;
+	std::size_t total = 0;
 
 	do {
 		const auto p = buffer.Write();
-		if (p.IsEmpty())
+		if (p.empty())
 			break;
 
-		const size_t nbytes = std::min(length, p.size);
+		const std::size_t nbytes = std::min(length, p.size);
 		memcpy(p.data, data, nbytes);
 		buffer.Append(nbytes);
 
-		data = (const uint8_t *)data + nbytes;
+		data = (const std::byte *)data + nbytes;
 		length -= nbytes;
 		total += nbytes;
 	} while (length > 0);
@@ -101,22 +102,22 @@ AppendTo(DynamicFifoBuffer<uint8_t> &buffer, const void *data, size_t length)
 }
 
 bool
-PeakBuffer::Append(const void *data, size_t length)
+PeakBuffer::Append(const void *data, std::size_t length)
 {
 	if (length == 0)
 		return true;
 
-	if (peak_buffer != nullptr && !peak_buffer->IsEmpty()) {
-		size_t nbytes = AppendTo(*peak_buffer, data, length);
+	if (peak_buffer != nullptr && !peak_buffer->empty()) {
+		std::size_t nbytes = AppendTo(*peak_buffer, data, length);
 		return nbytes == length;
 	}
 
 	if (normal_buffer == nullptr)
-		normal_buffer = new DynamicFifoBuffer<uint8_t>(normal_size);
+		normal_buffer = new DynamicFifoBuffer<std::byte>(normal_size);
 
-	size_t nbytes = AppendTo(*normal_buffer, data, length);
+	std::size_t nbytes = AppendTo(*normal_buffer, data, length);
 	if (nbytes > 0) {
-		data = (const uint8_t *)data + nbytes;
+		data = (const std::byte *)data + nbytes;
 		length -= nbytes;
 		if (length == 0)
 			return true;
@@ -124,7 +125,7 @@ PeakBuffer::Append(const void *data, size_t length)
 
 	if (peak_buffer == nullptr) {
 		if (peak_size > 0)
-			peak_buffer = new DynamicFifoBuffer<uint8_t>(peak_size);
+			peak_buffer = new DynamicFifoBuffer<std::byte>(peak_size);
 		if (peak_buffer == nullptr)
 			return false;
 	}

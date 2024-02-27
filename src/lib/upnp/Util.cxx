@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,33 +19,31 @@
 
 #include "Util.hxx"
 
-#include <assert.h>
-
 /** Get rid of white space at both ends */
 void
-trimstring(std::string &s, const char *ws)
+trimstring(std::string &s, const char *ws) noexcept
 {
 	auto pos = s.find_first_not_of(ws);
 	if (pos == std::string::npos) {
 		s.clear();
 		return;
 	}
-	s.replace(0, pos, std::string());
+	s.erase(0, pos);
 
 	pos = s.find_last_not_of(ws);
 	if (pos != std::string::npos && pos != s.length()-1)
-		s.replace(pos + 1, std::string::npos, std::string());
+		s.erase(pos + 1);
 }
 
 static void
-path_catslash(std::string &s)
+path_catslash(std::string &s) noexcept
 {
 	if (s.empty() || s.back() != '/')
 		s += '/';
 }
 
 std::string
-path_getfather(const std::string &s)
+path_getfather(const std::string &s) noexcept
 {
 	std::string father = s;
 
@@ -68,69 +66,3 @@ path_getfather(const std::string &s)
 	path_catslash(father);
 	return father;
 }
-
-std::list<std::string>
-stringToTokens(const std::string &str,
-	       const char *delims, bool skipinit)
-{
-	std::list<std::string> tokens;
-
-	std::string::size_type startPos = 0;
-
-	// Skip initial delims, return empty if this eats all.
-	if (skipinit &&
-	    (startPos = str.find_first_not_of(delims, 0)) == std::string::npos)
-		return tokens;
-
-	while (startPos < str.size()) {
-		// Find next delimiter or end of string (end of token)
-		auto pos = str.find_first_of(delims, startPos);
-
-		// Add token to the vector and adjust start
-		if (pos == std::string::npos) {
-			tokens.emplace_back(str, startPos);
-			break;
-		} else if (pos == startPos) {
-			// Dont' push empty tokens after first
-			if (tokens.empty())
-				tokens.emplace_back();
-			startPos = ++pos;
-		} else {
-			tokens.emplace_back(str, startPos, pos - startPos);
-			startPos = ++pos;
-		}
-	}
-
-	return tokens;
-}
-
-template <class T>
-bool
-csvToStrings(const char *s, T &tokens)
-{
-	assert(tokens.empty());
-
-	std::string current;
-
-	while (true) {
-		char ch = *s++;
-		if (ch == 0) {
-			tokens.emplace_back(std::move(current));
-			return true;
-		}
-
-		if (ch == '\\') {
-			ch = *s++;
-			if (ch == 0)
-				return false;
-		} else if (ch == ',') {
-			tokens.emplace_back(std::move(current));
-			current.clear();
-			continue;
-		}
-
-		current.push_back(ch);
-	}
-}
-
-template bool csvToStrings<std::list<std::string>>(const char *, std::list<std::string> &);

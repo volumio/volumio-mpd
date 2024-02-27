@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,15 +20,12 @@
 #ifndef MPD_OUTPUT_PLUGIN_HXX
 #define MPD_OUTPUT_PLUGIN_HXX
 
-#include "Compiler.h"
-
-#include <stddef.h>
+#include "util/Compiler.h"
 
 struct ConfigBlock;
-struct AudioFormat;
-struct Tag;
-struct AudioOutput;
+class AudioOutput;
 struct MixerPlugin;
+class EventLoop;
 
 /**
  * A plugin which controls an audio output device.
@@ -49,97 +46,12 @@ struct AudioOutputPlugin {
 	 * Configure and initialize the device, but do not open it
 	 * yet.
 	 *
-	 * Throws #std::runtime_error on error.
+	 * Throws on error.
 	 *
 	 * @param param the configuration section, or nullptr if there is
 	 * no configuration
 	 */
-	AudioOutput *(*init)(const ConfigBlock &block);
-
-	/**
-	 * Free resources allocated by this device.
-	 */
-	void (*finish)(AudioOutput *data);
-
-	/**
-	 * Enable the device.  This may allocate resources, preparing
-	 * for the device to be opened.
-	 *
-	 * Throws #std::runtime_error on error.
-	 */
-	void (*enable)(AudioOutput *data);
-
-	/**
-	 * Disables the device.  It is closed before this method is
-	 * called.
-	 */
-	void (*disable)(AudioOutput *data);
-
-	/**
-	 * Really open the device.
-	 *
-	 * Throws #std::runtime_error on error.
-	 *
-	 * @param audio_format the audio format in which data is going
-	 * to be delivered; may be modified by the plugin
-	 */
-	void (*open)(AudioOutput *data, AudioFormat &audio_format);
-
-	/**
-	 * Close the device.
-	 */
-	void (*close)(AudioOutput *data);
-
-	/**
-	 * Returns a positive number if the output thread shall further
-	 * delay the next call to play() or pause(), which will happen
-	 * until this function returns 0.  This should be implemented
-	 * instead of doing a sleep inside the plugin, because this
-	 * allows MPD to listen to commands meanwhile.
-	 *
-	 * @return the number of milliseconds to wait
-	 */
-	unsigned (*delay)(AudioOutput *data);
-
-	/**
-	 * Display metadata for the next chunk.  Optional method,
-	 * because not all devices can display metadata.
-	 */
-	void (*send_tag)(AudioOutput *data, const Tag &tag);
-
-	/**
-	 * Play a chunk of audio data.
-	 *
-	 * Throws #std::runtime_error on error.
-	 *
-	 * @return the number of bytes played
-	 */
-	size_t (*play)(AudioOutput *data,
-		       const void *chunk, size_t size);
-
-	/**
-	 * Wait until the device has finished playing.
-	 */
-	void (*drain)(AudioOutput *data);
-
-	/**
-	 * Try to cancel data which may still be in the device's
-	 * buffers.
-	 */
-	void (*cancel)(AudioOutput *data);
-
-	/**
-	 * Pause the device.  If supported, it may perform a special
-	 * action, which keeps the device open, but does not play
-	 * anything.  Output plugins like "shout" might want to play
-	 * silence during pause, so their clients won't be
-	 * disconnected.  Plugins which do not support pausing will
-	 * simply be closed, and have to be reopened when unpaused.
-	 *
-	 * @return false on error (output will be closed by caller),
-	 * true for continue to pause
-	 */
-	bool (*pause)(AudioOutput *data);
+	AudioOutput *(*init)(EventLoop &event_loop, const ConfigBlock &block);
 
 	/**
 	 * The mixer plugin associated with this output plugin.  This
@@ -158,43 +70,10 @@ ao_plugin_test_default_device(const AudioOutputPlugin *plugin)
 		: false;
 }
 
-gcc_malloc
+gcc_malloc gcc_returns_nonnull
 AudioOutput *
-ao_plugin_init(const AudioOutputPlugin *plugin,
+ao_plugin_init(EventLoop &event_loop,
+	       const AudioOutputPlugin &plugin,
 	       const ConfigBlock &block);
-
-void
-ao_plugin_finish(AudioOutput *ao);
-
-void
-ao_plugin_enable(AudioOutput *ao);
-
-void
-ao_plugin_disable(AudioOutput *ao);
-
-void
-ao_plugin_open(AudioOutput *ao, AudioFormat &audio_format);
-
-void
-ao_plugin_close(AudioOutput *ao);
-
-gcc_pure
-unsigned
-ao_plugin_delay(AudioOutput *ao);
-
-void
-ao_plugin_send_tag(AudioOutput *ao, const Tag &tag);
-
-size_t
-ao_plugin_play(AudioOutput *ao, const void *chunk, size_t size);
-
-void
-ao_plugin_drain(AudioOutput *ao);
-
-void
-ao_plugin_cancel(AudioOutput *ao);
-
-bool
-ao_plugin_pause(AudioOutput *ao);
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 #ifndef MPD_APE_LOADER_HXX
 #define MPD_APE_LOADER_HXX
 
-#include "check.h"
-
 #include <functional>
 
 struct StringView;
@@ -33,10 +31,12 @@ typedef std::function<bool(unsigned long flags, const char *key,
 /**
  * Scans the APE tag values from a file.
  *
+ * Throws on I/O error.
+ *
  * @return false if the file could not be opened or if no APE tag is
  * present
  */
 bool
-tag_ape_scan(InputStream &is, ApeTagCallback callback);
+tag_ape_scan(InputStream &is, const ApeTagCallback& callback);
 
 #endif

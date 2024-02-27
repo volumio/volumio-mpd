@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,24 +20,25 @@
 #ifndef MPD_UPNP_ACTION_HXX
 #define MPD_UPNP_ACTION_HXX
 
-#include "Compiler.h"
+#include "util/Compiler.h"
 
-#include <upnp/upnptools.h>
+#include <upnptools.h>
 
-static inline constexpr unsigned
-CountNameValuePairs()
+static constexpr unsigned
+CountNameValuePairs() noexcept
 {
 	return 0;
 }
 
 template<typename... Args>
-static inline constexpr unsigned
-CountNameValuePairs(gcc_unused const char *name, gcc_unused const char *value,
-		    Args... args)
+static constexpr unsigned
+CountNameValuePairs([[maybe_unused]] const char *name, [[maybe_unused]] const char *value,
+		    Args... args) noexcept
 {
 	return 1 + CountNameValuePairs(args...);
 }
 
+#ifdef USING_PUPNP
 /**
  * A wrapper for UpnpMakeAction() that counts the number of name/value
  * pairs and adds the nullptr sentinel.
@@ -45,12 +46,13 @@ CountNameValuePairs(gcc_unused const char *name, gcc_unused const char *value,
 template<typename... Args>
 static inline IXML_Document *
 MakeActionHelper(const char *action_name, const char *service_type,
-		 Args... args)
+		 Args... args) noexcept
 {
 	const unsigned n = CountNameValuePairs(args...);
 	return UpnpMakeAction(action_name, service_type, n,
 			      args...,
 			      nullptr, nullptr);
 }
+#endif
 
 #endif

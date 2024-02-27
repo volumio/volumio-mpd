@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,9 +20,8 @@
 #ifndef MPD_FLAC_PCM_HXX
 #define MPD_FLAC_PCM_HXX
 
-#include "check.h"
-#include "pcm/PcmBuffer.hxx"
-#include "AudioFormat.hxx"
+#include "pcm/Buffer.hxx"
+#include "pcm/AudioFormat.hxx"
 
 #include <FLAC/ordinals.h>
 
@@ -44,7 +43,7 @@ public:
 	void Open(unsigned sample_rate, unsigned bits_per_sample,
 		  unsigned channels);
 
-	const AudioFormat &GetAudioFormat() const {
+	const AudioFormat &GetAudioFormat() const noexcept {
 		return audio_format;
 	}
 

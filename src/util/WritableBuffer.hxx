@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Max Kellermann <max@duempel.org>
+ * Copyright 2013-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,47 +27,62 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WRITABLE_BUFFER_HPP
-#define WRITABLE_BUFFER_HPP
+#ifndef WRITABLE_BUFFER_HXX
+#define WRITABLE_BUFFER_HXX
 
-#include "Compiler.h"
+#include "ConstBuffer.hxx"
 
+#include <cassert>
 #include <cstddef>
-
-#ifndef NDEBUG
-#include <assert.h>
-#endif
 
 template<typename T>
 struct WritableBuffer;
 
 template<>
 struct WritableBuffer<void> {
-	typedef size_t size_type;
-	typedef void *pointer_type;
-	typedef const void *const_pointer_type;
-	typedef pointer_type iterator;
-	typedef const_pointer_type const_iterator;
+	typedef std::size_t size_type;
+	using value_type = void;
+	using pointer = void *;
+	using const_pointer = const void *;
+	using iterator = pointer;
+	using const_iterator = const_pointer;
 
-	pointer_type data;
+	pointer data;
 	size_type size;
 
 	WritableBuffer() = default;
 
-	constexpr WritableBuffer(std::nullptr_t):data(nullptr), size(0) {}
+	constexpr WritableBuffer(std::nullptr_t) noexcept
+		:data(nullptr), size(0) {}
 
-	constexpr WritableBuffer(pointer_type _data, size_type _size)
+	constexpr WritableBuffer(pointer _data, size_type _size) noexcept
 		:data(_data), size(_size) {}
 
-	constexpr static WritableBuffer Null() {
-		return { nullptr, 0 };
+	constexpr static WritableBuffer<void> FromVoid(WritableBuffer<void> other) noexcept {
+		return other;
 	}
 
-	constexpr bool IsNull() const {
+	constexpr WritableBuffer<void> ToVoid() const noexcept {
+		return *this;
+	}
+
+	constexpr operator ConstBuffer<void>() const noexcept {
+		return {data, size};
+	}
+
+	constexpr bool IsNull() const noexcept {
 		return data == nullptr;
 	}
 
-	constexpr bool IsEmpty() const {
+	constexpr bool operator==(std::nullptr_t) const noexcept {
+		return data == nullptr;
+	}
+
+	constexpr bool operator!=(std::nullptr_t) const noexcept {
+		return data != nullptr;
+	}
+
+	constexpr bool empty() const noexcept {
 		return size == 0;
 	}
 };
@@ -79,26 +94,48 @@ struct WritableBuffer<void> {
  */
 template<typename T>
 struct WritableBuffer {
-	typedef size_t size_type;
-	typedef T &reference_type;
-	typedef const T &const_reference_type;
-	typedef T *pointer_type;
-	typedef const T *const_pointer_type;
-	typedef pointer_type iterator;
-	typedef const_pointer_type const_iterator;
+	using size_type = std::size_t;
+	using value_type = T;
+	using reference = T &;
+	using const_reference = const T &;
+	using pointer = T *;
+	using const_pointer = const T *;
+	using iterator = pointer;
+	using const_iterator = const_pointer;
 
-	pointer_type data;
+	pointer data;
 	size_type size;
 
 	WritableBuffer() = default;
 
-	constexpr WritableBuffer(std::nullptr_t):data(nullptr), size(0) {}
+	constexpr WritableBuffer(std::nullptr_t) noexcept
+		:data(nullptr), size(0) {}
 
-	constexpr WritableBuffer(pointer_type _data, size_type _size)
+	constexpr WritableBuffer(pointer _data, size_type _size) noexcept
 		:data(_data), size(_size) {}
 
-	constexpr static WritableBuffer Null() {
-		return { nullptr, 0 };
+	constexpr WritableBuffer(pointer _data, pointer _end) noexcept
+		:data(_data), size(_end - _data) {}
+
+	/**
+	 * Convert array to WritableBuffer instance.
+	 */
+	template<size_type _size>
+	constexpr WritableBuffer(T (&_data)[_size]) noexcept
+		:data(_data), size(_size) {}
+
+	constexpr operator ConstBuffer<T>() const noexcept {
+		return {data, size};
+	}
+
+	/**
+	 * Cast a WritableBuffer<void> to a WritableBuffer<T>,
+	 * rounding down to the next multiple of T's size.
+	 */
+	static constexpr WritableBuffer<T> FromVoidFloor(WritableBuffer<void> other) noexcept {
+		static_assert(sizeof(T) > 0, "Empty base type");
+		return WritableBuffer<T>(pointer(other.data),
+					 other.size / sizeof(T));
 	}
 
 	/**
@@ -107,54 +144,51 @@ struct WritableBuffer {
 	 * the assertion below ensures that the size is a multiple of
 	 * sizeof(T).
 	 */
-#ifdef NDEBUG
-	constexpr
-#endif
-	static WritableBuffer<T> FromVoid(WritableBuffer<void> other) {
+	static constexpr WritableBuffer<T> FromVoid(WritableBuffer<void> other) noexcept {
 		static_assert(sizeof(T) > 0, "Empty base type");
-#ifndef NDEBUG
 		assert(other.size % sizeof(T) == 0);
-#endif
-		return WritableBuffer<T>(pointer_type(other.data),
-				      other.size / sizeof(T));
+		return FromVoidFloor(other);
 	}
 
-	constexpr WritableBuffer<void> ToVoid() const {
+	constexpr WritableBuffer<void> ToVoid() const noexcept {
 		static_assert(sizeof(T) > 0, "Empty base type");
 		return WritableBuffer<void>(data, size * sizeof(T));
 	}
 
-	constexpr bool IsNull() const {
+	constexpr bool IsNull() const noexcept {
 		return data == nullptr;
 	}
 
-	constexpr bool IsEmpty() const {
+	constexpr bool operator==(std::nullptr_t) const noexcept {
+		return data == nullptr;
+	}
+
+	constexpr bool operator!=(std::nullptr_t) const noexcept {
+		return data != nullptr;
+	}
+
+	constexpr bool empty() const noexcept {
 		return size == 0;
 	}
 
-	constexpr iterator begin() const {
+	constexpr iterator begin() const noexcept {
 		return data;
 	}
 
-	constexpr iterator end() const {
+	constexpr iterator end() const noexcept {
 		return data + size;
 	}
 
-	constexpr const_iterator cbegin() const {
+	constexpr const_iterator cbegin() const noexcept {
 		return data;
 	}
 
-	constexpr const_iterator cend() const {
+	constexpr const_iterator cend() const noexcept {
 		return data + size;
 	}
 
-#ifdef NDEBUG
-	constexpr
-#endif
-	reference_type operator[](size_type i) const {
-#ifndef NDEBUG
+	constexpr reference operator[](size_type i) const noexcept {
 		assert(i < size);
-#endif
 
 		return data[i];
 	}
@@ -163,13 +197,8 @@ struct WritableBuffer {
 	 * Returns a reference to the first element.  Buffer must not
 	 * be empty.
 	 */
-#ifdef NDEBUG
-	constexpr
-#endif
-	reference_type front() const {
-#ifndef NDEBUG
-		assert(!IsEmpty());
-#endif
+	constexpr reference front() const noexcept {
+		assert(!empty());
 		return data[0];
 	}
 
@@ -177,13 +206,8 @@ struct WritableBuffer {
 	 * Returns a reference to the last element.  Buffer must not
 	 * be empty.
 	 */
-#ifdef NDEBUG
-	constexpr
-#endif
-	reference_type back() const {
-#ifndef NDEBUG
-		assert(!IsEmpty());
-#endif
+	constexpr reference back() const noexcept {
+		assert(!empty());
 		return data[size - 1];
 	}
 
@@ -191,8 +215,8 @@ struct WritableBuffer {
 	 * Remove the first element (by moving the head pointer, does
 	 * not actually modify the buffer).  Buffer must not be empty.
 	 */
-	void pop_front() {
-		assert(!IsEmpty());
+	constexpr void pop_front() noexcept {
+		assert(!empty());
 
 		++data;
 		--size;
@@ -202,8 +226,8 @@ struct WritableBuffer {
 	 * Remove the last element (by moving the tail pointer, does
 	 * not actually modify the buffer).  Buffer must not be empty.
 	 */
-	void pop_back() {
-		assert(!IsEmpty());
+	constexpr void pop_back() noexcept {
+		assert(!empty());
 
 		--size;
 	}
@@ -212,19 +236,40 @@ struct WritableBuffer {
 	 * Remove the first element and return a reference to it.
 	 * Buffer must not be empty.
 	 */
-	reference_type shift() {
-		reference_type result = front();
+	constexpr reference shift() noexcept {
+		reference result = front();
 		pop_front();
 		return result;
 	}
 
-	void skip_front(size_type n) {
-#ifndef NDEBUG
+	constexpr void skip_front(size_type n) noexcept {
 		assert(size >= n);
-#endif
 
 		data += n;
 		size -= n;
+	}
+
+	/**
+	 * Move the front pointer to the given address, and adjust the
+	 * size attribute to retain the old end address.
+	 */
+	void MoveFront(pointer new_data) noexcept {
+		assert(IsNull() == (new_data == nullptr));
+		assert(new_data <= end());
+
+		size = end() - new_data;
+		data = new_data;
+	}
+
+	/**
+	 * Move the end pointer to the given address (by adjusting the
+	 * size).
+	 */
+	void SetEnd(pointer new_end) noexcept {
+		assert(IsNull() == (new_end == nullptr));
+		assert(new_end >= begin());
+
+		size = new_end - data;
 	}
 };
 

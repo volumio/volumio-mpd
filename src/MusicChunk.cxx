@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,21 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "MusicChunk.hxx"
-#include "AudioFormat.hxx"
+#include "pcm/AudioFormat.hxx"
 #include "tag/Tag.hxx"
 
-#include <assert.h>
+#include <cassert>
 
-MusicChunk::~MusicChunk()
-{
-	delete tag;
-}
+MusicChunkInfo::MusicChunkInfo() noexcept = default;
+MusicChunkInfo::~MusicChunkInfo() noexcept = default;
 
 #ifndef NDEBUG
 bool
-MusicChunk::CheckFormat(const AudioFormat other_format) const
+MusicChunkInfo::CheckFormat(const AudioFormat other_format) const noexcept
 {
 	assert(other_format.IsValid());
 
@@ -41,7 +38,7 @@ MusicChunk::CheckFormat(const AudioFormat other_format) const
 
 WritableBuffer<void>
 MusicChunk::Write(const AudioFormat af,
-		  SongTime data_time, uint16_t _bit_rate)
+		  SongTime data_time, uint16_t _bit_rate) noexcept
 {
 	assert(CheckFormat(af));
 	assert(length == 0 || audio_format.IsValid());
@@ -64,7 +61,7 @@ MusicChunk::Write(const AudioFormat af,
 }
 
 bool
-MusicChunk::Expand(const AudioFormat af, size_t _length)
+MusicChunk::Expand(const AudioFormat af, size_t _length) noexcept
 {
 	const size_t frame_size = af.GetFrameSize();
 

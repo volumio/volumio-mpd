@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,9 @@
 #ifndef MPD_STORAGE_REGISTRY_HXX
 #define MPD_STORAGE_REGISTRY_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "util/Compiler.h"
+
+#include <memory>
 
 struct StoragePlugin;
 class Storage;
@@ -35,10 +36,14 @@ extern const StoragePlugin *const storage_plugins[];
 
 gcc_nonnull_all gcc_pure
 const StoragePlugin *
-GetStoragePluginByName(const char *name);
+GetStoragePluginByName(const char *name) noexcept;
 
-gcc_nonnull_all gcc_malloc
-Storage *
+gcc_nonnull_all gcc_pure
+const StoragePlugin *
+GetStoragePluginByUri(const char *uri) noexcept;
+
+gcc_nonnull_all
+std::unique_ptr<Storage>
 CreateStorageURI(EventLoop &event_loop, const char *uri);
 
 #endif

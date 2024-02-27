@@ -1,0 +1,14 @@
+Description: Extenf service with mpd.socket
+Author: Andrew Seredyn <andser@gmail.com>
+Forwarded: not-needed
+
+--- a/systemd/system/mpd.service.in
++++ b/systemd/system/mpd.service.in
+@@ -2,6 +2,7 @@
+ Description=Music Player Daemon
+ Documentation=man:mpd(1) man:mpd.conf(5)
+ After=network.target sound.target
++Wants=mpd.socket
+ 
+ [Service]
+ Type=notify

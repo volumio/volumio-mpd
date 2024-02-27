@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 #ifndef MPD_COMMAND_RESULT_HXX
 #define MPD_COMMAND_RESULT_HXX
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 /* damn you, windows.h! */
 #ifdef ERROR
@@ -40,6 +40,11 @@ enum class CommandResult {
 	 * be generated.
 	 */
 	IDLE,
+
+	/**
+	 * A #BackgroundCommand has been installed.
+	 */
+	BACKGROUND,
 
 	/**
 	 * There was an error.  The "ACK" response was sent to the

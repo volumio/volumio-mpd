@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,12 +20,12 @@
 #include "config.h"
 #include "tag/ApeLoader.hxx"
 #include "thread/Mutex.hxx"
-#include "thread/Cond.hxx"
 #include "fs/Path.hxx"
-#include "Log.hxx"
+#include "fs/NarrowPath.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
 #include "util/StringView.hxx"
+#include "util/PrintException.hxx"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -35,7 +35,7 @@
 #endif
 
 static bool
-MyApeTagCallback(gcc_unused unsigned long flags,
+MyApeTagCallback([[maybe_unused]] unsigned long flags,
 		 const char *key, StringView value)
 {
 	if ((flags & (0x3 << 1)) == 0)
@@ -59,12 +59,11 @@ try {
 		return EXIT_FAILURE;
 	}
 
-	const Path path = Path::FromFS(argv[1]);
+	const FromNarrowPath path = argv[1];
 
 	Mutex mutex;
-	Cond cond;
 
-	auto is = OpenLocalInputStream(path, mutex, cond);
+	auto is = OpenLocalInputStream(path, mutex);
 
 	if (!tag_ape_scan(*is, MyApeTagCallback)) {
 		fprintf(stderr, "error\n");
@@ -72,7 +71,7 @@ try {
 	}
 
 	return EXIT_SUCCESS;
-} catch (const std::exception &e) {
-	LogError(e);
+} catch (...) {
+	PrintException(std::current_exception());
 	return EXIT_FAILURE;
 }

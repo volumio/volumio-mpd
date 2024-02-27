@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,26 +28,33 @@
 #define MPD_OUTPUT_COMMAND_HXX
 
 class MultipleOutputs;
+class MixerMemento;
 
 /**
  * Enables an audio output.  Returns false if the specified output
  * does not exist.
  */
 bool
-audio_output_enable_index(MultipleOutputs &outputs, unsigned idx);
+audio_output_enable_index(MultipleOutputs &outputs,
+			  MixerMemento &mixer_memento,
+			  unsigned idx);
 
 /**
  * Disables an audio output.  Returns false if the specified output
  * does not exist.
  */
 bool
-audio_output_disable_index(MultipleOutputs &outputs, unsigned idx);
+audio_output_disable_index(MultipleOutputs &outputs,
+			   MixerMemento &mixer_memento,
+			   unsigned idx);
 
 /**
  * Toggles an audio output.  Returns false if the specified output
  * does not exist.
  */
 bool
-audio_output_toggle_index(MultipleOutputs &outputs, unsigned idx);
+audio_output_toggle_index(MultipleOutputs &outputs,
+			  MixerMemento &mixer_memento,
+			  unsigned idx);
 
 #endif

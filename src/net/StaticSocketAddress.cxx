@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Max Kellermann <max@duempel.org>
+ * Copyright 2012-2019 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +27,55 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "StaticSocketAddress.hxx"
+#include "IPv4Address.hxx"
+#include "IPv6Address.hxx"
+#include "util/StringView.hxx"
 
 #include <algorithm>
 
 #include <string.h>
 
 StaticSocketAddress &
-StaticSocketAddress::operator=(SocketAddress other)
+StaticSocketAddress::operator=(SocketAddress other) noexcept
 {
 	size = std::min(other.GetSize(), GetCapacity());
 	memcpy(&address, other.GetAddress(), size);
 	return *this;
 }
+
+#ifdef HAVE_UN
+
+StringView
+StaticSocketAddress::GetLocalRaw() const noexcept
+{
+	return SocketAddress(*this).GetLocalRaw();
+}
+
+#endif
+
+#ifdef HAVE_TCP
+
+bool
+StaticSocketAddress::SetPort(unsigned port) noexcept
+{
+	switch (GetFamily()) {
+	case AF_INET:
+		{
+			auto &a = *(IPv4Address *)(void *)&address;
+			a.SetPort(port);
+			return true;
+		}
+
+	case AF_INET6:
+		{
+			auto &a = *(IPv6Address *)(void *)&address;
+			a.SetPort(port);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+#endif

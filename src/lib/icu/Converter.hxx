@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,8 +20,7 @@
 #ifndef MPD_ICU_CONVERTER_HXX
 #define MPD_ICU_CONVERTER_HXX
 
-#include "check.h"
-#include "Compiler.h"
+#include "config.h"
 
 #ifdef HAVE_ICU
 #include "thread/Mutex.hxx"
@@ -33,11 +32,14 @@
 
 #ifdef HAVE_ICU_CONVERTER
 
+#include <memory>
+#include <string_view>
+
 #ifdef HAVE_ICU
 struct UConverter;
 #endif
 
-template<typename T> class AllocatedString;
+class AllocatedString;
 
 /**
  * This class can convert strings with a certain character set to and
@@ -74,23 +76,21 @@ public:
 	/**
 	 * Throws std::runtime_error on error.
 	 */
-	static IcuConverter *Create(const char *charset);
+	static std::unique_ptr<IcuConverter> Create(const char *charset);
 
 	/**
 	 * Convert the string to UTF-8.
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	gcc_pure gcc_nonnull_all
-	AllocatedString<char> ToUTF8(const char *s) const;
+	AllocatedString ToUTF8(std::string_view s) const;
 
 	/**
 	 * Convert the string from UTF-8.
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	gcc_pure gcc_nonnull_all
-	AllocatedString<char> FromUTF8(const char *s) const;
+	AllocatedString FromUTF8(std::string_view s) const;
 };
 
 #endif

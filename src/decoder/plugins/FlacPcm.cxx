@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 The Music Player Daemon Project
+ * Copyright 2003-2021 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,40 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "FlacPcm.hxx"
-#include "CheckAudioFormat.hxx"
+#include "pcm/CheckAudioFormat.hxx"
+#include "lib/xiph/FlacAudioFormat.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/ConstBuffer.hxx"
 
-#include <assert.h>
-
-static SampleFormat
-flac_sample_format(unsigned bits_per_sample)
-{
-	switch (bits_per_sample) {
-	case 8:
-		return SampleFormat::S8;
-
-	case 16:
-		return SampleFormat::S16;
-
-	case 24:
-		return SampleFormat::S24_P32;
-
-	case 32:
-		return SampleFormat::S32;
-
-	default:
-		return SampleFormat::UNDEFINED;
-	}
-}
+#include <cassert>
 
 void
 FlacPcmImport::Open(unsigned sample_rate, unsigned bits_per_sample,
 		    unsigned channels)
 {
-	auto sample_format = flac_sample_format(bits_per_sample);
+	auto sample_format = FlacSampleFormat(bits_per_sample);
 	if (sample_format == SampleFormat::UNDEFINED)
 		throw FormatRuntimeError("Unsupported FLAC bit depth: %u",
 					 bits_per_sample);
@@ -60,7 +39,8 @@ FlacPcmImport::Open(unsigned sample_rate, unsigned bits_per_sample,
 
 template<typename T>
 static void
-FlacImportStereo(T *dest, const FLAC__int32 *const src[], size_t n_frames)
+FlacImportStereo(T *dest, const FLAC__int32 *const src[],
+		 size_t n_frames) noexcept
 {
 	for (size_t i = 0; i != n_frames; ++i) {
 		*dest++ = (T)src[0][i];
@@ -71,7 +51,7 @@ FlacImportStereo(T *dest, const FLAC__int32 *const src[], size_t n_frames)
 template<typename T>
 static void
 FlacImportAny(T *dest, const FLAC__int32 *const src[], size_t n_frames,
-	      unsigned n_channels)
+	      unsigned n_channels) noexcept
 {
 	for (size_t i = 0; i != n_frames; ++i)
 		for (unsigned c = 0; c != n_channels; ++c)
@@ -81,7 +61,7 @@ FlacImportAny(T *dest, const FLAC__int32 *const src[], size_t n_frames,
 template<typename T>
 static void
 FlacImport(T *dest, const FLAC__int32 *const src[], size_t n_frames,
-	   unsigned n_channels)
+	   unsigned n_channels) noexcept
 {
 	if (n_channels == 2)
 		FlacImportStereo(dest, src, n_frames);
@@ -92,7 +72,7 @@ FlacImport(T *dest, const FLAC__int32 *const src[], size_t n_frames,
 template<typename T>
 static ConstBuffer<void>
 FlacImport(PcmBuffer &buffer, const FLAC__int32 *const src[], size_t n_frames,
-	   unsigned n_channels)
+	   unsigned n_channels) noexcept
 {
 	size_t n_samples = n_frames * n_channels;
 	size_t dest_size = n_samples * sizeof(T);
